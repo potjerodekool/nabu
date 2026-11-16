@@ -45,32 +45,27 @@ typedef struct nabu_type_info {
      * eigen type-info), voor Unsafe.objectFieldOffset. */
     const nabu_type_field *instance_fields;
     int         instance_field_count;
+    /* Vtable en itable ingebakken door de backend (slots 8 en 9 in LLVM-IR).
+     * NULL voor library-super-types die niet gecompileerd zijn. */
+    void **vtable;
+    void **itable;
 } nabu_type_info;
 
 /**
  * Object header struct — elke heap-object begint hiermee.
  *
  * De veldvolgorde MOET overeenkomen met ClassLayouts.objectHeaderType() in de
- * native-backend (`{ ptr type, ptr vtable, ptr itable, i32 ref_count, i32
- * monitor, i32 thread }`): de backend schrijft type/vtable/itable zelf in de
- * header, en de runtime leest/schrijft ref_count/monitor/thread_id. Op een
- * 64-bittig target geeft dat offsets 0/8/16/24/28/32 en grootte 40; de
- * C-struct hieronder heeft precies dezelfde layout omdat alle leden
- * standaard-uitlijning hebben.
- *
- * Let op: de `monitor_*`-leden worden door nabu_monitorenter/exit gebruikt en
- * stonden vóór dit schema op offset 8 — dus over de vtable heen.
+ * native-backend (`{ ptr type, i32 monitor, i32 thread }`): de backend schrijft
+ * type in de header; vtable en itable zitten in nabu_type_info (slot 8 en 9).
+ * Op een 64-bittig target geeft dat offsets 0/8/12 en grootte 16.
  */
 typedef struct nabu_object {
-    void  *type;          /* offset 0  — nabu_type_info* */
-    void  *vtable;        /* offset 8  — door de backend gevuld */
-    void  *itable;        /* offset 16 — door de backend gevuld */
-    int32_t ref_count;    /* offset 24 — voor reference counting */
-    int32_t monitor_count;/* offset 28 — voor synchronized */
-    int32_t thread_id;    /* offset 32 — welke thread bezit de monitor */
+    void    *type;          /* offset 0  — nabu_type_info* */
+    int32_t  monitor_count; /* offset 8  — voor synchronized */
+    int32_t  thread_id;     /* offset 12 — welke thread bezit de monitor */
 } nabu_object;
 
-/** Minimale objectgrootte: één header zonder instantievelden. */
+/** Minimale objectgrootte: één header zonder instantievelden (16 B). */
 #define NABU_HEADER_SIZE ((size_t) sizeof(nabu_object))
 
 /**
@@ -211,7 +206,7 @@ void nabu_resume(void *unwind_exc);
  * BOEHM onzichtbaar zijn voor de collector en dus permanent lekken.
  *
  * De backend reserveert ná de header één extra pointerwoord voor het
- * *runtime-state-slot* (JCL_STATE_SLOT, offset 40): instancevelden van
+ * *runtime-state-slot* (JCL_STATE_SLOT, offset sizeof(nabu_object)): instancevelden van
  * library-klassen worden volledig door de runtime beheerd (jcl_lite.c) en
  * die hangt haar C-struct aan het object via dit slot. De hele reservering
  * wordt hier nulgezet.
@@ -264,10 +259,66 @@ void nabu_register_type_infos(const void *table, int32_t count);
 const nabu_type_info *nabu_compiled_type_for(const char *internal_name);
 
 /**
+ * Registreert een door de interpreter aangemaakte klasse als "interpreted"
+ * type, zodat deze zichtbaar wordt voor nabu_instanceof, nabu_compiled_type_for
+ * (als fallback) en de object-herkenningshelpers. Interpreted types delen het
+ *zelfde nabu_type_info-layout als gecompileerde types (zie docs/runtime-abi.md).
+ *
+ * @param name        Interne naam (bv. "pkg/Cls"), stabiel (wordt gekopieerd).
+ * @param super_name  Interne naam van de super-klasse, of NULL/"java/lang/Object".
+ * @param size        sizeof van het object (header + instantievelden), of 0 voor
+ *                    alleen de header.
+ * @param vtable      Vtable-array van functiepointers, of NULL.
+ * @param itable      Itable-array, of NULL.
+ * @return De (eigendom van de runtime) nabu_type_info*.
+ */
+nabu_type_info *nabu_register_interpreted_type(const char *name,
+                                                const char *super_name,
+                                                size_t size,
+                                                void **vtable,
+                                                void **itable);
+
+/** Zoekt een interpreted type op naam, of NULL. */
+const nabu_type_info *nabu_interpreted_type_for(const char *internal_name);
+
+/** Aantal geregistreerde interpreted types (voor tests/tracing). */
+int32_t nabu_interpreted_type_count(void);
+
+/* -------------------------------------------------------
+ * JIT hook (Fase 4): interface voor toekomstige JIT-compilatie
+ * ------------------------------------------------------- */
+
+/**
+ * Functiepointer-type voor JIT-compilatie. In v1 is dit een no-op.
+ * Later (Fase 4) wordt de daemon gekoppeld via out-of-process compile → .so → dlopen.
+ */
+typedef void *(*nabu_jit_compile_fn)(const uint8_t *bytecode, size_t len,
+                                      const char *class_name, const char *method_name);
+
+/**
+ * Registreert een JIT-compile-functie. Default is no-op (geen JIT).
+ * In v1 wordt deze functie aangeroepen maar doet niets.
+ */
+void nabu_register_jit(nabu_jit_compile_fn fn);
+
+/**
+ * Roept de geregistreerde JIT-functie aan (indien aanwezig).
+ * Retourneert NULL als er geen JIT is geregistreerd of als compilatie faalt.
+ */
+void *nabu_jit_compile(const uint8_t *bytecode, size_t len,
+                        const char *class_name, const char *method_name);
+
+/** Initialiseert de JIT (probeert Cranelift shared library te laden). */
+void nabu_jit_init(void);
+
+/**
  * Het (geïnterneerde) Class-object voor een class-literal. iname is de interne
  * naam ("pkg/Cls") of de descriptor van een primitief ("I").
  */
 void *nabu_class_literal(const char *iname);
+
+/* As nabu_class_literal; *slot keeps the Class object of the name, so a call site looks the name up once. */
+void *nabu_class_literal_cached(void **slot, const char *iname);
 
 /**
  * Of `p` een library-object is waarvan de type-pointer ín de runtime-type-cache
@@ -277,7 +328,7 @@ void *nabu_class_literal(const char *iname);
 int nabu_jcl_is_object(const void *p);
 
 /* ---------------------------------------------------------------
- * Library-object state-slot (offset 40, vijfde void*-woord)
+ * Library-object state-slot (offset sizeof(nabu_object) = 16B na Lever 1 fase 2)
  * ---------------------------------------------------------------
  *
  * Library-objecten worden door de backend als `header + slot` geallocceerd;
@@ -331,6 +382,7 @@ typedef struct nabu_reflection_info {
     int         annotation_count;
     const nabu_annotation_entry *annotations;
     const char *signature;    /* generieke signatuur van de klasse (typeparameters), of NULL */
+    void      (*class_init)(void); /* de initialisatie van de klasse (Class.forName met initialize), of NULL */
 } nabu_reflection_info;
 
 /**
@@ -519,6 +571,19 @@ typedef struct nabu_string_meta_t {
 } nabu_string_meta_t;
 
 extern nabu_string_meta_t nabu_string_meta;
+
+/**
+ * Layout van een gecompileerd java.lang.String-object (header: nabu_object, 16 bytes).
+ * value: pointer naar byte[] (int32_t length op offset 0, data op offset 8).
+ * coder: 0 = LATIN1, 1 = UTF16 (little-endian).
+ */
+typedef struct nabu_jstring {
+    nabu_object header;
+    void   *value;        /* byte[]: int32_t lengte op 0, data op 8 */
+    int8_t  coder;        /* 0 = LATIN1, 1 = UTF16 (little endian) */
+    int32_t hash;
+    int8_t  hash_is_zero;
+} nabu_jstring;
 
 /* ---------------------------------------------------------------
  * java.util.Properties (uit bytecode gecompileerd)

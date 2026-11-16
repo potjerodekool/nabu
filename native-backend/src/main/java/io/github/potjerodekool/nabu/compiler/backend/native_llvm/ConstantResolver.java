@@ -241,15 +241,11 @@ public class ConstantResolver {
         LLVMSetLinkage(arrayGlobal, LLVMPrivateLinkage);
         LLVMSetInitializer(arrayGlobal, arrayConst);
 
-        // Header: type-info, vtable, itable, en de rest op nul.
+        // Header: type-info; vtable/itable zitten in type_info (Lever 1 fase 2).
         final int headerFields = LLVMCountStructElementTypes(stringHeaderType);
         final LLVMValueRef[] header = new LLVMValueRef[headerFields];
         header[0] = stringTypeInfo;
-        header[1] = stringVtable != null ? stringVtable
-                : LLVMConstNull(LLVMStructGetTypeAtIndex(stringHeaderType, 1));
-        header[2] = stringItable != null ? stringItable
-                : LLVMConstNull(LLVMStructGetTypeAtIndex(stringHeaderType, 2));
-        for (int i = 3; i < headerFields; i++) {
+        for (int i = 1; i < headerFields; i++) {
             header[i] = LLVMConstNull(LLVMStructGetTypeAtIndex(stringHeaderType, i));
         }
 
@@ -295,7 +291,12 @@ public class ConstantResolver {
 
     public LLVMValueRef resolveString(String text, IRGlobal.Linkage linkage) {
         return stringCache.computeIfAbsent(text, s -> {
-            String name = ".str." + Math.abs(s.hashCode());
+            // Strings with the same hash code ("" and "\0", "Aa" and "BB") must not share a global.
+            final String base = ".str." + Math.abs(s.hashCode());
+            String name = base;
+            for (int n = 1; globalValueMap.containsKey("@" + name); n++) {
+                name = base + "." + n;
+            }
 
             // LLVMConstStringInContext maakt [N x i8] — geen builder nodig
             LLVMValueRef strConst = LLVMConstStringInContext(ctx,

@@ -51,6 +51,9 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * getAnnotation) in de native runtime.
  */
 public class ReflectionInfoEmitter {
+    /** {@code -Dnabu.reflection.allSignatures=false} leaves out the signature-only entries. */
+    private static final boolean SIGNATURES_FOR_ALL = !"false".equals(System.getProperty("nabu.reflection.allSignatures"));
+
 
     private final LLVMContextRef          ctx;
     private final LLVMModuleRef           mod;
@@ -113,7 +116,20 @@ public class ReflectionInfoEmitter {
             if (internalName == null) {
                 continue;
             }
-            final ReflectEntry entry = registry.entryFor(internalName);
+            ReflectEntry entry = registry.entryFor(internalName);
+            if (entry == null && module.genericSignature() != null && SIGNATURES_FOR_ALL) {
+                // Not in the reflection configuration, but generic: frameworks (Spring's ResolvableType) ask
+                // Class.getTypeParameters of any class, so record the signature (and nothing else).
+                entry = new ReflectEntry(internalName.replace('/', '.'), false, false, false, false,
+                        List.of(), List.of());
+            }
+            if (entry == null && io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags,
+                    io.github.potjerodekool.nabu.lang.Flags.ANNOTATION)) {
+                // An annotation type of the program: its own annotations (the meta-annotations Spring merges, such
+                // as @Component on @Service) are readable, as with GraalVM.
+                entry = new ReflectEntry(internalName.replace('/', '.'), false, false, false, false,
+                        List.of(), List.of());
+            }
             if (entry == null) {
                 continue;
             }
@@ -191,7 +207,7 @@ public class ReflectionInfoEmitter {
         LLVMSetLinkage(infoGlobal, LLVMExternalLinkage);
         LLVMSetGlobalConstant(infoGlobal, 1);
 
-        final PointerPointer<Pointer> init = new PointerPointer<>(6);
+        final PointerPointer<Pointer> init = new PointerPointer<>(7);
         init.put(0, stringLit(internalName));
         init.put(1, LLVMConstInt(i32, fields.size(), 0));
         init.put(2, fieldsGlobal != null ? fieldsGlobal : LLVMConstNull(i8Ptr));
@@ -199,7 +215,10 @@ public class ReflectionInfoEmitter {
         init.put(4, annotationsGlobal != null ? annotationsGlobal : LLVMConstNull(i8Ptr));
         // The class's generic signature: the bounds of its type variables.
         init.put(5, module.genericSignature() != null ? stringLit(module.genericSignature()) : LLVMConstNull(i8Ptr));
-        final LLVMValueRef constInfo = LLVMConstNamedStruct(reflectionInfoType, init, 6);
+        // The initialization of the class (Class.forName(name, true, loader) runs it), or null without <clinit>.
+        final LLVMValueRef classInitFn = classInit.apply(internalName);
+        init.put(6, classInitFn != null && !classInitFn.isNull() ? classInitFn : LLVMConstNull(i8Ptr));
+        final LLVMValueRef constInfo = LLVMConstNamedStruct(reflectionInfoType, init, 7);
         LLVMSetInitializer(infoGlobal, constInfo);
         Reference.reachabilityFence(init);
         Reference.reachabilityFence(constInfo);
@@ -291,7 +310,7 @@ public class ReflectionInfoEmitter {
     }
 
     private long offsetOfElement(final ClassLayouts.ClassLayout layout, final int structIndex) {
-        final var dl = LLVMCreateTargetData(new BytePointer(""));
+        final var dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         final long offset = LLVMOffsetOfElement(dl, layout.structType, structIndex);
         LLVMDisposeTargetData(dl);
         return offset;
@@ -778,7 +797,8 @@ public class ReflectionInfoEmitter {
             t.put(3, LLVMInt32TypeInContext(ctx));
             t.put(4, LLVMPointerTypeInContext(ctx, 0));
             t.put(5, LLVMPointerTypeInContext(ctx, 0));
-            reflectionInfoType = LLVMStructTypeInContext(ctx, t, 6, 0);
+            t.put(6, LLVMPointerTypeInContext(ctx, 0));
+            reflectionInfoType = LLVMStructTypeInContext(ctx, t, 7, 0);
             Reference.reachabilityFence(t);
         }
     }

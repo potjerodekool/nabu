@@ -62,6 +62,19 @@ public class InstructionEmitter {
     // constructor ('this(...)') deelt het object van de eerste aanroep, dus
     // is er maar één HeapAlloc voor twee *_init-calls.
     private IRValue lastAllocatedObject;
+    /** LLVM-waarden die zeker niet-null zijn (alloc-resultaten): null-checks erop zijn overbodig. */
+    private final java.util.Set<LLVMValueRef> knownNonNull = new java.util.HashSet<>();
+    /** Per-blok tracking van waarden die in dit blok al als niet-null zijn gecheckt. */
+    private final java.util.Set<LLVMValueRef> blockNonNull = new java.util.HashSet<>();
+    private LLVMBasicBlockRef blockNonNullOwner;
+    // Dataflow-analyses per functie (null/bounds). Null als niet beschikbaar.
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis nullnessAnalysis;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis intervalAnalysis;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> nullnessResult;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> intervalResult;
+    private String currentIrBlockLabel;
+    /** Lengtes van stack-arrays (AllocaArray) met constante grootte. */
+    private final java.util.Map<LLVMValueRef, Long> arrayLengths = new java.util.HashMap<>();
     // Naam van de functie die momenteel geëmitteerd wordt (diagnostiek).
     private String currentFunctionName;
     // Naam van de 'this'-parameter van de huidige constructor.
@@ -78,6 +91,10 @@ public class InstructionEmitter {
         this.currentFunctionName = fn != null ? fn.name : null;
         this.pendingConstructorAllocs.clear();
         this.lastAllocatedObject = null;
+        this.knownNonNull.clear();
+        this.blockNonNull.clear();
+        this.blockNonNullOwner = null;
+        this.arrayLengths.clear();
         this.inConstructor = fn != null && fn.isConstructor();
         this.thisParameterName = fn != null && fn.isConstructor() && !fn.params.isEmpty()
                 ? nameOf(fn.params.get(0))
@@ -121,6 +138,7 @@ public class InstructionEmitter {
         this.blockMap       = blockMap;
         this.opts           = opts;
         this.classLayouts   = classLayouts;
+        this.tbaa           = new Tbaa(ctx);
     }
 
     public void setLocalValueMap(Map<String, LLVMValueRef> localValueMap) {
@@ -134,6 +152,26 @@ public class InstructionEmitter {
 
     public void setFunctionEmitter(FunctionEmitter functionEmitter) {
         this.functionEmitter = functionEmitter;
+    }
+
+    public void setNullnessAnalysis(io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis a) {
+        this.nullnessAnalysis = a;
+    }
+
+    public void setIntervalAnalysis(io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis a) {
+        this.intervalAnalysis = a;
+    }
+
+    public void setNullnessResult(io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> r) {
+        this.nullnessResult = r;
+    }
+
+    public void setIntervalResult(io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> r) {
+        this.intervalResult = r;
+    }
+
+    public void setCurrentIrBlock(String label) {
+        this.currentIrBlockLabel = label;
     }
 
     // -------------------------------------------------------
@@ -151,6 +189,8 @@ public class InstructionEmitter {
             case IRInstruction.IndirectCall ic -> emitIndirectCall(ic);
             case IRInstruction.Branch        br -> emitBranch(br);
             case IRInstruction.CondBranch    cb -> emitCondBranch(cb);
+            case IRInstruction.TableSwitch    ts -> { /* TODO: native tableswitch */ }
+            case IRInstruction.LookupSwitch   ls -> { /* TODO: native lookupswitch */ }
             case IRInstruction.Return       ret -> emitReturn(ret);
             case IRInstruction.Cast           c -> emitCast(c);
             case IRInstruction.Phi           p -> emitPhi(p);
@@ -160,6 +200,7 @@ public class InstructionEmitter {
             case IRInstruction.Unreachable     u -> emitUnreachable();
             case IRInstruction.Pop            p -> emitPop(p);
             case IRInstruction.HeapAlloc      ha -> emitHeapAlloc(ha);
+            case IRInstruction.StackAlloc     sa -> emitStackAlloc(sa);
             case IRInstruction.ArrayLoad      al -> emitArrayLoad(al);
             case IRInstruction.ArrayStore     as -> emitArrayStore(as);
             case IRInstruction.ArrayLength    al -> emitArrayLength(al);
@@ -463,28 +504,23 @@ public class InstructionEmitter {
         return value;
     }
 
+    private static final boolean ATOMIC_ARRAYS = !"false".equals(System.getProperty("nabu.atomicArrays"));
+
     private void emitAllocaArray(IRInstruction.AllocaArray a) {
         // Layout: [i32 length][ element 0 ][ element 1 ]...
         // Totale bytes = ARRAY_HEADER_SIZE + count * elemSize
         LLVMValueRef count = resolveValue(a.size());
         long elemSize = arrayElementSize(a.allocType());
         LLVMValueRef totalBytes = arrayTotalBytes(count, elemSize);
-        // Switch-expressie: de GcStrategy-cases zijn compiler-gedekt. Een
-        // nieuwe strategie levert dan een compilefout op in plaats van een
-        // misleidende "niet ondersteund"-runtime-exceptie.
-        LLVMValueRef array = switch (opts.gcStrategy()) {
-            case NONE -> LLVMBuildArrayAlloca(builder, LLVMInt8TypeInContext(ctx), totalBytes,
-                    new BytePointer(nameOf(a.result())));
-            case BOEHM -> {
-                LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
-                PointerPointer<Pointer> args = new PointerPointer<>(1);
-                args.put(0, totalBytes);
-                yield LLVMBuildCall2(builder, allocType, allocFn, args, 1,
-                        nameOf(a.result()));
-            }
-        };
+        // An array of primitives has no pointers: the collector need not scan it (the memory of that allocation is not
+        // cleared, so that is done here). -Dnabu.atomicArrays=false switches it off.
+        final boolean pointerFree = ATOMIC_ARRAYS
+                && (a.allocType() instanceof IRType.Int || a.allocType() instanceof IRType.Float);
+        final LLVMValueRef array = emitGcAlloc(totalBytes, pointerFree, nameOf(a.result()));
         storeArrayLength(array, count);
+        if (LLVMIsConstant(count) != 0 && LLVMIsAConstantInt(count) != null) {
+            arrayLengths.put(array, LLVMConstIntGetSExtValue(count));
+        }
         final String arrayClass = arrayClassName(a);
         storeArrayElemSize(array, elemSize | ((long) (arrayClass != null ? arrayTypeId(arrayClass) : 0) << 8));
         storeLocal(a.result(), array);
@@ -605,26 +641,12 @@ public class InstructionEmitter {
 
         ClassLayouts.ClassLayout layout = classLayouts.getFor(ha.allocType());
         if (layout != null) {
-            // Zie emitAllocaArray: switch-expressie, zodat de exhaustiviteit
-            // van de GcStrategy-cases door de compiler wordt bewaakt.
-            LLVMValueRef obj = switch (opts.gcStrategy()) {
-                case NONE ->
-                    // stack-alloca van de object-struct (voor tests/kleine demo's)
-                    LLVMBuildAlloca(builder, layout.structType,
-                            new BytePointer(nameOf(ha.result())));
-                case BOEHM -> {
-                    long size = sizeOf(layout.structType);
-                    LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                    LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                    LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
-                    PointerPointer<Pointer> args = new PointerPointer<>(1);
-                    args.put(0, sizeVal);
-                    yield LLVMBuildCall2(builder, allocType, allocFn, args, 1,
-                            nameOf(ha.result()));
-                }
-            };
+            final LLVMValueRef obj = emitGcAlloc(
+                    LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false,
+                    nameOf(ha.result()));
             initObjectHeader(obj, layout);
             storeLocal(ha.result(), obj);
+            knownNonNull.add(obj);
             return;
         }
 
@@ -632,9 +654,42 @@ public class InstructionEmitter {
         runHeapAllocFallback(ha);
     }
 
+    private void emitStackAlloc(IRInstruction.StackAlloc sa) {
+        // Stack-allocation van een niet-ontsnappend object: alloca van de struct,
+        // header-init, en registratie voor constructor-koppeling.
+        pendingConstructorAllocs.addLast(sa.result());
+        lastAllocatedObject = sa.result();
+
+        ClassLayouts.ClassLayout layout = classLayouts.getFor(sa.allocType());
+        if (layout != null && sizeOf(layout.structType) <= 512) {
+            // Alloca in het entry-blok (domineert de hele functie; mem2reg).
+            LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+            LLVMBasicBlockRef entry = LLVMGetEntryBasicBlock(LLVMGetBasicBlockParent(current));
+            LLVMValueRef firstInstr = LLVMGetFirstInstruction(entry);
+            boolean hoist = firstInstr != null && !firstInstr.isNull();
+            if (hoist) LLVMPositionBuilder(builder, entry, firstInstr);
+
+            LLVMValueRef ptr = LLVMBuildAlloca(builder, layout.structType,
+                    new BytePointer(nameOf(sa.result())));
+            if (hoist) LLVMPositionBuilderAtEnd(builder, current);
+
+            // Alloca is niet gezeroed: reference-velden zouden anders garbage bevatten.
+            LLVMBuildMemSet(builder, ptr, LLVMConstInt(LLVMInt8TypeInContext(ctx), 0, 0),
+                    LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), 8);
+            initObjectHeader(ptr, layout);
+            storeLocal(sa.result(), ptr);
+            knownNonNull.add(ptr);
+            return;
+        }
+
+        // Fallback: onbekende klasse -> heap-alloc (stack-grootte onbekend).
+        final IRInstruction.HeapAlloc ha = new IRInstruction.HeapAlloc(sa.result(), sa.allocType(), sa.location());
+        emitHeapAlloc(ha);
+    }
+
     /**
      * Extra bytes ná de object-header voor het runtime-state-slot van
-     * library-objecten (offset 40, vijfde void*-woord).
+     * library-objecten (offset sizeof(nabu_object) = 16B na Lever 1 fase 2).
      *
      * <p>De backend kent de instancevelden van niet-gecompileerde klassen
      * niet — veldtoegang loopt volledig via de runtime ({@code
@@ -688,62 +743,60 @@ public class InstructionEmitter {
     }
 
     /**
-     * Reserveert {@code size} bytes met de allocator van de gekozen GC-strategie:
-     * stack (NONE) of {@code GC_malloc} (BOEHM).
-     *
-     * De switch is bewust een switch-expressie: de GcStrategy-cases zijn dan
-     * compiler-gedekt en een nieuwe strategie levert een compilefout op in plaats
-     * van een stilletjes verkeerde allocator.
+     * Reserveert {@code size} bytes met de allocator van de gekozen collector (zie {@code GarbageCollector}).
      */
     private LLVMValueRef allocForStrategy(final long size, final String name) {
-        return switch (opts.gcStrategy()) {
-            case NONE -> {
-                // Een array-alloca (i8[size]) en géén alloca van het gemapte
-                // type: dat is voor een onbekende klasse `i8` — één byte, terwijl
-                // de header 40 bytes nodig heeft.
-                yield LLVMBuildArrayAlloca(builder, LLVMInt8TypeInContext(ctx),
-                        LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0),
-                        new BytePointer(name));
-            }
-            case BOEHM -> {
-                final LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                if (allocFn == null) {
-                    throw new IllegalStateException("Allocation helper not defined");
-                }
-                final LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                PointerPointer<Pointer> args = new PointerPointer<>(1);
-                args.put(0, sizeVal);
-                yield LLVMBuildCall2(builder, LLVMGlobalGetValueType(allocFn), allocFn, args, 1,
-                        name);
-            }
-        };
+        return emitGcAlloc(LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0), false, name);
+    }
+
+    static final String GC_ALLOC = "@nabu.gc.alloc";
+    static final String GC_ALLOC_ATOMIC = "@nabu.gc.alloc.atomic";
+
+    /**
+     * A call to the allocation function of the collector. Zeroed memory that can hold pointers, or (pointerFree) memory
+     * without pointers that the collector does not scan: that one is not cleared by the allocator, so it is cleared here.
+     */
+    private LLVMValueRef emitGcAlloc(final LLVMValueRef bytes, final boolean pointerFree, final String name) {
+        final LLVMValueRef allocFn = globalValueMap.get(pointerFree ? GC_ALLOC_ATOMIC : GC_ALLOC);
+        if (allocFn == null) {
+            throw new IllegalStateException("Allocation helper not defined");
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        args.put(0, bytes);
+        final LLVMValueRef memory = LLVMBuildCall2(builder, LLVMGlobalGetValueType(allocFn), allocFn, args, 1, name);
+        if (pointerFree) {
+            LLVMBuildMemSet(builder, memory, LLVMConstInt(LLVMInt8TypeInContext(ctx), 0, 0), bytes, 8);
+        }
+        return memory;
+    }
+
+    private final Tbaa tbaa;
+
+    /**
+     * The access tag of a field: its place in the struct and its type. A field a subclass inherits has the index it has
+     * in the superclass, so every route to one field gives one tag; unrelated classes that share an index and a type
+     * share a tag too (they may alias, which is safe).
+     */
+    private String fieldTag(final LLVMValueRef fieldPointer, final LLVMTypeRef type) {
+        final LLVMValueRef gep = LLVMIsAGetElementPtrInst(fieldPointer);
+        if (gep == null || gep.isNull() || LLVMGetNumOperands(gep) != 3) {
+            return null;   // unknown place: no tag (an access without one may alias everything)
+        }
+        final LLVMValueRef index = LLVMGetOperand(gep, 2);
+        if (LLVMIsAConstantInt(index) == null || LLVMIsAConstantInt(index).isNull()) {
+            return null;
+        }
+        return "f" + LLVMConstIntGetZExtValue(index) + "." + Tbaa.typeKey(type);
     }
 
     private void initObjectHeader(LLVMValueRef obj, ClassLayouts.ClassLayout layout) {
-        // obj[0] = header-struct H; daarna H[0]=type-info, H[1]=vtable
+        // obj[0] = header-struct H; H[0]=type-info (vtable/itable are in type_info, not the header)
         LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
                 ".header");
         LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
                 classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_TYPE,
                 ".type.slot");
         LLVMBuildStore(builder, layout.typeInfoGlobal, typeSlot);
-
-        LLVMValueRef vtableSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_VTABLE,
-                ".vtable.slot");
-        LLVMBuildStore(builder, layout.vtableGlobal, vtableSlot);
-
-        LLVMValueRef itableSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_ITABLE,
-                ".itable.slot");
-        LLVMBuildStore(builder, layout.itableGlobal, itableSlot);
-
-        // Het slot van de oude referentieteller blijft in de header zitten (offset 24) en wordt op 0 gezet:
-        // GC_malloc en de stack geven ongeïnitialiseerd geheugen terug.
-        LLVMValueRef countSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr,
-                ClassLayouts.HEADER_SLOT_REF_COUNT, ".refcount.slot");
-        LLVMBuildStore(builder, LLVMConstInt(LLVMInt32TypeInContext(ctx), 0, 0), countSlot);
     }
 
     private void storeArrayLength(LLVMValueRef array, LLVMValueRef count) {
@@ -754,7 +807,7 @@ public class InstructionEmitter {
                 array, idx, 1, ".len.ptr");
         LLVMValueRef countI32 = LLVMBuildIntCast2(builder, count, LLVMInt32TypeInContext(ctx),
                 0, new BytePointer(".len"));
-        LLVMBuildStore(builder, countI32, lenSlot);
+        tbaa.mark(LLVMBuildStore(builder, countI32, lenSlot), "arr.len");
         Reference.reachabilityFence(idx);
     }
 
@@ -771,7 +824,7 @@ public class InstructionEmitter {
         idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), 1, 0));
         LLVMValueRef slot = LLVMBuildGEP2(builder, LLVMInt32TypeInContext(ctx),
                 array, idx, 1, ".esize.ptr");
-        LLVMBuildStore(builder, LLVMConstInt(LLVMInt32TypeInContext(ctx), elemSize, 0), slot);
+        tbaa.mark(LLVMBuildStore(builder, LLVMConstInt(LLVMInt32TypeInContext(ctx), elemSize, 0), slot), "arr.esize");
         Reference.reachabilityFence(idx);
     }
 
@@ -788,10 +841,11 @@ public class InstructionEmitter {
         LLVMValueRef array = resolveValue(al.array());
         LLVMTypeRef elemType = types.map(al.elemType());
         final LLVMValueRef index = resolveValue(al.index());
-        emitBoundsCheck(array, index);
+        emitBoundsCheck(array, index, al.array(), al.index());
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         LLVMValueRef val = LLVMBuildLoad2(builder, elemType, elemPtr,
                 new BytePointer(nameOf(al.result())));
+        tbaa.mark(val, "arr." + Tbaa.typeKey(elemType));
         storeLocal(al.result(), val);
     }
 
@@ -799,9 +853,10 @@ public class InstructionEmitter {
         LLVMValueRef array = resolveValue(as.array());
         LLVMTypeRef elemType = types.map(as.elemType());
         final LLVMValueRef index = resolveValue(as.index());
-        emitBoundsCheck(array, index);
+        emitBoundsCheck(array, index, as.array(), as.index());
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
-        LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
+        final LLVMValueRef elementStore = LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
+        tbaa.mark(elementStore, "arr." + Tbaa.typeKey(elemType));
     }
 
     /**
@@ -827,16 +882,55 @@ public class InstructionEmitter {
     }
 
     /** Throws ArrayIndexOutOfBoundsException (or NullPointerException for a null array) for a bad index. */
-    private void emitBoundsCheck(final LLVMValueRef array, final LLVMValueRef index) {
+    private void emitBoundsCheck(final LLVMValueRef array, final LLVMValueRef index,
+                                final IRValue arrayIr, final IRValue indexIr) {
         if (LLVMGetTypeKind(LLVMTypeOf(index)) != LLVMIntegerTypeKind) {
             return;
         }
-        emitReceiverNullCheck(array, "array access");
+        // Dataflow: als de array bewezen non-null is, sla de null-check over.
+        boolean skipNull = false;
+        if (nullnessResult != null && arrayIr instanceof IRValue.Temp at) {
+            final var m = nullnessResult.in(currentIrBlockLabel);
+            if (m != null && m.get(at.name()) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
+                skipNull = true;
+            }
+        }
+        // Dataflow: als de index bewezen in-bounds is, sla de hele check over.
+        boolean skipAll = false;
+        if (intervalResult != null && indexIr instanceof IRValue.Temp it) {
+            final var m = intervalResult.in(currentIrBlockLabel);
+            if (m != null) {
+                final var iv = m.get(it.name());
+                if (iv != null && !iv.isTop() && !iv.isBottom()) {
+                    final Long len = arrayLengths.get(array);
+                    if (len != null && iv.lo() >= 0 && iv.hi() < len) {
+                        skipAll = true;
+                    }
+                }
+            }
+        }
+        if (skipAll) return;
+
+        // Const index binnen een bekende lengte: check overbodig.
+        final Long len = arrayLengths.get(array);
+        if (len != null && LLVMIsConstant(index) != 0 && LLVMIsAConstantInt(index) != null) {
+            final long idx = LLVMConstIntGetSExtValue(index);
+            if (idx >= 0 && idx < len) {
+                return;
+            }
+        }
+        if (!skipNull) {
+            emitReceiverNullCheck(array, "array access");
+        } else {
+            // nog steeds null-check op blok-niveau? knownNonNull bevat de LLVM-waarde al.
+            knownNonNull.add(array);
+        }
         final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
         final PointerPointer<Pointer> zeroIdx = new PointerPointer<>(1);
         zeroIdx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), 0, 0));
         final LLVMValueRef lenPtr = LLVMBuildGEP2(builder, i32, array, zeroIdx, 1, ".arr.len.ptr");
         final LLVMValueRef length = LLVMBuildLoad2(builder, i32, lenPtr, ".arr.len");
+        tbaa.mark(length, "arr.len");
         Reference.reachabilityFence(zeroIdx);
         final LLVMValueRef index32 = coerceInt(index, i32, false);
         // Unsigned: a negative index is a huge one.
@@ -939,7 +1033,7 @@ public class InstructionEmitter {
     private static final long ARRAY_HEADER_SIZE = 8;
 
     private long sizeOf(LLVMTypeRef type) {
-        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         long size = LLVMABISizeOfType(dl, type);
         LLVMDisposeTargetData(dl);
         return size;
@@ -996,6 +1090,7 @@ public class InstructionEmitter {
             LLVMTypeRef pointee = types.map(objectFieldPointeeType(target));
             LLVMValueRef val = LLVMBuildLoad2(builder, pointee, llvmPtr,
                     new BytePointer(nameOf(load.result())));
+            tbaa.mark(val, fieldTag(llvmPtr, pointee));
             val = markVolatileLoad(val, (IRValue.Named) ((IRValue.Values) target).values().getLast(), llvmPtr);
             storeLocal(load.result(), val);
             return;
@@ -1223,6 +1318,9 @@ public class InstructionEmitter {
             value = LLVMBuildZExt(builder, value, LLVMInt8TypeInContext(ctx), "volatile.byte");
         }
         final LLVMValueRef storeInstruction = LLVMBuildStore(builder, value, ptr);
+        if (isObjectFieldAccess(target)) {
+            tbaa.mark(storeInstruction, fieldTag(ptr, valueType));
+        }
         if (isVolatileStore) {
             LLVMSetVolatile(storeInstruction, 1);
             makeAtomic(storeInstruction, LLVMTypeOf(value));
@@ -1294,7 +1392,14 @@ public class InstructionEmitter {
         // het statische type een interface is maar de call als VIRTUAL is
         // gemarkeerd: het object is dan een concrete implementatie en de enige
         // juiste route is de itable.
-        if ((call.callKind() == CallKind.INTERFACE || isInterfaceReceiver(call))
+        // Not for invokespecial (`Iface.super.m()`, a default method calling the one of its super interface): that is
+        // a direct call, also with an interface-typed receiver. Dispatching it ran the override that called it.
+        // Nor for a static call: its first argument is no receiver (MetadataBuildingContext's default
+        // isPreferJavaTimeJdbcTypesEnabled() calls the static one of that name with a ServiceRegistry, which was then
+        // dispatched through the registry's itable).
+        if ((call.callKind() == CallKind.INTERFACE
+                || (call.callKind() != CallKind.SPECIAL && call.callKind() != CallKind.STATIC
+                    && isInterfaceReceiver(call)))
                 && tryEmitInterfaceCall(call)) {
             return;
         }
@@ -1315,7 +1420,15 @@ public class InstructionEmitter {
             // onder een eigen symbool: de gewone naam is die van de methode.
             // De parameterlijst is nodig om de juiste overload te kiezen:
             // overloads delen de IR-functienaam.
-            if (hasExplicitReceiver(call)) {
+            if (hasExplicitReceiver(call) && constructorCollidesWithMethod(call.function())) {
+                // The class also has a method of this name (a private init()): the constructor is declared under
+                // its own symbol, and the key of the plain name belongs to the method.
+                fn = globalValueMap.get("@" + FnKeys.fnKey(call.function() + "$ctor", call.paramTypes()));
+                if (!arityMatches(fn, emittedArgCount(call))) {
+                    fn = null;
+                }
+            }
+            if ((fn == null || fn.isNull()) && hasExplicitReceiver(call)) {
                 // Bytecode-conventie: de receiver staat in de operanden en de
                 // paramTypes zijn exact die van de descriptor. De declaratie
                 // staat onder precies die sleutel (zonder receiver), dus eerst
@@ -1631,6 +1744,23 @@ public class InstructionEmitter {
                 && isArrayReceiver(call.args().get(0));
     }
 
+    /** Whether the constructor under this IR name has its own symbol because a method of the class has the name. */
+    private boolean constructorCollidesWithMethod(final String function) {
+        if (function == null) {
+            return false;
+        }
+        if (classLayouts.constructorSymbolName(function) != null) {
+            return true;
+        }
+        final int dot = function.lastIndexOf('.');
+        return dot >= 0 && classLayouts.constructorSymbolName(function.substring(dot + 1)) != null;
+    }
+
+    /** Calls turned into direct calls (virtual, interface), and the ones that stayed indirect (-Dnabu.closureStats). */
+    static final long[] DEVIRTUALIZED = new long[2];
+    static final long[] VIRTUAL_CALLS = new long[1];
+    static final long[] INTERFACE_CALLS = new long[1];
+
     private boolean tryEmitVirtualCall(IRInstruction.Call call) {
         if (call.args().isEmpty()) return false;
 
@@ -1639,7 +1769,13 @@ public class InstructionEmitter {
         // (ook binnen Arrays.copyOf) gaat direct naar de runtime. Sinds
         // Object.clone een vtable-slot heeft, las dispatch anders arraydata als
         // vtable-pointer.
-        if (isArrayReceiver(receiver) || isArrayCallee(call)) return false;
+        // An array only has the methods of Object. A receiver whose IR type says "array" for any other method is a
+        // local slot that javac reused (an array of the enhanced for, later a Row): the load keeps the type of the
+        // first store, and a direct call went to the body-less declaration (H2's Row.setValue: `unreachable`).
+        if ((isArrayReceiver(receiver) && call.function() != null && call.function().startsWith("java.lang.Object_"))
+                || isArrayCallee(call)) {
+            return false;
+        }
         LLVMValueRef obj = resolveValue(receiver);
 
         // De IR-laag bewaart het receiver-type soms alleen als een opaque pointer
@@ -1703,21 +1839,40 @@ public class InstructionEmitter {
         LLVMTypeRef ptrType = LLVMPointerType(LLVMInt8TypeInContext(ctx), 0);
 
         emitReceiverNullCheck(obj, call.function());
-        // obj.vtable — header-struct veld 1 (via outer struct index 0)
-        LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
-                ".header");
-        LLVMValueRef vtablePtrSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_VTABLE,
-                ".vtable.slot");
-        LLVMValueRef vtable = LLVMBuildLoad2(builder, ptrType, vtablePtrSlot, ".vtable");
+        final ArrayGuard arrayGuard = emitArrayReceiverGuard(call, receiver, obj);
+        // Closed world: every concrete class under the receiver's class has the same function in this slot
+        // by the class the call names (the verifier guarantees the receiver is one of its instances), not by the IR type
+        // of the receiver: that can be wrong (a class literal typed as the class that calls hashCode on it)
+        final ClassLayouts.ClassLayout named = classLayouts.ownerLayout(call.function());
+        final int namedSlot = named != null && !named.isInterface && named.vtableGlobal != null
+                ? named.vtableSlot(call.function(), slotParams) : -1;
+        final LLVMValueRef direct = namedSlot >= 0 ? classLayouts.monomorphicVirtual(named, namedSlot) : null;
+        LLVMValueRef fnPtr;
+        if (direct != null) {
+            fnPtr = direct;
+            DEVIRTUALIZED[0]++;
+        } else {
+            // obj.type_info.vtable — header[0]=type_info, type_info[8]=vtable
+            LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
+                    ".header");
+            LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_TYPE,
+                    ".type.slot");
+            LLVMValueRef typeInfo = LLVMBuildLoad2(builder, ptrType, typeSlot, ".typeinfo");
+            LLVMValueRef vtablePtrSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.typeInfoStructType(), typeInfo, ClassLayouts.TYPE_INFO_SLOT_VTABLE,
+                    ".vtable.slot");
+            LLVMValueRef vtable = LLVMBuildLoad2(builder, ptrType, vtablePtrSlot, ".vtable");
 
-        // vtable[slot]
-        PointerPointer<Pointer> idx = new PointerPointer<>(1);
-        idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
-        LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, vtable, idx, 1,
-                ".vtable.fn");
-        Reference.reachabilityFence(idx);
-        LLVMValueRef fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".fnptr");
+            // vtable[slot]
+            PointerPointer<Pointer> idx = new PointerPointer<>(1);
+            idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
+            LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, vtable, idx, 1,
+                    ".vtable.fn");
+            Reference.reachabilityFence(idx);
+            fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".fnptr");
+            VIRTUAL_CALLS[0]++;
+        }
 
         // Signatuur: (this, paramTypes...) -> returnType
         List<IRType> fnParams = indirectCallParams(call);
@@ -1728,9 +1883,104 @@ public class InstructionEmitter {
                 call.args().size(), call.result());
         Reference.reachabilityFence(args);
 
+        if (arrayGuard != null) {
+            // Both branches meet: the result of the call is a phi of the array branch's and this one's.
+            final LLVMBasicBlockRef objectEnd = LLVMGetInsertBlock(builder);
+            LLVMBuildBr(builder, arrayGuard.join());
+            LLVMPositionBuilderAtEnd(builder, arrayGuard.join());
+            if (call.result() != null && result != null && !result.isNull()) {
+                final LLVMValueRef merged = LLVMBuildPhi(builder, LLVMTypeOf(result), ".array.merge");
+                final PointerPointer<Pointer> values = new PointerPointer<>(2);
+                final PointerPointer<Pointer> blocks = new PointerPointer<>(2);
+                values.put(0, arrayGuard.result());
+                values.put(1, result);
+                blocks.put(0, arrayGuard.arrayEnd());
+                blocks.put(1, objectEnd);
+                LLVMAddIncoming(merged, values, blocks, 2);
+                Reference.reachabilityFence(values);
+                Reference.reachabilityFence(blocks);
+                storeLocal(call.result(), merged);
+            }
+            return true;
+        }
         if (call.result() != null)
             storeLocal(call.result(), result);
         return true;
+    }
+
+    /** The blocks and value of the array branch of {@link #emitArrayReceiverGuard}. */
+    private record ArrayGuard(LLVMBasicBlockRef join, LLVMBasicBlockRef arrayEnd, LLVMValueRef result) {
+    }
+
+    /**
+     * {@code equals}, {@code hashCode} and {@code toString} on a receiver that is statically an Object: at run time
+     * it can be an array, which has no object header and so no vtable (Spring's ObjectUtils.nullSafeEquals compares
+     * arrays this way). An array is recognized by the runtime ({@code nabu_is_array}); Object's own methods
+     * (identity equality and hash code, the {@code [I@hash} text) handle it. Emits the test and the array branch; returns the join block and
+     * the array branch's result (the caller continues in the vtable branch and then branches to the join), or null
+     * without a guard.
+     */
+    private ArrayGuard emitArrayReceiverGuard(final IRInstruction.Call call, final IRValue receiver,
+                                                     final LLVMValueRef obj) {
+        // The array branch calls Object's own method directly: the runtime's version knows arrays.
+        final String helper = switch (call.function() == null ? "" : call.function()) {
+            case "java.lang.Object_equals", "java.lang.Object_hashCode", "java.lang.Object_toString" -> call.function();
+            default -> null;
+        };
+        if (helper == null) {
+            return null;
+        }
+        final ClassLayouts.ClassLayout staticLayout = classLayouts.getFor(receiver.type());
+        if (staticLayout != null && !"java/lang/Object".equals(staticLayout.internalName)) {
+            return null;
+        }
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final LLVMModuleRef mod = LLVMGetGlobalParent(function);
+        final LLVMTypeRef ptr = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+
+        LLVMValueRef isArrayFn = LLVMGetNamedFunction(mod, "nabu_is_array");
+        final PointerPointer<Pointer> isArrayParams = new PointerPointer<>(1);
+        isArrayParams.put(0, ptr);
+        final LLVMTypeRef isArrayType = LLVMFunctionType(i32, isArrayParams, 1, 0);
+        if (isArrayFn == null || isArrayFn.isNull()) {
+            isArrayFn = LLVMAddFunction(mod, "nabu_is_array", isArrayType);
+            LLVMSetLinkage(isArrayFn, LLVMExternalLinkage);
+        }
+        final List<IRType> fnParams = indirectCallParams(call);
+        final LLVMTypeRef fnType = types.map(new IRType.Function(call.returnType(), fnParams));
+        LLVMValueRef helperFn = LLVMGetNamedFunction(mod, helper);
+        if (helperFn == null || helperFn.isNull()) {
+            helperFn = LLVMAddFunction(mod, helper, fnType);
+            LLVMSetLinkage(helperFn, LLVMExternalLinkage);
+        }
+
+        final String handler = getHandlerLabel();
+        final LLVMBasicBlockRef arrayBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.array"));
+        final LLVMBasicBlockRef objectBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.object"));
+        final LLVMBasicBlockRef joinBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.join"));
+        if (handler != null) {
+            continuationHandlers.put(arrayBB, handler);
+            continuationHandlers.put(objectBB, handler);
+            continuationHandlers.put(joinBB, handler);
+        }
+        final PointerPointer<Pointer> isArrayArgs = new PointerPointer<>(1);
+        isArrayArgs.put(0, obj);
+        final LLVMValueRef flag = LLVMBuildCall2(builder, isArrayType, isArrayFn, isArrayArgs, 1, ".isarray");
+        Reference.reachabilityFence(isArrayArgs);
+        final LLVMValueRef isArray = LLVMBuildICmp(builder, LLVMIntNE, flag, LLVMConstInt(i32, 0, 0), ".isarray.bool");
+        LLVMBuildCondBr(builder, isArray, arrayBB, objectBB);
+
+        LLVMPositionBuilderAtEnd(builder, arrayBB);
+        final PointerPointer<Pointer> args = buildArgs(call.args());
+        final LLVMValueRef result = LLVMBuildCall2(builder, fnType, helperFn, args, call.args().size(), "");
+        Reference.reachabilityFence(args);
+        final LLVMBasicBlockRef arrayEnd = LLVMGetInsertBlock(builder);
+        LLVMBuildBr(builder, joinBB);
+
+        LLVMPositionBuilderAtEnd(builder, objectBB);
+        return new ArrayGuard(joinBB, arrayEnd, result);
     }
 
     /**
@@ -2033,18 +2283,32 @@ public class InstructionEmitter {
         // GEP op de header zelf volstaat (en werkt ook als het ontvangertype
         // tot een pointer zonder descriptor is gedegenereerd).
         emitReceiverNullCheck(obj, call.function());
-        LLVMValueRef itablePtrSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), obj,
-                ClassLayouts.HEADER_SLOT_ITABLE, ".itable.slot");
-        LLVMValueRef itable = LLVMBuildLoad2(builder, ptrType, itablePtrSlot, ".itable");
+        // Closed world: every concrete implementer of the interface has the same function for this method
+        final LLVMValueRef direct = classLayouts.monomorphicInterface(call.function(), call.paramTypes());
+        LLVMValueRef fnPtr;
+        if (direct != null) {
+            fnPtr = direct;
+            DEVIRTUALIZED[1]++;
+        } else {
+            // obj (= header) [0]=type_info, type_info[9]=itable
+            LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.objectHeaderType(), obj,
+                    ClassLayouts.HEADER_SLOT_TYPE, ".type.slot");
+            LLVMValueRef typeInfo = LLVMBuildLoad2(builder, ptrType, typeSlot, ".typeinfo");
+            LLVMValueRef itablePtrSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.typeInfoStructType(), typeInfo,
+                    ClassLayouts.TYPE_INFO_SLOT_ITABLE, ".itable.slot");
+            LLVMValueRef itable = LLVMBuildLoad2(builder, ptrType, itablePtrSlot, ".itable");
 
-        // itable[slot]
-        PointerPointer<Pointer> idx = new PointerPointer<>(1);
-        idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
-        LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, itable, idx, 1,
-                ".itable.fn");
-        Reference.reachabilityFence(idx);
-        LLVMValueRef fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".ifnptr");
+            // itable[slot]
+            PointerPointer<Pointer> idx = new PointerPointer<>(1);
+            idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
+            LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, itable, idx, 1,
+                    ".itable.fn");
+            Reference.reachabilityFence(idx);
+            fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".ifnptr");
+            INTERFACE_CALLS[0]++;
+        }
 
         // Signatuur: (this, paramTypes...) -> returnType
         List<IRType> fnParams = indirectCallParams(call);
@@ -2064,6 +2328,8 @@ public class InstructionEmitter {
      * Emitteert een {@code call} of {@code invoke} (als het huidige blok in een
      * try-regio zit) en retourneert het resultaat.
      */
+    private static final boolean NPE_SITES = Boolean.getBoolean("nabu.npeSites");
+
     /**
      * Een virtuele of interface-aanroep op {@code null} gooit
      * NullPointerException (JLS §15.12.4.4), in plaats van de vtable/itable
@@ -2072,9 +2338,35 @@ public class InstructionEmitter {
      * {@code catch (Exception)}. De worp loopt via {@link #emitCallOrInvoke},
      * zodat een omringende try hem vangt.
      */
+    private String tempNameOf(final LLVMValueRef obj) {
+        for (final var e : localValueMap.entrySet()) {
+            if (e.getValue() == obj) return e.getKey();
+        }
+        return null;
+    }
+
     private void emitReceiverNullCheck(final LLVMValueRef obj, final String callee) {
         if (LLVMIsConstant(obj) != 0 && LLVMIsNull(obj) == 0) {
             return; // niet-null constante, bv. een String-literal
+        }
+        // Dataflow: als de bijbehorende IR-temp bewezen non-null is, sla over.
+        if (nullnessResult != null) {
+            final String tn = tempNameOf(obj);
+            if (tn != null) {
+                final var m = nullnessResult.in(currentIrBlockLabel);
+                if (m != null && m.get(tn) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
+                    knownNonNull.add(obj);
+                    return;
+                }
+            }
+        }
+        final LLVMBasicBlockRef here = LLVMGetInsertBlock(builder);
+        if (here != blockNonNullOwner) {
+            blockNonNull.clear();
+            blockNonNullOwner = here;
+        }
+        if (knownNonNull.contains(obj) || blockNonNull.contains(obj)) {
+            return; // reeds bekend niet-null in dit blok
         }
         LLVMValueRef npe = globalValueMap.get("@nabu_throw_npe");
         final PointerPointer<Pointer> npeParams = new PointerPointer<>(1);
@@ -2110,13 +2402,17 @@ public class InstructionEmitter {
         LLVMPositionBuilderAtEnd(builder, isNullBB);
         // De aanroepplek als C-string: nabu_throw_npe meldt hem bij
         // NABU_TRACE_NPE (een samengevoegde null-tak verraadt hem anders niet).
-        final String site = callee + " in " + enclosingFunctionName();
-        final LLVMValueRef siteStr = LLVMBuildGlobalStringPtr(builder, site, ".npe.site");
+        // A string per call site is 60 MB of the petstore and a global each to make: only with -Dnabu.npeSites=true.
+        final LLVMValueRef siteStr = NPE_SITES
+                ? LLVMBuildGlobalStringPtr(builder, callee + " in " + enclosingFunctionName(), ".npe.site")
+                : LLVMConstNull(LLVMPointerTypeInContext(ctx, 0));
         final PointerPointer<Pointer> npeArgs = new PointerPointer<>(1);
         npeArgs.put(0, siteStr);
         emitCallOrInvoke("nabu_throw_npe", npeType, npe, npeArgs, 1, null);
         LLVMBuildUnreachable(builder);
         LLVMPositionBuilderAtEnd(builder, nonNullBB);
+        blockNonNull.add(obj);
+        blockNonNullOwner = nonNullBB;
     }
 
     private LLVMValueRef emitCallOrInvoke(String calleeName,
@@ -2272,6 +2568,14 @@ public class InstructionEmitter {
      * Retourneert de handler-label als het huidige blok in een try-regio zit,
      * of null als het blok niet beschermd is.
      */
+    /** The label of each block of blockMap; null until needed, reset when the blocks of a function are made. */
+    private Map<LLVMBasicBlockRef, String> blockLabels;
+
+    /** Called by the function emitter when blockMap has been filled for a new function. */
+    void blockMapChanged() {
+        blockLabels = null;
+    }
+
     private String getHandlerLabel() {
         if (functionEmitter == null) return null;
         LLVMBasicBlockRef currentBB = LLVMGetInsertBlock(builder);
@@ -2282,11 +2586,17 @@ public class InstructionEmitter {
         String contHandler = continuationHandlers.get(currentBB);
         if (contHandler != null) return contHandler;
 
-        // Zoek het blok-label op basis van het LLVM blok
-        for (var entry : blockMap.entrySet()) {
-            if (entry.getValue().equals(currentBB)) {
-                return functionEmitter.getHandlerLabel(entry.getKey());
+        // Zoek het blok-label op basis van het LLVM blok (reverse index: per instructie een scan van de blokken
+        // van de functie kostte seconden)
+        if (blockLabels == null) {
+            blockLabels = new HashMap<>();
+            for (var entry : blockMap.entrySet()) {
+                blockLabels.putIfAbsent(entry.getValue(), entry.getKey());
             }
+        }
+        final String label = blockLabels.get(currentBB);
+        if (label != null) {
+            return functionEmitter.getHandlerLabel(label);
         }
         return functionEmitter.getHandlerLabelOfBodyBlock(currentBB);
     }
@@ -2320,6 +2630,33 @@ public class InstructionEmitter {
      * Look at nabu_safepoint_request and call nabu_safepoint_poll while it is set. Emitted at the start of a
      * function that calls others, so that deep recursion and long runs of calls (no loop, no wait) answer too.
      */
+    /** {@code -Dnabu.trace}: tells the runtime that the function was entered, with its first two parameters as numbers. */
+    public void emitDiagTrace(final LLVMValueRef function, final String name) {
+        final LLVMValueRef trace = globalValueMap.get("@nabu_diag_trace");
+        if (trace == null) {
+            return;
+        }
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final PointerPointer<Pointer> args = new PointerPointer<>(3);
+        args.put(0, constants.resolveString(name, IRGlobal.Linkage.PRIVATE));
+        final int count = LLVMCountParams(function);
+        for (int i = 0; i < 2; i++) {
+            LLVMValueRef value = LLVMConstInt(i64, 0, 0);
+            if (i < count) {
+                final LLVMValueRef param = LLVMGetParam(function, i);
+                final int kind = LLVMGetTypeKind(LLVMTypeOf(param));
+                if (kind == LLVMPointerTypeKind) {
+                    value = LLVMBuildPtrToInt(builder, param, i64, "trace.p" + i);
+                } else if (kind == LLVMIntegerTypeKind) {
+                    value = LLVMBuildZExt(builder, param, i64, "trace.p" + i);
+                }
+            }
+            args.put(1 + i, value);
+        }
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(trace), trace, args, 3, "");
+        Reference.reachabilityFence(args);
+    }
+
     public void emitSafepointPoll() {
         final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
         final LLVMValueRef flag = globalValueMap.get("@nabu_safepoint_request");
@@ -2553,6 +2890,8 @@ public class InstructionEmitter {
     // InstanceOf
     // -------------------------------------------------------
 
+    private int instanceOfCaches = 0;
+
     private void emitInstanceOf(IRInstruction.InstanceOf instanceOf) {
         LLVMValueRef source   = resolveValue(instanceOf.source());
         LLVMTypeRef  boolType = types.map(IRType.BOOL);
@@ -2585,9 +2924,32 @@ public class InstructionEmitter {
                 : instanceOf.type().toString();
         LLVMValueRef classStr = constants.resolveString(className, IRGlobal.Linkage.PRIVATE);
 
-        PointerPointer<Pointer> args = new PointerPointer<>(2);
+        // Lever 3: inline final-class instanceof — a single pointer comparison, no call, no cache slot.
+        if (!arrayType && classLayouts.isFinalClass(className)) {
+            emitFinalClassInstanceOf(source, classLayouts.get(className), boolType, instanceOf);
+            return;
+        }
+
+        PointerPointer<Pointer> args = new PointerPointer<>(3);
         args.put(0, source);
         args.put(1, classStr);
+
+        // A call site mostly sees one class: it keeps the answer for the last class it saw (the answer depends on the
+        // class alone), so the runtime need not compare names along the superclasses and the interfaces.
+        final LLVMValueRef cachedFn = arrayType ? null : globalValueMap.get("@nabu_instanceof_cached");
+        if (cachedFn != null && !cachedFn.isNull()) {
+            final LLVMModuleRef mod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+            final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+            final LLVMValueRef cache = LLVMAddGlobal(mod, i64, new BytePointer(".io.cache." + instanceOfCaches++));
+            LLVMSetLinkage(cache, LLVMInternalLinkage);
+            LLVMSetInitializer(cache, LLVMConstInt(i64, 0, 0));
+            args.put(2, cache);
+            LLVMValueRef cachedResult = LLVMBuildCall2(builder, LLVMGlobalGetValueType(cachedFn), cachedFn, args, 3, "");
+            cachedResult = LLVMBuildTrunc(builder, cachedResult, boolType, new BytePointer(nameOf(instanceOf.result())));
+            storeLocal(instanceOf.result(), cachedResult);
+            Reference.reachabilityFence(args);
+            return;
+        }
 
         LLVMTypeRef  fnType = LLVMGlobalGetValueType(fn);
         LLVMValueRef result = LLVMBuildCall2(builder, fnType, fn, args, 2, "");
@@ -2595,6 +2957,52 @@ public class InstructionEmitter {
         result = LLVMBuildTrunc(builder, result, boolType,
                 new BytePointer(nameOf(instanceOf.result())));
         storeLocal(instanceOf.result(), result);
+    }
+
+    /**
+     * Lever 3: emit an inline {@code instanceof} for a final class.
+     * <p>
+     * Result is {@code (source != null) && (source->type == layout.typeInfoGlobal)}.
+     * No function call, no cache slot: a single pointer load + compare.
+     */
+    private void emitFinalClassInstanceOf(LLVMValueRef source,
+                                          ClassLayouts.ClassLayout layout,
+                                          LLVMTypeRef boolType,
+                                          IRInstruction.InstanceOf instanceOf) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
+
+        final LLVMBasicBlockRef entryBB = LLVMGetInsertBlock(builder);
+        final LLVMValueRef currentFn = LLVMGetBasicBlockParent(entryBB);
+        final LLVMBasicBlockRef checkBB = LLVMAppendBasicBlockInContext(ctx, currentFn, ".io3.check");
+        final LLVMBasicBlockRef mergeBB = LLVMAppendBasicBlockInContext(ctx, currentFn, ".io3.merge");
+
+        // null → false (jump straight to merge block)
+        final LLVMValueRef isNull = LLVMBuildICmp(builder, LLVMIntEQ, source, nullPtr, "");
+        LLVMBuildCondBr(builder, isNull, mergeBB, checkBB);
+
+        // checkBB: load type pointer and compare with the final class's type_info global
+        LLVMPositionBuilderAtEnd(builder, checkBB);
+        final LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                classLayouts.objectHeaderType(), source, ClassLayouts.HEADER_SLOT_TYPE, "");
+        final LLVMValueRef actualType = LLVMBuildLoad2(builder, ptrType, typeSlot, "");
+        final LLVMValueRef typeMatch = LLVMBuildICmp(builder, LLVMIntEQ,
+                actualType, layout.typeInfoGlobal, "");
+        LLVMBuildBr(builder, mergeBB);
+
+        // mergeBB: phi(false from entryBB null-path, typeMatch from checkBB)
+        LLVMPositionBuilderAtEnd(builder, mergeBB);
+        final LLVMValueRef phi = LLVMBuildPhi(builder, boolType,
+                new BytePointer(nameOf(instanceOf.result())));
+        final PointerPointer<Pointer> inVals   = new PointerPointer<>(2);
+        final PointerPointer<Pointer> inBlocks = new PointerPointer<>(2);
+        inVals.put(0, LLVMConstInt(boolType, 0, 0)).put(1, typeMatch);
+        inBlocks.put(0, entryBB).put(1, checkBB);
+        LLVMAddIncoming(phi, inVals, inBlocks, 2);
+        Reference.reachabilityFence(inVals);
+        Reference.reachabilityFence(inBlocks);
+
+        storeLocal(instanceOf.result(), phi);
     }
 
     // -------------------------------------------------------
@@ -2680,22 +3088,8 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             }
             return allocForStrategy(headerSize, ".exc");
         }
-        // Zie emitAllocaArray: switch-expressie, exhaustiviteit wordt bewaakt.
-        LLVMValueRef obj = switch (opts.gcStrategy()) {
-            case NONE -> LLVMBuildAlloca(builder, layout.structType,
-                    new BytePointer(".exc"));
-            case BOEHM -> {
-                long size = sizeOf(layout.structType);
-                LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                if (allocFn == null)
-                    throw new IllegalStateException("Allocation helper missing");
-                LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
-                PointerPointer<Pointer> args = new PointerPointer<>(1);
-                args.put(0, sizeVal);
-                yield LLVMBuildCall2(builder, allocType, allocFn, args, 1, ".exc");
-            }
-        };
+        final LLVMValueRef obj = emitGcAlloc(
+                LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false, ".exc");
         initObjectHeader(obj, layout);
         return obj;
     }
@@ -2818,14 +3212,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     // owner-fundamental. Zoek de global waarvan de key op
                     // `<owner>_<name>` (of `<name>` zelf) eindigt. A linear
                     // scan of every global, so the hit is remembered.
-                    for (var entry : globalValueMap.entrySet()) {
-                        if (entry.getKey().endsWith("$" + n.name())
-                                || entry.getKey().endsWith("." + n.name())
-                                || entry.getKey().endsWith("_" + n.name())) {
-                            v = entry.getValue();
-                            suffixMatches.put(n.name(), v);
-                            break;
-                        }
+                    v = globalBySuffix(n.name());
+                    if (v != null) {
+                        suffixMatches.put(n.name(), v);
                     }
                 }
                 if (v == null) {
@@ -2874,6 +3263,28 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         if (fn == null || constants.isRawStrings()) {
             return name;
         }
+        // The runtime looks the name up (a hash of the whole name and a comparison) at every call; the Class object
+        // of a name never changes, so the code keeps it in a global of its own per name.
+        final LLVMValueRef cached = globalValueMap.get("@nabu_class_literal_cached");
+        if (cached != null && !cached.isNull()) {
+            final LLVMModuleRef module = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+            final String className = ConstantResolver.classNameFromDescriptor(c.type());
+            LLVMValueRef slot = classLiteralSlots.get(className);
+            if (slot == null) {
+                final LLVMTypeRef ptr = LLVMPointerTypeInContext(ctx, 0);
+                slot = LLVMAddGlobal(module, ptr, new BytePointer(".class.slot." + classLiteralSlots.size()));
+                LLVMSetLinkage(slot, LLVMInternalLinkage);
+                LLVMSetInitializer(slot, LLVMConstNull(ptr));
+                classLiteralSlots.put(className, slot);
+            }
+            final PointerPointer<Pointer> cachedArgs = new PointerPointer<>(2);
+            cachedArgs.put(0, slot);
+            cachedArgs.put(1, name);
+            final LLVMValueRef cachedClass = LLVMBuildCall2(builder, LLVMGlobalGetValueType(cached), cached,
+                    cachedArgs, 2, ".class");
+            Reference.reachabilityFence(cachedArgs);
+            return cachedClass;
+        }
         final PointerPointer<Pointer> args = new PointerPointer<>(1);
         args.put(0, name);
         final LLVMValueRef cls = LLVMBuildCall2(builder, LLVMGlobalGetValueType(fn), fn,
@@ -2881,6 +3292,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         Reference.reachabilityFence(args);
         return cls;
     }
+
+    /** The global that keeps the Class object of a class literal, by class name (see emitClassLiteral). */
+    private final Map<String, LLVMValueRef> classLiteralSlots = new java.util.HashMap<>();
 
     /**
      * Een statisch veld en een methode van dezelfde klasse kunnen dezelfde
@@ -2937,6 +3351,44 @@ private void emitThrow(IRInstruction.Throw throwInst) {
     private static final java.util.Set<String> BOOTSTRAP_FIELDS = java.util.Set.of(
             "java.lang.System_out", "java.lang.System_err", "java.lang.System_in");
 
+    /** The globals by every suffix that follows a '$', '.' or '_' of their key; built when a scan is first needed. */
+    private Map<String, LLVMValueRef> suffixIndex;
+    private int suffixIndexSize;
+
+    /**
+     * A global whose key ends with {@code $name}, {@code .name} or {@code _name}. An index instead of a scan of
+     * every global per name (seconds for a large program); a global added after the index was made is found by the
+     * scan, which only a name that is not in the index pays for.
+     */
+    private LLVMValueRef globalBySuffix(final String name) {
+        if (suffixIndex == null) {
+            final Map<String, LLVMValueRef> index = new HashMap<>();
+            for (var entry : globalValueMap.entrySet()) {
+                final String key = entry.getKey();
+                for (int p = 0; p < key.length(); p++) {
+                    final char c = key.charAt(p);
+                    if (c == '$' || c == '.' || c == '_') {
+                        index.putIfAbsent(key.substring(p + 1), entry.getValue());
+                    }
+                }
+            }
+            suffixIndex = index;
+            suffixIndexSize = globalValueMap.size();
+        }
+        final LLVMValueRef found = suffixIndex.get(name);
+        if (found != null || globalValueMap.size() == suffixIndexSize) {
+            return found;
+        }
+        for (var entry : globalValueMap.entrySet()) {
+            if (entry.getKey().endsWith("$" + name)
+                    || entry.getKey().endsWith("." + name)
+                    || entry.getKey().endsWith("_" + name)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
     private LLVMValueRef declareOutsideStaticField(final IRValue.Named named) {
         final String plain = named.name().startsWith("@")
                 ? named.name().substring(1) : named.name();
@@ -2945,8 +3397,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         }
         // Alleen voor klassen buiten deze compilatie: een veld van een klasse
         // die wél gecompileerd wordt en hier niet gevonden is, is een
-        // lookup-fout en mag niet stil een tweede, lege global krijgen.
-        if (classLayouts.ownerInternalName(plain) != null) {
+        // lookup-fout en mag niet stil een tweede, lege global krijgen. Behalve als de superklasse-keten de
+        // compilatie verlaat: dan kan het veld van de ontbrekende superklasse komen.
+        if (classLayouts.ownerInternalName(plain) != null && !classLayouts.superChainLeavesCompilation(plain)) {
             return null;
         }
         final LLVMBasicBlockRef bb = LLVMGetInsertBlock(builder);
@@ -3240,6 +3693,11 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             }
         }
         int structIndex = layout.structIndex(fieldIndex);
+        if (structIndex < 0 && classLayouts.isEliminatedField(named.name())) {
+            // Left out of the struct on purpose (dead-field elimination): a read becomes undef, a write a no-op.
+            // No fallback to a same-named field of another class, that would alias the two.
+            return null;
+        }
         if (structIndex < 0) {
             // De teller-index uit het IR is een HINT: de frontend telt over
             // getEnclosedElements(), terwijl de IRModule ook synthetische

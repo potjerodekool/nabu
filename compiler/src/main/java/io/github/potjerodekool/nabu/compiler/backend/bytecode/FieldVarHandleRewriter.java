@@ -121,6 +121,13 @@ final class FieldVarHandleRewriter {
                         method.instructions.insertBefore(insn, new InsnNode(Opcodes.POP));
                     }
                     method.instructions.set(insn, new InsnNode(Opcodes.ACONST_NULL));
+                } else if (insn instanceof MethodInsnNode call
+                        && "java/lang/invoke/ConstantBootstraps".equals(call.owner)
+                        && "fieldVarHandle".equals(call.name)) {
+                    for (int i = 0; i < Type.getArgumentTypes(call.desc).length; i++) {
+                        method.instructions.insertBefore(insn, new InsnNode(Opcodes.POP));
+                    }
+                    method.instructions.set(insn, new InsnNode(Opcodes.ACONST_NULL));
                 } else if (insn instanceof MethodInsnNode call && "java/lang/invoke/MethodHandles".equals(call.owner)
                         && "lookup".equals(call.name)) {
                     method.instructions.set(insn, new InsnNode(Opcodes.ACONST_NULL));
@@ -147,6 +154,32 @@ final class FieldVarHandleRewriter {
                         && type.getSort() == Type.ARRAY
                         && arrayStore instanceof FieldInsnNode store && store.getOpcode() == Opcodes.PUTSTATIC) {
                     handles.put(store.name, new Handle(ARRAY, "", type.getDescriptor().substring(1)));
+                }
+                continue;
+            }
+            if (insn instanceof MethodInsnNode bootstrap && "java/lang/invoke/ConstantBootstraps".equals(bootstrap.owner)
+                    && "fieldVarHandle".equals(bootstrap.name)) {
+                // ConstantBootstraps.fieldVarHandle(lookup, "name", VarHandle.class, Owner.class, int.class), what javac
+                // makes of a VarHandle constant (sun.nio.ch.SelectionKeyImpl).
+                final AbstractInsnNode typeLoad = previous(bootstrap);
+                final AbstractInsnNode typeInsn = constant(typeLoad);
+                final AbstractInsnNode ownerLoad = typeLoad == null ? null : previous(typeLoad);
+                final AbstractInsnNode handleClassLoad = ownerLoad == null ? null : previous(ownerLoad);
+                final AbstractInsnNode nameLoad = handleClassLoad == null ? null : previous(handleClassLoad);
+                final AbstractInsnNode owner = ownerLoad == null ? null : constant(ownerLoad);
+                final AbstractInsnNode type = typeInsn instanceof FieldInsnNode primitive
+                        && "TYPE".equals(primitive.name) && primitive.getOpcode() == Opcodes.GETSTATIC
+                        ? new LdcInsnNode(primitiveType(primitive.owner)) : typeInsn;
+                AbstractInsnNode following = bootstrap.getNext();
+                while (following != null && following.getOpcode() < 0) {
+                    following = following.getNext();
+                }
+                if (type instanceof LdcInsnNode typeLdc && typeLdc.cst instanceof Type fieldType
+                        && nameLoad instanceof LdcInsnNode nameLdc && nameLdc.cst instanceof String fieldName
+                        && owner instanceof LdcInsnNode ownerLdc && ownerLdc.cst instanceof Type ownerType
+                        && following instanceof FieldInsnNode store && store.getOpcode() == Opcodes.PUTSTATIC) {
+                    handles.put(store.name, new Handle(ownerType.getInternalName(), fieldName,
+                            fieldType.getDescriptor()));
                 }
                 continue;
             }

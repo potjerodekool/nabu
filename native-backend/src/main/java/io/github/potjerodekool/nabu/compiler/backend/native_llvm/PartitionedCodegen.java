@@ -52,7 +52,7 @@ import static org.bytedeco.llvm.global.LLVM.*;
 final class PartitionedCodegen {
 
     /** Functions with at most this many instructions are copied for inlining. */
-    private static final int IMPORT_LIMIT = 40;
+    private static final int IMPORT_LIMIT = Integer.getInteger("nabu.llvm.importLimit", 40);
 
     private static final String XP_SUFFIX = ".xp";
 
@@ -115,21 +115,69 @@ final class PartitionedCodegen {
                               final int partitions,
                               final String triple,
                               final String pipeline,
-                              final List<Path> objectFiles) throws CompileException {
+                              final List<Path> objectFiles,
+                              final Runnable releaseModule) throws CompileException {
         final var codegen = new PartitionedCodegen(partitions);
         final long t0 = System.nanoTime();
         codegen.assignOwners(mod);
-        final LLVMMemoryBufferRef bitcode = LLVMWriteBitcodeToMemoryBuffer(mod);
+        // The bitcode goes to a file that every partition maps: the pages are file backed (the operating system
+        // can drop them) instead of a private copy of hundreds of megabytes in this process.
+        final Path bitcodeFile = objectFiles.get(0).resolveSibling(
+                objectFiles.get(0).getFileName() + ".bc");
+        if (LLVMWriteBitcodeToFile(mod, new BytePointer(bitcodeFile.toString())) != 0) {
+            throw new CompileException("Could not write the bitcode to " + bitcodeFile);
+        }
         final long t1 = System.nanoTime();
         System.err.println("[NativeLLVMBackend] split into " + partitions + " partitions ("
                 + codegen.imported.size() + " small functions copied): "
                 + (t1 - t0) / 1_000_000L + " ms");
+        // The partitions read the bitcode, not the module: with the module still alive a large program (200000
+        // functions) holds one more copy of itself during the whole code generation.
+        releaseModule.run();
+        releaseJavaHeap();
         try {
-            codegen.compilePartitions(bitcode, triple, pipeline, objectFiles);
+            codegen.compilePartitions(bitcodeFile, triple, pipeline, objectFiles);
         } finally {
-            LLVMDisposeMemoryBuffer(bitcode);
+            try {
+                java.nio.file.Files.deleteIfExists(bitcodeFile);
+            } catch (final java.io.IOException e) {
+                // a temporary file; the next build overwrites it
+            }
         }
         return objectFiles;
+    }
+
+    /**
+     * The Java side of the program (class files, IR) is garbage by now, but the JVM keeps the heap it grew to
+     * (gigabytes for a large program) as long as nothing shrinks it, next to the memory of the code generation.
+     */
+    private static void releaseJavaHeap() {
+        final Runtime rt = Runtime.getRuntime();
+        final long before = rt.totalMemory();
+        System.gc();
+        if (Boolean.getBoolean("nabu.heapHistogram")) {
+            try {
+                final Object histogram = java.lang.management.ManagementFactory.getPlatformMBeanServer().invoke(
+                        new javax.management.ObjectName("com.sun.management:type=DiagnosticCommand"),
+                        "gcClassHistogram", new Object[] {null}, new String[] {"[Ljava.lang.String;"});
+                final String[] lines = String.valueOf(histogram).split("\\R");
+                System.err.println("[NativeLLVMBackend] java heap histogram:");
+                for (int i = 0; i < Math.min(lines.length, 40); i++) {
+                    System.err.println("  " + lines[i]);
+                }
+            } catch (final Exception e) {
+                System.err.println("[NativeLLVMBackend] no heap histogram: " + e);
+            }
+            if ("exit".equals(System.getProperty("nabu.heapHistogramThen"))) {
+                System.err.flush();
+                Runtime.getRuntime().halt(3); // a diagnostic run: the code generation itself is not wanted
+            }
+        }
+        if (TIMING) {
+            System.err.println("[NativeLLVMBackend] java heap before code generation: committed "
+                    + before / (1 << 20) + " MB -> " + rt.totalMemory() / (1 << 20) + " MB, used "
+                    + (rt.totalMemory() - rt.freeMemory()) / (1 << 20) + " MB");
+        }
     }
 
     // -------------------------------------------------------
@@ -327,6 +375,11 @@ final class PartitionedCodegen {
         if (isLocal(f)) {
             return false;
         }
+        // A weak function (the stub of a JDK function without an implementation) is replaced by a definition in the
+        // C runtime when the program is linked; a copy inlined into another partition would keep the stub.
+        if (LLVMGetLinkage(f) == LLVMWeakAnyLinkage) {
+            return false;
+        }
         for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(f); bb != null && !bb.isNull(); bb = LLVMGetNextBasicBlock(bb)) {
             for (LLVMValueRef i = LLVMGetFirstInstruction(bb); i != null && !i.isNull(); i = LLVMGetNextInstruction(i)) {
                 if (!onlyVisibleReferences(i, 0)) {
@@ -361,13 +414,27 @@ final class PartitionedCodegen {
     // Per partition (own context, own thread)
     // -------------------------------------------------------
 
-    private void compilePartitions(final LLVMMemoryBufferRef bitcode,
+    /** The number of partitions that are compiled at the same time: {@code nabu.llvm.codegenThreads}, at most {@code partitions}. */
+    static int codegenThreads(final int partitions) {
+        final String configured = System.getProperty("nabu.llvm.codegenThreads");
+        if (configured != null) {
+            try {
+                return Math.max(1, Math.min(partitions, Integer.parseInt(configured.trim())));
+            } catch (final NumberFormatException e) {
+                // fall through to the default
+            }
+        }
+        return partitions;
+    }
+
+    private void compilePartitions(final Path bitcodeFile,
                                    final String triple,
                                    final String pipeline,
                                    final List<Path> objectFiles) throws CompileException {
-        final BytePointer start = LLVMGetBufferStart(bitcode);
-        final long size = LLVMGetBufferSize(bitcode);
-        final ExecutorService pool = Executors.newFixedThreadPool(partitions, r -> {
+        // Every partition in flight holds its share of the program (functions, and the code generator's own data):
+        // all partitions at once is the whole program again. -Dnabu.llvm.codegenThreads=1 compiles them one by one,
+        // for a program that is too big for the memory of the machine.
+        final ExecutorService pool = Executors.newFixedThreadPool(codegenThreads(partitions), r -> {
             final Thread t = new Thread(r, "nabu-llvm-codegen");
             t.setDaemon(true);
             return t;
@@ -377,7 +444,7 @@ final class PartitionedCodegen {
             for (int p = 0; p < partitions; p++) {
                 final int partition = p;
                 futures.add(pool.submit(() -> {
-                    compilePartition(partition, start, size, triple, pipeline, objectFiles.get(partition));
+                    compilePartition(partition, bitcodeFile, triple, pipeline, objectFiles.get(partition));
                     return null;
                 }));
             }
@@ -399,23 +466,46 @@ final class PartitionedCodegen {
         }
     }
 
+    /**
+     * Reading the bitcode of the whole program and removing what the partition does not own needs about the
+     * size of the program: all partitions doing that at the same time hold N copies of it. One at a time; the
+     * optimization and the code generation of the (small) remainders do run in parallel.
+     */
+    private final java.util.concurrent.locks.ReentrantLock splitLock = new java.util.concurrent.locks.ReentrantLock();
+
     private void compilePartition(final int partition,
-                                  final BytePointer start,
-                                  final long size,
+                                  final Path bitcodeFile,
                                   final String triple,
                                   final String pipeline,
                                   final Path objectFile) throws CompileException {
         final LLVMContextRef ctx = LLVMContextCreate();
         final LLVMModuleRef mod = new LLVMModuleRef();
-        final LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRange(
-                start, size, new BytePointer("partition" + partition), 0);
+        final LLVMMemoryBufferRef buffer = new LLVMMemoryBufferRef();
         try {
-            if (LLVMParseBitcodeInContext2(ctx, buffer, mod) != 0) {
-                throw new CompileException("Could not read the bitcode of partition " + partition);
+            final BytePointer bufferError = new BytePointer();
+            if (LLVMCreateMemoryBufferWithContentsOfFile(
+                    new BytePointer(bitcodeFile.toString()), buffer, bufferError) != 0) {
+                throw new CompileException("Could not map " + bitcodeFile + ": " + bufferError.getString());
             }
-            final long t0 = System.nanoTime();
-            keepPartition(mod, partition);
-            final long t1 = System.nanoTime();
+            final long t0;
+            final long t1;
+            final long tp = System.nanoTime();
+            splitLock.lock();
+            final long tl = System.nanoTime();
+            try {
+                if (LLVMParseBitcodeInContext2(ctx, buffer, mod) != 0) {
+                    throw new CompileException("Could not read the bitcode of partition " + partition);
+                }
+                t0 = System.nanoTime();
+                if (TIMING) {
+                    System.err.println("[NativeLLVMBackend] partition " + partition + ": waited for the split lock "
+                            + (tl - tp) / 1_000_000L + " ms, parse " + (t0 - tl) / 1_000_000L + " ms");
+                }
+                keepPartition(mod, partition);
+                t1 = System.nanoTime();
+            } finally {
+                splitLock.unlock();
+            }
 
             final BytePointer err = new BytePointer();
             final LLVMTargetRef target = new LLVMTargetRef();
@@ -425,7 +515,10 @@ final class PartitionedCodegen {
             final LLVMTargetMachineRef machine = LLVMCreateTargetMachine(
                     target, new BytePointer(triple),
                     new BytePointer("generic"), new BytePointer(""),
-                    LLVMCodeGenLevelDefault, LLVMRelocPIC, LLVMCodeModelDefault);
+                    // Without optimization (--opt NONE) the code generator takes its fast path too (FastISel, fast
+                    // register allocation): the build is much faster, the code slower.
+                    pipeline == null ? LLVMCodeGenLevelNone : LLVMCodeGenLevelDefault,
+                    LLVMRelocPIC, LLVMCodeModelDefault);
             try {
                 if (pipeline != null) {
                     NativeLLVMBackend.runPasses(mod, machine, pipeline);
@@ -447,7 +540,9 @@ final class PartitionedCodegen {
                 LLVMDisposeTargetMachine(machine);
             }
         } finally {
-            LLVMDisposeMemoryBuffer(buffer);
+            if (!buffer.isNull()) {
+                LLVMDisposeMemoryBuffer(buffer);
+            }
             if (!mod.isNull()) {
                 LLVMDisposeModule(mod);
             }
@@ -457,6 +552,7 @@ final class PartitionedCodegen {
 
     /** Turns everything another partition owns into declarations. */
     private void keepPartition(final LLVMModuleRef mod, final int partition) throws CompileException {
+        final long k0 = System.nanoTime();
         final List<LLVMValueRef> foreignFunctions = new ArrayList<>();
         for (LLVMValueRef f = LLVMGetFirstFunction(mod); f != null && !f.isNull(); f = LLVMGetNextFunction(f)) {
             if (LLVMIsDeclaration(f) != 0) {
@@ -493,6 +589,7 @@ final class PartitionedCodegen {
             foreignGlobals.add(g);
         }
 
+        final long k1 = System.nanoTime();
         // First drop every foreign body and initializer, so that no foreign
         // definition still uses a local symbol of another partition.
         for (final LLVMValueRef f : foreignFunctions) {
@@ -502,6 +599,7 @@ final class PartitionedCodegen {
             }
             LLVMDeleteFunction(f);
         }
+        final long k2 = System.nanoTime();
         for (final LLVMValueRef g : foreignGlobals) {
             LLVMSetInitializer(g, null);
             if (isLocal(g) || name(g).equals("llvm.global_ctors")) {
@@ -510,6 +608,7 @@ final class PartitionedCodegen {
                 LLVMSetLinkage(g, LLVMExternalLinkage);
             }
         }
+        final long k3 = System.nanoTime();
         for (final LLVMValueRef local : foreignLocals) {
             final LLVMValueRef user = liveUser(local);
             if (user != null) {
@@ -523,6 +622,13 @@ final class PartitionedCodegen {
             } else {
                 LLVMDeleteGlobal(local);
             }
+        }
+        if (TIMING) {
+            final long k4 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] partition " + partition + " keep: scan " + (k1 - k0) / 1_000_000L
+                    + " ms, functions " + foreignFunctions.size() + " in " + (k2 - k1) / 1_000_000L
+                    + " ms, globals " + foreignGlobals.size() + " in " + (k3 - k2) / 1_000_000L
+                    + " ms, locals " + foreignLocals.size() + " in " + (k4 - k3) / 1_000_000L + " ms");
         }
     }
 

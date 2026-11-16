@@ -635,6 +635,7 @@ class InstructionPrinter {
             case IRInstruction.Cast cast -> acceptCast(cast);
             case IRInstruction.CondBranch condBranch -> acceptCondBranch(condBranch);
             case IRInstruction.HeapAlloc heapAlloc -> acceptHeapAlloc(heapAlloc);
+            case IRInstruction.StackAlloc stackAlloc -> acceptHeapAlloc(new IRInstruction.HeapAlloc(stackAlloc.result(), stackAlloc.allocType(), stackAlloc.location()));
             case IRInstruction.IndirectCall indirectCall -> acceptIndirectCall(indirectCall);
             case IRInstruction.InstanceOf instanceOf -> acceptInstanceOf(instanceOf);
             case IRInstruction.Load load -> acceptLoad(load);
@@ -647,6 +648,7 @@ class InstructionPrinter {
             case IRInstruction.Store store -> acceptStore(store);
             case IRInstruction.Throw throwInstruction -> acceptThrow(throwInstruction);
             case IRInstruction.TryCatchRegion tryCatchRegion -> acceptTryCatchRegion(tryCatchRegion);
+            default -> builder.append(instruction); // e.g. the switch instructions
         }
     }
 

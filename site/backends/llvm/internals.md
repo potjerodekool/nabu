@@ -78,14 +78,12 @@ Every object starts with a header that `ClassLayouts.objectHeaderType()` and `st
 | Offset | Field | Meaning |
 |---|---|---|
 | 0 | `type` | pointer to the class's `nabu_type_info` (name, size, superclass, interfaces, fields) |
-| 8 | `vtable` | virtual method table |
-| 16 | `itable` | interface method table |
-| 24 | `ref_count` | unused (always 0) |
-| 28 | `monitor_count` | `synchronized` |
-| 32 | `thread_id` | `synchronized` |
+| 8 | `monitor_count` | `synchronized` |
+| 12 | `thread_id` | `synchronized` |
 
-Fields follow the header.
+The header is 16 bytes (`{ ptr type, i32 monitor, i32 thread }`). The vtable and itable are *not* in the object; they live in the class's `nabu_type_info` (slots 8 and 9). After the header the backend reserves one more pointer word as a runtime-state slot for library objects (`jcl_lite.c`). Fields follow the header.
 
+- **Fields.** A struct holds the instance fields of the class and of its superclasses, in declaration order, with the parent's fields at the same indices as in the parent's struct (a field is always reached through the layout of its *declaring* class). A field the program never reads is left out of every struct (`FieldReachability`): it only takes room in each instance. The test is conservative and by simple name over the whole compilation — a name that is read anywhere stays in every class that declares it, which also covers the runtime reading a field by name (`String.value`, `File.path`, `Unsafe`). `volatile` and `public` fields, and fields the native-image reflection configuration names, always keep their slot. A read of an eliminated field becomes `undef` and a store a no-op; `-Dnabu.deadFields=false` turns the pass off.
 - **vtables** have one slot per virtual method *and overload*. A subclass reuses its parent's slots for overrides and appends new ones. Private methods get no slot and are called directly.
 - **itables** are indexed by a global interface-method slot number, so an interface call is a single load from the receiver's itable.
 - **Function names** are `<owner>_<method>`, with an overload suffix (`$I32`, `$P5036ee31`, …) derived from the parameter types (`FnKeys`). Constructors are `<owner>_init`, static initializers `<owner>_<clinit>`.
@@ -103,7 +101,7 @@ Module constructors in `@llvm.global_ctors` run before `main`:
 
 The backend emits LLVM `invoke`/`landingpad` instructions with the personality function **`nabu_seh_personality`**, and declares that function itself in the emitted IR. The runtime implements it: it reads the LSDA (from `.xdata` on Windows, `.gcc_except_table` on ELF) and installs the landing pad. `nabu_itanium_personality` does the same for the ELF/Itanium variant. Matching an exception against a `catch` type happens in the IR (`nabu_can_catch`), not in the personality.
 
-On Windows x64 SEH, a catch clause that does not match must not use `_Unwind_Resume`: that jumps back into the same landing pad, the personality is not consulted again, and the program loops. `nabu_resume` therefore raises a fresh exception from the landing pad instead, so the search continues in an outer frame. An exception nobody catches prints `Exception in thread "main"` and its stack trace (the compiled `Throwable.printStackTrace()`, registered with `nabu_set_throwable_print_fn`) and exits with code 1. The stack trace is a `long[]` of return addresses that `fillInStackTrace` collects with `_Unwind_Backtrace`; `getStackTrace()` turns them into `StackTraceElement`s through the COFF symbol table of the executable (a substitution of `Throwable`, see `ThrowableSubstitution`). Lines come from DWARF line tables: every function compiled from source gets a `DISubprogram` and debug locations (`DebugLines`), and the runtime reads the `.debug_line` section of its own executable. The directory of each file in the table is the symbol of the function, so a line of an inlined function is still attributed to that function.
+On Windows x64 SEH, a catch clause that does not match must not use `_Unwind_Resume`: that jumps back into the same landing pad, the personality is not consulted again, and the program loops. `nabu_resume` therefore raises a fresh exception from the landing pad instead, so the search continues in an outer frame. An exception nobody catches prints `Exception in thread "main"` and its stack trace (the compiled `Throwable.printStackTrace()`, registered with `nabu_set_throwable_print_fn`) and exits with code 1. The stack trace is a `long[]` of return addresses that `fillInStackTrace` collects with `_Unwind_Backtrace`; `getStackTrace()` turns them into `StackTraceElement`s through the COFF symbol table of the executable (a substitution of `Throwable`, see `ThrowableSubstitution`). Lines come from DWARF line tables: every function compiled from source gets a `DISubprogram` and debug locations (`DebugLines`), and the runtime reads the `.debug_line` section of its own executable. The directory of each file in the table is the symbol of the function, so a line of an inlined function is still attributed to that function. Functions compiled from bytecode (the JDK) get a subprogram of their own only with full debug info (`--debug`), which is off by default: one subprogram per JDK function is the bulk of the debug info and its build-time memory cost, and the runtime degrades gracefully without it (no line, `Unknown Source`).
 
 MSVC targets are rejected: they use SEH scope tables with `__C_specific_handler` instead of DWARF/LSDA, which would need a different code generation and unwind strategy.
 

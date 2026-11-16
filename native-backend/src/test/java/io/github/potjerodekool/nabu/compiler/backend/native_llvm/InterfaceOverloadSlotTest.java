@@ -6,6 +6,8 @@ import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.Flags;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,6 +30,17 @@ class InterfaceOverloadSlotTest {
 
     @TempDir
     Path tempDir;
+
+    /** These tests are about the itable: a call with a single implementer would be a direct call. */
+    @BeforeEach
+    void devirtualizationOff() {
+        System.setProperty("nabu.devirt", "false");
+    }
+
+    @AfterEach
+    void devirtualizationOn() {
+        System.clearProperty("nabu.devirt");
+    }
 
     private static final IRType SINK = new IRType.Ptr(IRType.I8, "Ltest/Sink;");
     private static final IRType BUF = new IRType.Ptr(IRType.I8, "Ltest/Buf;");

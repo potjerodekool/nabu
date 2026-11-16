@@ -17,6 +17,11 @@ public final class ProxyClasses {
         return null;
     }
 
+    /** The interface lists (binary names, comma-separated) of the configured proxies. */
+    public static String[] keys() {
+        return new String[0];
+    }
+
     /** Whether {@code className} is a generated proxy class. */
     public static boolean isProxyClass(final String className) {
         return false;

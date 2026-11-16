@@ -41,6 +41,7 @@ The options are passed like any other Nabu compiler option. With Maven, use `<co
 | `--gc` | `NONE`, `BOEHM` | `BOEHM` | Memory management, see below. |
 | `--bytecode-jdk-home` | path to a JDK | the running JDK | Reads JDK bytecode from another JDK installation. |
 | `--opt` | `NONE`, `DEFAULT`, `AGGRESSIVE` | `DEFAULT` | LLVM optimization level. |
+| `--debug` | `true`, `false` | `false` | Emit full debug info (DWARF). Off by default: the object files and the executable stay much smaller, and compiling a program that pulls in the JDK uses far less memory (a subprogram per JDK function is the bulk of it). Stack traces keep the method names and, for your own source, the file and line either way; with `--debug`, JDK methods that LLVM inlined are frames of a trace too. |
 
 ## Choosing a GC strategy
 

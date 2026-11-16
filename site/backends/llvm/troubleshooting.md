@@ -49,7 +49,7 @@ Exception in thread "main" java.lang.IllegalStateException: …
 	at greet.Main.main(Main.java:9)
 ```
 
-The trace has the method names, and the file and line for code compiled from your sources (`Main.java:12`); JDK and library methods show `Unknown Source`. A method that LLVM inlined into its caller does not appear unless it is the innermost one and compiled from your sources. The names come from the symbol table of the executable, so do not strip it. Set `NABU_TRACE_FRAMES=1` to see the raw frames while the trace is built.
+The trace has the method names, and the file and line for code compiled from your sources (`Main.java:12`); methods of your own code that LLVM inlined into their caller are frames too, with the line of the call. JDK and library methods show `Unknown Source`, and the JDK methods that LLVM inlined are only frames of the trace when the build uses full debug info (`--debug`). The names come from the symbol table of the executable, so do not strip it. Set `NABU_TRACE_FRAMES=1` to see the raw frames while the trace is built.
 
 An exception that is not a compiled `Throwable` (an object made by the C runtime) still prints only `nabu: unhandled exception` and its class, and then calls `abort()`.
 

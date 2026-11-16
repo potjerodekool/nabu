@@ -39,7 +39,8 @@ class StableOverloadSymbolTest {
      * {@code define}; voor deze test telt alleen de naam.
      */
     private static final java.util.function.BiFunction<String, String, Boolean> DECLARED_OR_STUBBED =
-            (signature, ll) -> ll.contains("declare " + signature) || ll.contains("define " + signature);
+            (signature, ll) -> ll.contains("declare " + signature) || ll.contains("define " + signature)
+                    || ll.contains("define weak " + signature);
 
     /** LLVM's volgnummer-unieking: {@code @naam.123}. */
     private static final Pattern LLVM_SEQ_SUFFIX =

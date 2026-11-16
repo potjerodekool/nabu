@@ -43,6 +43,11 @@ final class AnnotationAccessors {
     /** (annotation, element, default as text, array descriptor) → a primitive array. */
     static final String PRIMITIVES_DESC = "(" + OBJ + STR + STR + STR + ")" + OBJ;
     static final String ENUM_VALUES_DESC = "([" + STR + "Ljava/lang/Class;)" + OBJ;
+    /** The name the runtime turns into a Class: the internal name, or for a primitive ({@code void.class}) its name. */
+    private static String classRef(final Type type) {
+        return type.getSort() < Type.ARRAY ? type.getClassName() : type.getInternalName();
+    }
+
     static final String ANNOTATION_SUPPORT = RuntimeCalls.RUNTIME_PACKAGE + "AnnotationSupport";
 
     private AnnotationAccessors() {
@@ -128,7 +133,7 @@ final class AnnotationAccessors {
                     code.add(stringConstant(dflt));
                     code.add(helper("text", TEXT_DESC));
                 } else if ("java/lang/Class".equals(internal)) {
-                    code.add(stringConstant(dflt instanceof Type t ? t.getInternalName() : null));
+                    code.add(stringConstant(dflt instanceof Type t ? classRef(t) : null));
                     code.add(helper("type", TYPE_DESC));
                 } else if (isEnum(internal, classLoader)) {
                     // De echte enum-constante: picocli vergelijkt met ==.
@@ -155,7 +160,7 @@ final class AnnotationAccessors {
                     code.add(stringConstant(joined(dflt, Function.identity())));
                     code.add(helper("texts", TEXTS_DESC));
                 } else if ("Ljava/lang/Class;".equals(element)) {
-                    code.add(stringConstant(joined(dflt, v -> v instanceof Type t ? t.getInternalName() : v)));
+                    code.add(stringConstant(joined(dflt, v -> v instanceof Type t ? classRef(t) : v)));
                     code.add(helper("types", TYPES_DESC));
                 } else if (type.getElementType().getSort() != Type.OBJECT) {
                     // An array of primitives, from its comma-separated items.

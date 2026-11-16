@@ -49,6 +49,26 @@ public class NativeLLVMBackend implements Backend {
         LLVMInitializeAllAsmPrinters();
     }
 
+    /**
+     * Intel's JCC erratum: a jump that crosses or ends on a 32-byte boundary does not enter the decode cache, so a
+     * hot loop can run 40% slower for no reason but where its code happens to land. This asks the assembler to pad
+     * branches so that none does (+0.6% code). The assembler's relaxation is superlinear: for a large program (the
+     * petstore, 35000 modules) code generation takes 100 times as long, so it is only on for a small one.
+     * x86 only (an unknown option makes LLVM exit the process); -Dnabu.alignBranches=true|false overrides.
+     */
+    private static void alignBranches(final int moduleCount) {
+        final String arch = System.getProperty("os.arch", "");
+        if (!arch.equals("amd64") && !arch.equals("x86_64")) {
+            return;
+        }
+        final String prop = System.getProperty("nabu.alignBranches");
+        final boolean on = prop != null ? Boolean.parseBoolean(prop) : moduleCount <= 2000;
+        final org.bytedeco.javacpp.PointerPointer<BytePointer> argv = new org.bytedeco.javacpp.PointerPointer<>(2);
+        argv.put(0, new BytePointer("nabu"));
+        argv.put(1, new BytePointer("-x86-branches-within-32B-boundaries=" + on));
+        LLVMParseCommandLineOptions(2, argv, new BytePointer("nabu"));
+    }
+
     @Override
     public void compile(IRModule module,
                         CompileOptions opts,
@@ -93,17 +113,17 @@ public class NativeLLVMBackend implements Backend {
         // native-image does), not after whichever class came first.
         Path outFile = resolveOutputFile(mainModule != null ? mainModule : modules.getFirst(), outputObj,
                 opts.imageName());
-        List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
-
-        // Alleen linken als er een main-functie aanwezig is
+        // Alleen linken als er een main-functie aanwezig is (bepaald vóór compileToObject: dat geeft de
+        // lijst vrij, zie hieronder).
         boolean hasMain = modules.stream()
                 .flatMap(m -> m.functions().stream())
                 .anyMatch(f -> f.name.equals("main") && !f.isExternal());
+        List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
         if (!hasMain) return;
 
         Path exe = replaceExtension(outFile,
                 triple.contains("windows") ? ".exe" : "");
-        Linker.link(objectFiles, exe, triple, opts.gcStrategy());
+        Linker.link(objectFiles, exe, triple, opts.gcStrategy(), opts.debugInfo());
         copyRuntimeData(exe);
     }
 
@@ -335,14 +355,55 @@ public class NativeLLVMBackend implements Backend {
                                        String triple,
                                        boolean partitioned) throws CompileException {
         BuildDiagnostics.reset();
+        alignBranches(modules.size());
         LLVMContextRef ctx     = LLVMContextCreate();
+        // The names of instructions, arguments and blocks are only for reading the .ll: for a large program they
+        // are gigabytes (a string per value, 200000 functions). -Dnabu.llvm.discardNames=true|false overrides.
+        final String discard = System.getProperty("nabu.llvm.discardNames");
+        if (discard != null ? Boolean.parseBoolean(discard) : partitioned && modules.size() > 2000) {
+            LLVMContextSetDiscardValueNames(ctx, 1);
+        }
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+        final boolean[] moduleDisposed = {false};
+        final boolean[] builderDisposed = {false};
+        final boolean[] contextDisposed = {false};
 
-        try (PointerScope scope = new PointerScope()) {
+        // No PointerScope here: it would hold every JavaCPP object made while emitting (a value reference, a name, a
+        // deallocator each: tens of millions for a large program, gigabytes) until the end of the method, also during
+        // the code generation. The garbage collector frees the few that own native memory.
+        try {
             long t0 = System.nanoTime();
-            var emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
+            final int moduleCount = modules.size();
+            LLVMModuleEmitter emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.setReflectionRegistry(reflectionRegistry);
+            // Without optimization the code of a large program is generated while the bodies are emitted, in chunks:
+            // the bodies of the whole program are never in memory at once. -Dnabu.llvm.chunkInstructions=<n> sets the
+            // size of a chunk in IR instructions (0 = off).
+            final boolean singleModule = opts.optLevel() == CompileOptions.OptLevel.NONE
+                    && System.getProperty("nabu.llvm.partitions") == null;
+            final long chunkSize = Long.getLong("nabu.llvm.chunkInstructions",
+                    partitioned && singleModule && modules.size() > 2000 ? 600_000L : 0L);
+            ChunkedCodegen chunker = null;
+            LLVMTargetMachineRef chunkMachine = null;
+            if (chunkSize > 0) {
+                final BytePointer targetErr = new BytePointer();
+                final LLVMTargetRef target = new LLVMTargetRef();
+                if (LLVMGetTargetFromTriple(new BytePointer(triple), target, targetErr) != 0)
+                    throw new CompileException("Unknown target: " + targetErr.getString());
+                chunkMachine = LLVMCreateTargetMachine(target, new BytePointer(triple),
+                        new BytePointer("generic"), new BytePointer(""), LLVMCodeGenLevelNone, LLVMRelocPIC,
+                        LLVMCodeModelDefault);
+                objectFiles(outputObj, 1);
+                chunker = new ChunkedCodegen(llvmMod, chunkMachine, triple, outputObj);
+                emitter.setChunker(chunker, chunkSize);
+            }
+            for (final IRModule m : modules) {
+                if (m.functions().stream().anyMatch(f -> f.name.equals("main") && !f.isExternal())) {
+                    emitter.setMainClassName(m.name);
+                    break;
+                }
+            }
             emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
             final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
             if (!unresolved.isEmpty()) {
@@ -372,10 +433,35 @@ public class NativeLLVMBackend implements Backend {
                         + " the program when they are executed. List by class: " + unresolvedPath);
             }
             BuildDiagnostics.report(replaceExtension(outputObj, ".warnings.txt"));
+            // The emitter's maps (values, layouts, strings) are only needed up to here.
+            emitter = null;
+            if (partitioned) {
+                // The LLVM module holds the program now. The caller's list keeps the Java IR of all of it alive
+                // during the code generation: let go of it (a program of 36000 classes is gigabytes).
+                try {
+                    modules.clear();
+                } catch (final UnsupportedOperationException e) {
+                    // an immutable list: the caller keeps its IR
+                }
+            }
+            if (partitioned) {
+                // The Java heap is garbage now (IR, emitter maps) but nothing makes the collector run, so the
+                // process keeps gigabytes of it during the code generation: a full collection returns them.
+                System.gc();
+            }
             long t1 = System.nanoTime();
-            System.err.println("[NativeLLVMBackend] emitAll (" + modules.size() + " IR-modules -> LLVM-IR): "
+            System.err.println("[NativeLLVMBackend] emitAll (" + moduleCount + " IR-modules -> LLVM-IR): "
                     + (t1 - t0) / 1_000_000L + " ms");
 
+            if (chunker != null) {
+                System.gc();
+                long tc = System.nanoTime();
+                chunker.finish();
+                System.err.println("[NativeLLVMBackend] last object file of " + chunker.objects().size() + ": "
+                        + (System.nanoTime() - tc) / 1_000_000L + " ms");
+                LLVMDisposeTargetMachine(chunkMachine);
+                return chunker.objects();
+            }
             LLVMSetTarget(llvmMod, new BytePointer(triple));
 
             BytePointer   err       = new BytePointer();
@@ -386,7 +472,8 @@ public class NativeLLVMBackend implements Backend {
             LLVMTargetMachineRef machine = LLVMCreateTargetMachine(
                     targetRef, new BytePointer(triple),
                     new BytePointer("generic"), new BytePointer(""),
-                    LLVMCodeGenLevelDefault, LLVMRelocPIC, LLVMCodeModelDefault);
+                    opts.optLevel() == CompileOptions.OptLevel.NONE ? LLVMCodeGenLevelNone : LLVMCodeGenLevelDefault,
+                    LLVMRelocPIC, LLVMCodeModelDefault);
 
             LLVMSetModuleDataLayout(llvmMod, LLVMCreateTargetDataLayout(machine));
 
@@ -394,7 +481,12 @@ public class NativeLLVMBackend implements Backend {
             // beschikbaar voor inspectie.
             Path llPath = replaceExtension(outputObj, ".ll");
             long t2 = System.nanoTime();
-            emitLLVMIR(llvmMod, llPath);
+            // A large program has no value names (see above): its .ll is gigabytes nobody reads, and writing it takes
+            // half a minute. -Dnabu.llvm.writeLl=true|false overrides.
+            final String writeLl = System.getProperty("nabu.llvm.writeLl");
+            if (writeLl != null ? Boolean.parseBoolean(writeLl) : !(partitioned && moduleCount > 2000)) {
+                emitLLVMIR(llvmMod, llPath);
+            }
             long t3 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] writing .ll: " + (t3 - t2) / 1_000_000L + " ms");
 
@@ -402,15 +494,28 @@ public class NativeLLVMBackend implements Backend {
             long t4 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] validate: " + (t4 - t3) / 1_000_000L + " ms");
 
-            final int partitions = partitioned
+            // Without optimization the code generation is the only work: one module is faster than the split into
+            // partitions (writing, parsing and trimming the bitcode of the whole program), and needs less memory.
+            final boolean single = opts.optLevel() == CompileOptions.OptLevel.NONE
+                    && System.getProperty("nabu.llvm.partitions") == null;
+            final int partitions = partitioned && !single
                     ? PartitionedCodegen.partitionCount(PartitionedCodegen.countDefinedFunctions(llvmMod))
                     : 1;
             final List<Path> objectFiles = objectFiles(outputObj, partitions);
             if (partitions > 1) {
                 LLVMDisposeTargetMachine(machine);
                 PartitionedCodegen.compile(llvmMod, partitions, triple,
-                        opts.optLevel() != CompileOptions.OptLevel.NONE ? pipeline(opts.optLevel()) : null,
-                        objectFiles);
+                        opts.optLevel() != CompileOptions.OptLevel.NONE ? effectivePipeline(opts.optLevel()) : null,
+                        objectFiles, () -> {
+                            // The context too: it keeps the types, constants and metadata of the whole program
+                            // alive, also after the module is gone.
+                            LLVMDisposeBuilder(builder);
+                            builderDisposed[0] = true;
+                            LLVMDisposeModule(llvmMod);
+                            moduleDisposed[0] = true;
+                            LLVMContextDispose(ctx);
+                            contextDisposed[0] = true;
+                        });
                 long t5 = System.nanoTime();
                 System.err.println("[NativeLLVMBackend] optimize (" + opts.optLevel() + ") + emitObjectFile, "
                         + partitions + " partitions in parallel: " + (t5 - t4) / 1_000_000L + " ms");
@@ -431,9 +536,15 @@ public class NativeLLVMBackend implements Backend {
             return objectFiles;
 
         } finally {
-            LLVMDisposeBuilder(builder);
-            LLVMDisposeModule(llvmMod);
-            LLVMContextDispose(ctx);
+            if (!builderDisposed[0]) {
+                LLVMDisposeBuilder(builder);
+            }
+            if (!moduleDisposed[0]) {
+                LLVMDisposeModule(llvmMod);
+            }
+            if (!contextDisposed[0]) {
+                LLVMContextDispose(ctx);
+            }
         }
     }
 
@@ -505,14 +616,26 @@ public class NativeLLVMBackend implements Backend {
     private void optimize(LLVMModuleRef mod,
                           LLVMTargetMachineRef machine,
                           CompileOptions.OptLevel level) throws CompileException {
-        runPasses(mod, machine, pipeline(level));
+        runPasses(mod, machine, effectivePipeline(level));
+    }
+
+    /** Returns the PGO-override pipeline if set, otherwise the default pipeline for {@code level}. */
+    private static String effectivePipeline(CompileOptions.OptLevel level) {
+        // PGO override: -Dnabu.pgo.pipeline=<pipeline string>
+        // Examples:
+        //   instrument: pgo-instr-gen,default<O2>
+        //   use:        pgo-instr-use</abs/path/to/profile.profdata>,default<O2>
+        String pgoPipeline = System.getProperty("nabu.pgo.pipeline");
+        return pgoPipeline != null && !pgoPipeline.isBlank() ? pgoPipeline : pipeline(level);
     }
 
     private static String pipeline(CompileOptions.OptLevel level) {
         return switch (level) {
-            case NONE       -> "mem2reg";
-            case DEFAULT    -> "default<O2>";
-            case AGGRESSIVE -> "default<O3>";
+            case NONE             -> "mem2reg";
+            case DEFAULT          -> "default<O2>";
+            case AGGRESSIVE       -> "default<O3>";
+            case SIZE             -> "default<Os>";
+            case SIZE_AGGRESSIVE  -> "default<Oz>";
         };
     }
 

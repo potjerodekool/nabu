@@ -9,6 +9,7 @@
 #define _DARWIN_C_SOURCE
 #endif
 #include "nabu_runtime.h"
+#include "nabu_gc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,8 @@
 #include <errno.h>
 #include <pthread.h>
 #ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <direct.h>
 #include <io.h>
@@ -28,26 +31,26 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <poll.h>
 #include <sched.h>
 #include <sys/syscall.h>
+#ifdef __linux__
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+#endif
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
 #endif
 #endif
 
-#ifdef NABU_GC_BOEHM
-#include <gc.h>
-#define JCL_MEM(n) GC_malloc(n)
-#else
-#define JCL_MEM(n) calloc(1, (n))
-#endif
-
-#ifdef NABU_GC_BOEHM
-#define JCL_REALLOC(p, n) GC_realloc((p), (n))
-#else
-#define JCL_REALLOC(p, n) realloc((p), (n))
-#endif
+#define JCL_MEM(n) nabu_gc_alloc(n)
+#define JCL_REALLOC(p, n) nabu_gc_realloc((p), (n))
 
 /* the symbol of a function the compiled code calls by its JDK name; on macOS an asm label is not given the underscore
  * that every other symbol has */
@@ -82,6 +85,7 @@ typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
 typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 /* A java.lang.Thread. state: 0 new, 1 started, 2 terminated. Threads run one at a time (see nabu_gil_*). */
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
+                 void *terminatingThreadLocals;   /* the map of the TerminatingThreadLocals (the buffer cache of NIO) */
                  int daemon; int priority; int64_t id;
                  int state; int interrupted; int permit; void *self; volatile int wait_state; void *inherit_from;
                  void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope;
@@ -385,6 +389,20 @@ static void *jcl_class_unlocked(const char *iname) {
     st->v = jcl_dup(iname);
     void *obj = jcl_alloc(48 + 8);
     nabu_init_object(obj, "java/lang/Class");
+    {
+        /* The type info of Class is made by the runtime, without the interfaces of the real class: a cast of a
+         * Class to Type / AnnotatedElement / GenericDeclaration (Hibernate) would fail. */
+        static const char *const class_interfaces[] = {
+            "java/io/Serializable", "java/lang/reflect/GenericDeclaration", "java/lang/reflect/Type",
+            "java/lang/reflect/AnnotatedElement", "java/lang/invoke/TypeDescriptor",
+            "java/lang/invoke/TypeDescriptor$OfField", "java/lang/constant/Constable"
+        };
+        nabu_type_info *class_ti = (nabu_type_info *)((nabu_object *)obj)->type;
+        if (class_ti != NULL && class_ti->interface_count == 0) {
+            class_ti->interfaces = class_interfaces;
+            class_ti->interface_count = (int)(sizeof class_interfaces / sizeof class_interfaces[0]);
+        }
+    }
     nabu_jcl_set_state(obj, st);
     jcl_class_table[jcl_class_slot(jcl_class_table, jcl_class_cap, iname)] = obj;
     jcl_class_n++;
@@ -395,6 +413,15 @@ static void *jcl_class_unlocked(const char *iname) {
  * backend geeft de interne naam ("pkg/Cls", "[pkg/Cls") of, voor een
  * primitief, de JVM-descriptor ("I"); die laatste wordt de naam die
  * Class.getPrimitiveClass ("int") ook gebruikt, zodat int.class == Integer.TYPE. */
+void *nabu_class_literal_cached(void **slot, const char *iname) {
+    void *cls = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+    if (cls == NULL) {
+        cls = nabu_class_literal(iname);
+        __atomic_store_n(slot, cls, __ATOMIC_RELEASE);
+    }
+    return cls;
+}
+
 void *nabu_class_literal(const char *iname) {
     if (iname != NULL && iname[0] != '\0' && iname[1] == '\0') {
         switch (iname[0]) {
@@ -667,11 +694,16 @@ static const nabu_annotation_entry *jcl_entry_owned(const nabu_reflection_info *
 /* An element whose value is an annotation (null if it has none: the
  * default of such an element is not in the metadata). */
 BIND(void *, jcl_ann_annotation, "nabu.runtime.Annotations_annotation", (void *a, void *name, void *type)) {
-    (void)type;
     const nabu_reflection_info *info;
     char *key = jcl_nested_key(a, nabu_cstr(name), &info);
     const nabu_annotation_entry *e = key != NULL ? jcl_entry_owned(info, key) : NULL;
-    return e != NULL ? jcl_ann_obj(e) : NULL;
+    if (e != NULL) return jcl_ann_obj(e);
+    /* Not in the metadata: the element has its default (@Parameter.schema() is an empty @Schema, never null),
+     * an annotation of that type with no values. */
+    if (type == NULL) return NULL;
+    nabu_annotation_entry *blank = (nabu_annotation_entry *)jcl_alloc(sizeof *blank);
+    blank->type_name = jcl_dup(nabu_cstr(type));
+    return jcl_ann_obj(blank);
 }
 /* An element whose value is an array of annotations of `type` (internal name). */
 BIND(void *, jcl_ann_annotations, "nabu.runtime.Annotations_annotations", (void *a, void *name, void *type)) {
@@ -825,17 +857,115 @@ BIND(void, jcl_java_lang_System_arraycopy, "java.lang.System_arraycopy", (void *
     size_t es = jcl_arr_esize(src);
     memmove((char *)dst + 8 + (size_t)dstPos * es, (const char *)src + 8 + (size_t)srcPos * es, (size_t)len * es);
 }
+
+/* ---- Lever 2: JDK string intrinsics ----------------------------------------
+ * The compiled bytecode of String.hashCode / String.equals has a clinit-once
+ * check and a safepoint poll on EVERY loop iteration.  These C replacements use
+ * memcmp / a plain int loop — GCC can auto-vectorise both.
+ * petstore.1.o carries STRONG symbols for these; objcopy --weaken-symbol
+ * lets the BIND definitions here win at link time.
+ * --------------------------------------------------------------------------- */
+
+/* Array data layout: int32_t length at offset 0, element data at offset 8. */
+#define JCL_ARR_DATA(a) ((const uint8_t *)(a) + 8)
+
+BIND(int32_t, jcl_String_hashCode, "java.lang.String_hashCode", (void *self)) {
+    nabu_jstring *s = (nabu_jstring *)self;
+    int32_t h = s->hash;
+    if (h != 0 || s->hash_is_zero) return h;
+
+    int32_t len     = *(const int32_t *)s->value;
+    const uint8_t *d = JCL_ARR_DATA(s->value);
+
+    if (s->coder == 0) {
+        /* LATIN1: each byte is an unsigned char value (0–255) */
+        for (int32_t i = 0; i < len; i++)
+            h = 31 * h + d[i];
+    } else {
+        /* UTF16 LE: two bytes per char, low byte first */
+        int32_t nc = len >> 1;
+        for (int32_t i = 0; i < nc; i++) {
+            uint16_t c = (uint16_t)d[2*i] | ((uint16_t)d[2*i+1] << 8);
+            h = 31 * h + (int32_t)c;
+        }
+    }
+
+    if (h == 0) s->hash_is_zero = 1;
+    else        s->hash = h;
+    return h;
+}
+
+BIND(int32_t, jcl_String_equals, "java.lang.String_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    if (!nabu_is_jstring(other)) return 0;
+
+    const nabu_jstring *a = (const nabu_jstring *)self;
+    const nabu_jstring *b = (const nabu_jstring *)other;
+
+    if (a->coder != b->coder) return 0;
+
+    int32_t la = *(const int32_t *)a->value;
+    int32_t lb = *(const int32_t *)b->value;
+    if (la != lb) return 0;
+    if (la == 0)  return 1;
+
+    return memcmp(JCL_ARR_DATA(a->value), JCL_ARR_DATA(b->value), (size_t)la) == 0;
+}
+
 BIND(int64_t, jcl_java_lang_System_currentTimeMillis, "java.lang.System_currentTimeMillis", (void)) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
+/* No security manager (the JDK deprecated it for removal) and no console (stdin/stdout are not a terminal here). */
+BIND(void *, jcl_java_lang_System_getSecurityManager, "java.lang.System_getSecurityManager", (void)) { return NULL; }
+BIND(void *, jcl_java_lang_System_console, "java.lang.System_console", (void)) { return NULL; }
 BIND(int64_t, jcl_java_lang_System_nanoTime, "java.lang.System_nanoTime", (void)) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 BIND(void, jcl_java_lang_System_exit, "java.lang.System_exit", (int32_t code)) { fflush(NULL); jcl_exiting = 1; exit(code); }
+/* ProcessHandleImpl (ProcessHandle.current().pid(), Spring Boot's ApplicationPid): the process of this program. The
+ * start time is not known: 0. */
+BIND(void, jcl_ProcessHandleImpl_initNative, "java.lang.ProcessHandleImpl_initNative", (void)) { }
+BIND(int64_t, jcl_ProcessHandleImpl_getCurrentPid0, "java.lang.ProcessHandleImpl_getCurrentPid0", (void)) {
+    return (int64_t)getpid();
+}
+BIND(int64_t, jcl_ProcessHandleImpl_isAlive0, "java.lang.ProcessHandleImpl_isAlive0", (int64_t pid)) {
+    (void)pid;
+    return 0;
+}
+/* StackWalkSupport.mainClass0: the Class of the program's main class (nabu_main_class_name, written by the backend). */
+extern const char nabu_main_class_name[] __attribute__((weak));
+BIND(void *, jcl_StackWalkSupport_mainClass0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.StackWalkSupport_mainClass0", (void)) {
+    if (&nabu_main_class_name[0] == NULL) return NULL;
+    return jcl_class(nabu_main_class_name);
+}
+
+/* The time this process started (ManagementSupport: RuntimeMXBean.getStartTime and getUptime). */
+static int64_t jcl_process_start_ms = 0;
+static void jcl_note_process_start(void) __attribute__((constructor));
+static void jcl_note_process_start(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    jcl_process_start_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+BIND(int64_t, jcl_ManagementSupport_startTime0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ManagementSupport_startTime0", (void)) {
+    return jcl_process_start_ms;
+}
+/* Loading a native library of the JDK ("management", "net", "nio", ...): the code is part of the program. */
+BIND(void, jcl_java_lang_System_loadLibrary, "java.lang.System_loadLibrary", (void *name)) { (void)name; }
+BIND(void, jcl_java_lang_System_load, "java.lang.System_load", (void *name)) { (void)name; }
+
+/* EnvSupport.environ0: the environment as a String[] of "NAME=value" (System.getenv()). */
+BIND(void *, jcl_EnvSupport_environ0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.EnvSupport_environ0", (void)) {
+    int32_t n = 0;
+    if (environ != NULL) while (environ[n] != NULL) n++;
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/String;");
+    for (int32_t i = 0; i < n; i++) jcl_arr_set(arr, i, nabu_jstring_new(environ[i]));
+    return arr;
+}
 static void * jcl_java_lang_System_getenv (void *name) {
     const char *v = getenv(jcl_str(name));
     /* Kopie: zie jcl_env_or (8-byte-header-herkenning op een getenv-pointer). */
@@ -844,6 +974,11 @@ static void * jcl_java_lang_System_getenv (void *name) {
 BIND(void *, jcl_java_lang_System_getenv_jstr, "java.lang.System_getenv", (void *name)) {
     void *r = (void *)jcl_java_lang_System_getenv(name);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
+}
+/* Whether the object is an array (no object header, so no vtable): the backend tests a receiver that is
+ * statically an Object before calling equals, hashCode or toString on it. */
+int nabu_is_array(void *o) {
+    return o != NULL && nabu_compiled_type_name(o) == NULL && jcl_typed_array_name(o) != NULL;
 }
 BIND(int32_t, jcl_java_lang_System_identityHashCode, "java.lang.System_identityHashCode", (void *o)) {
     return o == NULL ? 0 : (int32_t)((intptr_t)o >> 4);
@@ -935,6 +1070,9 @@ static void jcl_props_put_system(void) {
      * module-layers, wat een native programma niet heeft. Overschrijfbaar
      * via NABU_PROPERTIES hieronder. */
     jcl_map_put(jcl_props, (void *)"java.locale.providers", (void *)"FALLBACK");
+    /* As in a GraalVM native image: frameworks (Spring's NativeDetector) take their ahead-of-time paths and skip the
+     * class path scanning and module layers a native program does not have. */
+    jcl_map_put(jcl_props, (void *)"org.graalvm.nativeimage.imagecode", (void *)"runtime");
     const char *extra = getenv("NABU_PROPERTIES");
     if (extra != NULL && extra[0] != '\0') {
         char *copy = jcl_dup(extra);
@@ -1006,12 +1144,11 @@ static void *jcl_props_table_populate(void) {
  * object had alleen die van Object, en bv. StaticProperty.getProperty
  * sprong dan naar een slot voorbij het einde van die tabel. */
 /* Een leeg object van een gecompileerde klasse, met haar header. */
-static void *jcl_new_compiled(void *type, void *vtable, void *itable, int64_t size) {
+static void *jcl_new_compiled(void *type, int64_t size) {
     void *self = jcl_alloc((size_t)size);
     nabu_object *h = (nabu_object *)self;
     h->type = type;
-    h->vtable = vtable;
-    h->itable = itable;
+    /* vtable/itable zitten in type_info, niet in de object-header */
     return self;
 }
 
@@ -1029,7 +1166,7 @@ static void *jcl_compiled_properties(void) {
 static void *jcl_compiled_properties_build(void) {
     if (jcl_compiled_props != NULL) return jcl_compiled_props;
     const nabu_properties_meta_t *m = &nabu_properties_meta;
-    void *self = jcl_new_compiled(m->type, m->vtable, m->itable, m->size);
+    void *self = jcl_new_compiled(m->type, m->size);
     m->init(self);
     s_map *t = (s_map *)jcl_state_kind(jcl_props_table(), K_MAP);
     for (int32_t i = 0; t != NULL && i < t->size; i++) {
@@ -1624,14 +1761,12 @@ BIND(void *, jcl_fs_getDriveDirectory, JCL_FS("getDriveDirectory$PI32"), (void *
 
 /* --- FileInputStream / FileOutputStream on files ------------------------ */
 
-#ifdef NABU_GC_BOEHM
 /* A FileDescriptor nobody references any more: close its descriptor, as the
  * JDK's cleaner does. The descriptor can have been closed already. */
 static void jcl_fd_finalize(void *fdObj, void *unused) {
     (void)unused;
     jcl_fd_close_slot(jcl_fd_slot(fdObj));
 }
-#endif
 
 static void jcl_open_file(void *self, void *pathString, int flags) {
     const char *path = nabu_cstr(pathString);
@@ -1650,11 +1785,9 @@ static void jcl_open_file(void *self, void *pathString, int flags) {
     int32_t *slot = off >= 0 ? jcl_fd_slot(*(void **)((char *)self + off)) : NULL;
     if (slot != NULL) {
         *slot = fd;
-#ifdef NABU_GC_BOEHM
-        /* The descriptor object refers to its stream (parent), so the two form a cycle:
-         * only the unordered variant finalizes those. */
-        GC_register_finalizer_no_order(*(void **)((char *)self + off), jcl_fd_finalize, NULL, NULL, NULL);
-#endif
+        /* The descriptor object refers to its stream (parent), so the two form a cycle: the collector has to finalize
+         * objects that refer to each other (nabu_gc_set_finalizer does). */
+        nabu_gc_set_finalizer(*(void **)((char *)self + off), jcl_fd_finalize);
     } else {
 #ifdef _WIN32
         _close(fd);
@@ -1936,6 +2069,37 @@ BIND(int32_t, jcl_FileDispatcherImpl_setDirect0, JCL_FDI("setDirect0"), (void *f
  * platform: a native that is only defined on Linux would leave an undefined reference on Windows. */
 BIND(void, jcl_FileDispatcherImpl_init0, "sun.nio.ch.FileDispatcherImpl_init0", (void)) {
 }
+/* File descriptor kept open by UnixDispatcher.init() for dup2-based preClose. */
+#ifndef _WIN32
+static int jcl_unix_preclose_fd = -1;
+#endif
+BIND(void, jcl_UnixDispatcher_init, "sun.nio.ch.UnixDispatcher_init", (void)) {
+#ifndef _WIN32
+    /* Create a socketpair; keep one end as the target for dup2 in preClose0 so that
+     * blocked I/O on a channel gets interrupted when the channel is closed. */
+    int sp[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp) == 0) {
+        jcl_unix_preclose_fd = sp[0];
+        close(sp[1]);
+    }
+#endif
+}
+BIND(void, jcl_UnixDispatcher_close0, "sun.nio.ch.UnixDispatcher_close0", (void *fdObj)) {
+#ifndef _WIN32
+    int fd = jcl_chan_fd(fdObj);
+    if (fd >= 0) close(fd);
+#else
+    (void)fdObj;
+#endif
+}
+BIND(void, jcl_UnixDispatcher_preClose0, "sun.nio.ch.UnixDispatcher_preClose0", (void *fdObj)) {
+#ifndef _WIN32
+    int fd = jcl_chan_fd(fdObj);
+    if (fd >= 0 && jcl_unix_preclose_fd >= 0) dup2(jcl_unix_preclose_fd, fd);
+#else
+    (void)fdObj;
+#endif
+}
 BIND(int64_t, jcl_FileDispatcherImpl_transferFrom0, "sun.nio.ch.FileDispatcherImpl_transferFrom0",
      (void *src, void *dst, int64_t position, int64_t count, uint8_t append)) {
     (void)src; (void)dst; (void)position; (void)count; (void)append;
@@ -2024,7 +2188,9 @@ BIND(void, jcl_IOUtil_configureBlocking, "sun.nio.ch.IOUtil_configureBlocking", 
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags >= 0) fcntl(fd, F_SETFL, blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK));
 #else
-    (void)blocking;
+    /* Only sockets are configured on Windows (a file channel is always blocking). */
+    u_long mode = blocking ? 0 : 1;
+    ioctlsocket((SOCKET)fd, FIONBIO, &mode);
 #endif
 }
 BIND(int32_t, jcl_IOUtil_fdLimit, "sun.nio.ch.IOUtil_fdLimit", (void)) {
@@ -2618,9 +2784,35 @@ BIND(void *, jcl_ShutdownSupport_targetOf0, "io.github.potjerodekool.nabu.compil
 }
 
 
+/* The type info of the reflection objects the runtime makes (Method, Constructor, Field) comes from a cache without the
+ * supers of the real classes: a cast of a Constructor to Member (Spring's BeanUtils & co) or of a Method to
+ * Executable would fail. */
+static void jcl_wire_reflect_type(void *obj, const char *type) {
+    static const char *const executable_interfaces[] = {
+        "java/lang/reflect/Member", "java/lang/reflect/AnnotatedElement", "java/lang/reflect/GenericDeclaration"
+    };
+    static const char *const field_interfaces[] = {
+        "java/lang/reflect/Member", "java/lang/reflect/AnnotatedElement"
+    };
+    nabu_type_info *ti = (nabu_type_info *)((nabu_object *)obj)->type;
+    if (ti == NULL || ti->interface_count != 0) return;
+    char scratch[64];
+    if (strcmp(type, "java/lang/reflect/Method") == 0 || strcmp(type, "java/lang/reflect/Constructor") == 0) {
+        nabu_init_object_ex(scratch, "java/lang/reflect/Executable", "java/lang/reflect/AccessibleObject");
+        nabu_init_object_ex(scratch, type, "java/lang/reflect/Executable");
+        ti->interfaces = executable_interfaces;
+        ti->interface_count = 3;
+    } else if (strcmp(type, "java/lang/reflect/Field") == 0) {
+        nabu_init_object_ex(scratch, type, "java/lang/reflect/AccessibleObject");
+        ti->interfaces = field_interfaces;
+        ti->interface_count = 2;
+    }
+}
+
 static void *jcl_new_obj(const char *type, void *state) {
     void *obj = jcl_alloc(48 + 8);
     nabu_init_object(obj, type);
+    if (strncmp(type, "java/lang/reflect/", 18) == 0) jcl_wire_reflect_type(obj, type);
     if (state != NULL) nabu_jcl_set_state(obj, state);
     return obj;
 }
@@ -2712,6 +2904,68 @@ static void *jcl_ann_obj(const nabu_annotation_entry *e) {
     return jcl_new_obj(e->type_name, st);
 }
 
+/* AnnotationSupport.blank0(Class): an annotation object of that type with no values (Method.getDefaultValue). */
+BIND(void *, jcl_AnnotationSupport_blank0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.AnnotationSupport_blank0", (void *cls)) {
+    nabu_annotation_entry *e = (nabu_annotation_entry *)jcl_alloc(sizeof *e);
+    e->type_name = jcl_dup(jcl_str(cls));
+    return jcl_ann_obj(e);
+}
+
+/* Annotation.equals/hashCode/toString: every getAnnotation builds a new object, so the same annotation is
+ * equal by type and values (TypeDescriptor.annotationsMatch compares annotations of the same parameter). */
+static int jcl_ann_values_equal(const nabu_annotation_value *a, const nabu_annotation_value *b) {
+    if ((a->name == NULL) != (b->name == NULL)) return 0;
+    if (a->name != NULL && strcmp(a->name, b->name) != 0) return 0;
+    if (a->is_string != b->is_string) return 0;
+    if ((a->text == NULL) != (b->text == NULL)) return 0;
+    if (a->text != NULL && strcmp(a->text, b->text) != 0) return 0;
+    return a->num_value == b->num_value;
+}
+BIND(int, jcl_java_lang_Annotation_equals, "java.lang.annotation.Annotation_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    if (self == NULL || other == NULL) return 0;
+    s_ann *a = (s_ann *)jcl_state_kind(self, K_ANN);
+    s_ann *b = (s_ann *)jcl_state_kind(other, K_ANN);
+    if (a == NULL || b == NULL || a->e == NULL || b->e == NULL) return 0;
+    if (a->e == b->e) return 1;
+    if (strcmp(a->e->type_name, b->e->type_name) != 0) return 0;
+    if (a->e->value_count != b->e->value_count) return 0;
+    for (int i = 0; i < a->e->value_count; i++) {
+        if (!jcl_ann_values_equal(&a->e->values[i], &b->e->values[i])) return 0;
+    }
+    return 1;
+}
+BIND(int32_t, jcl_java_lang_Annotation_hashCode, "java.lang.annotation.Annotation_hashCode", (void *self)) {
+    s_ann *a = (s_ann *)jcl_state_kind(self, K_ANN);
+    if (a == NULL || a->e == NULL) return 0;
+    uint32_t h = 17;
+    for (const char *p = a->e->type_name; *p != 0; p++) h = h * 31u + (unsigned char)*p;
+    for (int i = 0; i < a->e->value_count; i++) {
+        const char *t = a->e->values[i].text;
+        if (t != NULL) for (; *t != 0; t++) h = h * 31u + (unsigned char)*t;
+        h = h * 31u + (uint32_t)(int64_t)a->e->values[i].num_value;
+    }
+    return (int32_t)h;
+}
+BIND(void *, jcl_java_lang_Annotation_toString, "java.lang.annotation.Annotation_toString", (void *self)) {
+    s_ann *a = (s_ann *)jcl_state_kind(self, K_ANN);
+    char buf[1024];
+    if (a == NULL || a->e == NULL) return nabu_jstring_new("@?");
+    int n = snprintf(buf, sizeof buf, "@");
+    for (const char *p = a->e->type_name; *p != 0 && n < 900; p++) buf[n++] = (*p == '/') ? '.' : *p;
+    buf[n++] = '(';
+    for (int i = 0; i < a->e->value_count && n < 900; i++) {
+        const nabu_annotation_value *v = &a->e->values[i];
+        if (i > 0) n += snprintf(buf + n, sizeof buf - n, ", ");
+        if (v->name != NULL) n += snprintf(buf + n, sizeof buf - n, "%s=", v->name);
+        if (v->text != NULL) n += snprintf(buf + n, sizeof buf - n, "%s", v->text);
+        else n += snprintf(buf + n, sizeof buf - n, "%g", v->num_value);
+    }
+    if (n > 1000) n = 1000;
+    snprintf(buf + n, sizeof buf - n, ")");
+    return nabu_jstring_new(buf);
+}
+
 static void *jcl_field_obj(const char *cls, const nabu_field_info *f) {
     s_field *st = (s_field *)jcl_alloc(sizeof(s_field));
     st->kind = K_FIELD;
@@ -2721,6 +2975,11 @@ static void *jcl_field_obj(const char *cls, const nabu_field_info *f) {
 }
 
 static s_field *jcl_field_of(void *self) { return (s_field *)jcl_state_kind(self, K_FIELD); }
+
+/* Open world: when the bytecode interpreter (nabu_interpreter.c / nabu_classfile.c) is linked in
+ * (-Dnabu.interpreter=true), a constructor in nabu_classfile.c installs these hooks. Without it they stay NULL. */
+int (*nabu_interp_load_hook)(const char *internal_name) = NULL;
+int (*nabu_interp_call_int_hook)(const char *internal_name, const char *method, int32_t a, int32_t b, int32_t *out) = NULL;
 
 /* Class.forName kent alleen klassen die het programma heeft: gecompileerd
  * (type-tabel), in de reflectie-registry, of een array. Voor de rest gooit
@@ -2737,16 +2996,49 @@ BIND(void *, jcl_java_lang_Class_forName, "java.lang.Class_forName", (void *name
     }
     for (size_t i = 0; i <= len; i++) internal[i] = n[i] == '.' ? '/' : n[i];
     if (internal[0] != '[' && nabu_compiled_type_for(internal) == NULL
-            && nabu_lookup_reflection(internal) == NULL) {
+            && nabu_lookup_reflection(internal) == NULL
+            && !(nabu_interp_load_hook != NULL && nabu_interp_load_hook(internal) == 0)) {
         nabu_throw(jcl_throw("java/lang/ClassNotFoundException", "java/lang/ReflectiveOperationException", n));
         return NULL;
     }
     return jcl_class(internal);
 }
+/* org.nabu.interp.Interp.callStaticInt(String className, String method, int a, int b): calls the static method
+ * "int method(int, int)" of a class that is not part of the program but is found on NABU_CLASSPATH, in the
+ * bytecode interpreter. Primitive arguments only: the interpreter has its own representation of strings and objects. */
+BIND(int32_t, jcl_nabu_interp_callStaticInt, "Interp_callStaticInt", (void *cls, void *method, int32_t a, int32_t b)) {
+    const char *cn = jcl_str(cls);
+    char internal[512];
+    size_t len = strlen(cn);
+    if (len == 0 || len >= sizeof internal) { nabu_throw(jcl_throw("java/lang/ClassNotFoundException", "java/lang/ReflectiveOperationException", cn)); return 0; }
+    for (size_t i = 0; i <= len; i++) internal[i] = cn[i] == '.' ? '/' : cn[i];
+    int32_t out = 0;
+    if (nabu_interp_load_hook == NULL || nabu_interp_call_int_hook == NULL || nabu_interp_load_hook(internal) != 0) {
+        nabu_throw(jcl_throw("java/lang/ClassNotFoundException", "java/lang/ReflectiveOperationException", cn));
+        return 0;
+    }
+    if (nabu_interp_call_int_hook(internal, jcl_str(method), a, b, &out) != 0) {
+        nabu_throw(jcl_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException", jcl_str(method)));
+        return 0;
+    }
+    return out;
+}
 BIND(void *, jcl_java_lang_Class_forName_s, "java.lang.Class_forName$P523beb0a", (void *name)) { return jcl_java_lang_Class_forName(name); }
 /* Class.forName(String, boolean, ClassLoader): there is one class loader; initialization is lazy anyway. */
 BIND(void *, jcl_java_lang_Class_forName_3, "java.lang.Class_forName$P523beb0aZP2f7ad930", (void *name, uint8_t init, void *loader)) {
-    (void)init; (void)loader;
+    (void)loader;
+    if (init) {
+        /* Initialization on request, as the JVM does: frameworks rely on the static initializer running inside
+         * the call (CGLIB's generated classes read the generator that is current while they are loaded). */
+        const char *n = jcl_str(name);
+        char internal[512];
+        size_t len = strlen(n);
+        if (len > 0 && len < sizeof internal) {
+            for (size_t i = 0; i <= len; i++) internal[i] = n[i] == '.' ? '/' : n[i];
+            const nabu_reflection_info *ri = nabu_lookup_reflection(internal);
+            if (ri != NULL && ri->class_init != NULL) ri->class_init();
+        }
+    }
     return jcl_java_lang_Class_forName(name);
 }
 /* Class.forName(Module, String): als forName(String), maar null i.p.v.
@@ -2799,9 +3091,36 @@ static char *jcl_source_name(const char *n, int nested_dots) {
     return base;
 }
 static void * jcl_java_lang_Class_getName (void *self) { return (void *)jcl_binary_name(jcl_str(self)); }
-BIND(void *, jcl_java_lang_Class_getName_jstr, "java.lang.Class_getName", (void *self)) {
+/* Class.getName makes the same String again and again (Spring asks for it at every request): one per name. */
+typedef struct jcl_name_entry { struct jcl_name_entry *next; char *key; void *value; } jcl_name_entry;
+static jcl_name_entry *volatile jcl_name_cache[2048];
+
+static void *jcl_cached_name(const char *key, void *(*make)(void *), void *arg) {
+    uint32_t h = 2166136261u;
+    for (const char *p = key; *p; p++) h = (h ^ (unsigned char) *p) * 16777619u;
+    jcl_name_entry *volatile *bucket = &jcl_name_cache[h & 2047];
+    for (jcl_name_entry *e = *bucket; e != NULL; e = e->next) {
+        if (strcmp(e->key, key) == 0) return e->value;
+    }
+    void *value = make(arg);
+    jcl_name_entry *entry = (jcl_name_entry *) JCL_MEM(sizeof *entry);
+    entry->key = jcl_dup(key);
+    entry->value = value;
+    for (;;) {
+        jcl_name_entry *head = *bucket;
+        entry->next = head;
+        if (__sync_bool_compare_and_swap(bucket, head, entry)) break;
+    }
+    return value;
+}
+
+static void *jcl_class_name_object(void *self) {
     void *r = (void *)jcl_java_lang_Class_getName(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
+}
+
+BIND(void *, jcl_java_lang_Class_getName_jstr, "java.lang.Class_getName", (void *self)) {
+    return jcl_cached_name(jcl_str(self), jcl_class_name_object, self);
 }
 static void * jcl_java_lang_Class_getCanonicalName (void *self) { return (void *)jcl_source_name(jcl_str(self), 1); }
 BIND(void *, jcl_java_lang_Class_getCanonicalName_jstr, "java.lang.Class_getCanonicalName", (void *self)) {
@@ -2809,6 +3128,10 @@ BIND(void *, jcl_java_lang_Class_getCanonicalName_jstr, "java.lang.Class_getCano
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 void *jcl_java_lang_Class_getComponentType(void *self) __asm__(JCL_SYM("java.lang.Class_getComponentType"));
+/* Class.componentType (Java 12): the same. */
+BIND(void *, jcl_java_lang_Class_componentType, "java.lang.Class_componentType", (void *self)) {
+    return jcl_java_lang_Class_getComponentType(self);
+}
 static void * jcl_java_lang_Class_getSimpleName (void *self) {
     const char *n = jcl_str(self);
     if (n[0] == '[' && n[1] != '\0') {
@@ -2863,13 +3186,26 @@ BIND(void *, jcl_java_lang_Class_getComponentType, "java.lang.Class_getComponent
     }
     return NULL;
 }
+/* Class.arrayType (Java 12): the class of an array of this class ("[Ljava/lang/String;", "[I", "[[I"). */
+BIND(void *, jcl_java_lang_Class_arrayType, "java.lang.Class_arrayType", (void *self)) {
+    const char *n = jcl_str(self);
+    static const struct { const char *name; const char *code; } prims[] = {
+        {"int", "[I"}, {"long", "[J"}, {"boolean", "[Z"}, {"double", "[D"}, {"float", "[F"},
+        {"short", "[S"}, {"byte", "[B"}, {"char", "[C"}
+    };
+    if (n[0] == '[') return jcl_class(jcl_concat("[", n));
+    for (size_t i = 0; i < sizeof prims / sizeof prims[0]; i++) {
+        if (strcmp(n, prims[i].name) == 0) return jcl_class(prims[i].code);
+    }
+    return jcl_class(jcl_concat(jcl_concat("[L", n), ";"));
+}
 /* Reflectieve instantiatie (Class/Constructor zijn VM-gebonden): de backend
  * emitteert per instantieerbare gecompileerde klasse met een no-arg-
  * constructor een entry; newInstance bouwt daarmee een echt object. Alleen
  * no-arg-constructors; andere geven NoSuchMethodException, zoals de JVM bij
  * een ontbrekende constructor. */
 typedef struct nabu_ctor_entry {
-    const char *name; void *type; void *vtable; void *itable; int64_t size; void (*init)(void *);
+    const char *name; void *type; int64_t size; void (*init)(void *);
 } nabu_ctor_entry;
 extern const nabu_ctor_entry nabu_ctor_table[];
 extern const int32_t nabu_ctor_count;
@@ -2897,7 +3233,7 @@ static void *jcl_no_arg_ctor(void *cls, void *pts) {
 }
 
 static void *jcl_instantiate(const nabu_ctor_entry *e) {
-    void *self = jcl_new_compiled(e->type, e->vtable, e->itable, e->size);
+    void *self = jcl_new_compiled(e->type, e->size);
     e->init(self);
     return self;
 }
@@ -3020,6 +3356,7 @@ BIND(void *, jcl_java_lang_Class_getFields, "java.lang.Class_getFields", (void *
 }
 BIND(void *, jcl_java_lang_Class_getMethod, "java.lang.Class_getMethod", (void *self, void *nm, void *pts)) { (void)self; (void)nm; (void)pts; return NULL; }
 BIND(void *, jcl_java_lang_Class_getMethods, "java.lang.Class_getMethods", (void *self)) { (void)self; return jcl_arr_typed(0, "[Ljava/lang/reflect/Method;"); }
+static int32_t jcl_class_flags(void *self);
 /* De super van de klasse die `self` NOEMT — niet die van het Class-object zelf
  * (dat is altijd java/lang/Class, met Object als super: getSuperclass gaf dan
  * Object.class terug, ook voor Object.class zelf, en picocli's
@@ -3031,6 +3368,12 @@ BIND(void *, jcl_java_lang_Class_getSuperclass, "java.lang.Class_getSuperclass",
     const char *n = jcl_str(self);
     for (size_t i = 0; i < sizeof primitives / sizeof primitives[0]; i++) {
         if (strcmp(n, primitives[i]) == 0) return NULL;
+    }
+    {
+        /* An interface has no superclass (null, not Object): Spring's ReflectionUtils.doWithMethods then goes on with
+         * the super interfaces. */
+        const int32_t flags = jcl_class_flags(self);
+        if (flags >= 0 && (flags & 0x200) != 0) return NULL;
     }
     if (n[0] == '\0' || n[0] == '[' || strcmp(n, "java/lang/Object") == 0) {
         /* Object, primitieven en void hebben geen super; een array heeft
@@ -3044,6 +3387,14 @@ BIND(void *, jcl_java_lang_Class_getSuperclass, "java.lang.Class_getSuperclass",
     /* Geen (gecompileerde) super bekend: een klasse erft dan van Object. */
     return jcl_class("java/lang/Object");
 }
+/* Class.getInterfaces: the interfaces the compiled type records (they include the known superinterfaces). */
+BIND(void *, jcl_java_lang_Class_getInterfaces, "java.lang.Class_getInterfaces", (void *self)) {
+    const nabu_type_info *ti = nabu_compiled_type_for(jcl_str(self));
+    int32_t count = ti != NULL ? ti->interface_count : 0;
+    void *arr = jcl_arr_typed(count, "[Ljava/lang/Class;");
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, jcl_class(ti->interfaces[i]));
+    return arr;
+}
 BIND(int, jcl_java_lang_Class_isArray, "java.lang.Class_isArray", (void *self)) {
     const char *n = jcl_str(self);
     size_t len = strlen(n);
@@ -3053,9 +3404,37 @@ BIND(int, jcl_java_lang_Class_isArray, "java.lang.Class_isArray", (void *self)) 
  * super-keten/interfaces van het gecompileerde type van o (zoals
  * nabu_instanceof). Sun's Bundles controleert zo of een reflectief geladen
  * klasse een ResourceBundle is. */
+/* The element class name of an array class name ("[Ljava/lang/String;" or "[pkg/Cls" or "[[I"); *primitive is set
+ * for an array of a primitive type. */
+static void jcl_array_element_name(const char *array, char *out, size_t size, int *primitive) {
+    const char *p = array + 1;
+    size_t len = strlen(p);
+    *primitive = 0;
+    if (*p == 'L' && len > 2 && p[len - 1] == ';') {
+        p++;
+        len -= 2;
+    } else if (len == 1 && strchr("ZBCSIJFD", *p) != NULL) {
+        *primitive = 1;
+    }
+    if (len >= size) len = size - 1;
+    memcpy(out, p, len);
+    out[len] = 0;
+}
 BIND(int, jcl_java_lang_Class_isAssignableFrom, "java.lang.Class_isAssignableFrom", (void *self, void *o)) {
     const char *target = jcl_str(self), *from = jcl_str(o);
     if (strcmp(target, from) == 0) return 1;
+    if (from[0] == '[') {
+        /* An array is an Object, Cloneable and Serializable; arrays of references are covariant. */
+        if (strcmp(target, "java/lang/Object") == 0 || strcmp(target, "java/lang/Cloneable") == 0
+                || strcmp(target, "java/io/Serializable") == 0) return 1;
+        if (target[0] != '[') return 0;
+        char a[256], b[256];
+        int pa, pb;
+        jcl_array_element_name(target, a, sizeof a, &pa);
+        jcl_array_element_name(from, b, sizeof b, &pb);
+        if (pa || pb) return 0;
+        return jcl_java_lang_Class_isAssignableFrom(jcl_class(a), jcl_class(b));
+    }
     const nabu_type_info *t = nabu_compiled_type_for(from);
     if (t != NULL && strcmp(target, "java/lang/Object") == 0) return 1;
     for (; t != NULL; t = t->super_type) {
@@ -3067,7 +3446,36 @@ BIND(int, jcl_java_lang_Class_isAssignableFrom, "java.lang.Class_isAssignableFro
     return 0;
 }
 BIND(int, jcl_java_lang_Class_isEnum, "java.lang.Class_isEnum", (void *self)) { return jcl_enum_entry(self) != NULL; }
-BIND(int, jcl_java_lang_Class_isInterface, "java.lang.Class_isInterface", (void *self)) { (void)self; return 0; }
+/* The class-file flags of a class of the program (nabu_class_flags, written by the backend; 0x10000 = record),
+ * or -1 for a class it does not list (a primitive, an array, a class without compiled code). */
+typedef struct { const char *name; int32_t flags; } nabu_class_flag;
+extern const nabu_class_flag nabu_class_flags[];
+extern const int32_t nabu_class_flag_count;
+static const nabu_class_flag **jcl_flags_sorted = NULL;
+static int jcl_flag_cmp(const void *a, const void *b) {
+    return strcmp((*(const nabu_class_flag *const *)a)->name, (*(const nabu_class_flag *const *)b)->name);
+}
+static int32_t jcl_class_flags(void *self) {
+    if (jcl_flags_sorted == NULL) {
+        nabu_rt_lock();
+        if (jcl_flags_sorted == NULL) {
+            const nabu_class_flag **sorted = (const nabu_class_flag **)malloc(sizeof *sorted * (size_t)(nabu_class_flag_count + 1));
+            for (int32_t i = 0; i < nabu_class_flag_count; i++) sorted[i] = &nabu_class_flags[i];
+            qsort(sorted, (size_t)nabu_class_flag_count, sizeof *sorted, jcl_flag_cmp);
+            jcl_flags_sorted = sorted;
+        }
+        nabu_rt_unlock();
+    }
+    nabu_class_flag key = { jcl_str(self), 0 };
+    const nabu_class_flag *k = &key;
+    const nabu_class_flag **hit = (const nabu_class_flag **)bsearch(&k, jcl_flags_sorted,
+            (size_t)nabu_class_flag_count, sizeof *jcl_flags_sorted, jcl_flag_cmp);
+    return hit != NULL ? (*hit)->flags : -1;
+}
+BIND(int, jcl_java_lang_Class_isInterface, "java.lang.Class_isInterface", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x200) != 0;
+}
 BIND(int, jcl_java_lang_Class_isPrimitive, "java.lang.Class_isPrimitive", (void *self)) {
     const char *n = jcl_str(self);
     return strcmp(n, "int") == 0 || strcmp(n, "long") == 0 || strcmp(n, "boolean") == 0
@@ -3081,6 +3489,49 @@ BIND(void *, jcl_java_lang_Class_newInstance, "java.lang.Class_newInstance", (vo
         return NULL;
     }
     return jcl_instantiate(e);
+}
+/* One class loader: loadClass is Class.forName (ClassNotFoundException for a class the program does not have). */
+/* ClassLoader(String, ClassLoader): a native loader has no JDK state to set up. */
+BIND(void, jcl_java_lang_ClassLoader_init, "java.lang.ClassLoader_init", (void *self)) { (void)self; }
+/* The one class loader of a native program (LoaderSupport.NativeClassLoader) has no parent and no packages of its own. */
+BIND(void *, jcl_java_lang_ClassLoader_getParent, "java.lang.ClassLoader_getParent", (void *self)) { (void)self; return NULL; }
+BIND(void, jcl_java_lang_ClassLoader_init_parent, "java.lang.ClassLoader_init$P", (void *self, void *parent)) { (void)self; (void)parent; }
+BIND(void *, jcl_java_lang_ClassLoader_getUnnamedModule, "java.lang.ClassLoader_getUnnamedModule", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_findResource, "java.lang.ClassLoader_findResource", (void *self, void *name)) { (void)self; (void)name; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_definePackage, "java.lang.ClassLoader_definePackage", (void *self, void *name, void *spec)) { (void)self; (void)name; (void)spec; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_getName, "java.lang.ClassLoader_getName", (void *self)) { (void)self; return nabu_jstring_new("app"); }
+BIND(int, jcl_java_lang_ClassLoader_equals, "java.lang.ClassLoader_equals", (void *self, void *other)) { return self == other; }
+BIND(int32_t, jcl_java_lang_ClassLoader_hashCode, "java.lang.ClassLoader_hashCode", (void *self)) { return (int32_t)((intptr_t)self >> 4); }
+BIND(int, jcl_java_lang_ClassLoader_isRegisteredAsParallelCapable, "java.lang.ClassLoader_isRegisteredAsParallelCapable", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_java_lang_ClassLoader_registerAsParallelCapable, "java.lang.ClassLoader_registerAsParallelCapable", (void)) { return 1; }
+BIND(void *, jcl_java_lang_ClassLoader_getDefinedPackage, "java.lang.ClassLoader_getDefinedPackage", (void *self, void *name)) { (void)self; (void)name; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_getDefinedPackages, "java.lang.ClassLoader_getDefinedPackages", (void *self)) { (void)self; return jcl_arr_typed(0, "[Ljava/lang/Package;"); }
+BIND(void, jcl_java_lang_ClassLoader_clearAssertionStatus, "java.lang.ClassLoader_clearAssertionStatus", (void *self)) { (void)self; }
+BIND(void, jcl_java_lang_ClassLoader_setDefaultAssertionStatus, "java.lang.ClassLoader_setDefaultAssertionStatus", (void *self, int enabled)) { (void)self; (void)enabled; }
+BIND(void, jcl_java_lang_ClassLoader_init_named, "java.lang.ClassLoader_init$PP523beb0aP2f7ad930", (void *self, void *name, void *parent)) { (void)self; (void)name; (void)parent; }
+BIND(void *, jcl_java_lang_ClassLoader_loadClass, "java.lang.ClassLoader_loadClass", (void *self, void *name)) {
+    (void)self;
+    return jcl_java_lang_Class_forName(name);
+}
+BIND(void *, jcl_java_lang_ClassLoader_loadClass_resolve, "java.lang.ClassLoader_loadClass$P523beb0aZ", (void *self, void *name, uint8_t resolve)) {
+    (void)self; (void)resolve;
+    return jcl_java_lang_Class_forName(name);
+}
+/* SharedSecrets' access to java.util.ImmutableCollections (Stream.toList): the class that implements the access
+ * interface is never initialized here, so the interface call has no implementation. The lists come from the
+ * compiled Arrays.asList / ImmutableCollections.listFromTrustedArray. */
+/* Weak default definition (a weak undefined reference does not link on PE/COFF: the REL32 is truncated). */
+__attribute__((weak)) void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays" "_asList"));
+__attribute__((weak)) void *jcl_java_util_Arrays_asList(void *array) { (void)array; return NULL; }
+BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed,
+     "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed", (void *self, void *array)) {
+    (void)self;
+    return jcl_java_util_Arrays_asList(array);
+}
+BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArray,
+     "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArray", (void *self, void *array)) {
+    (void)self;
+    return jcl_java_util_Arrays_asList(array);
 }
 BIND(void *, jcl_java_lang_ClassLoader_getResource, "java.lang.ClassLoader_getResource", (void *self, void *nm)) { (void)self; (void)nm; return NULL; }
 /* Een native programma heeft één (boot-)loader; null is de JDK-vorm daarvan,
@@ -3361,6 +3812,8 @@ BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void
  * parameter i "name(descriptor)#i". */
 typedef struct {
     int kind; char *cls; char *name; char *desc; int32_t modifiers; char *exceptions; char *signature;
+    char *params;   /* the names of the parameters, comma-separated, or NULL */
+    void *key;      /* the String of ProxySupport.methodKey, made on first use (the state is scanned by the collector) */
 } s_method;
 
 /* Set by the compiler next to the access flags: declared in an interface
@@ -3377,7 +3830,7 @@ static int jcl_is_constructor(const s_method *m) { return strcmp(m->name, "<init
 /* ProxySupport.method0(Class declaring, String name, String descriptor, int modifiers,
  *                      String exceptions, String signature): a Method, or a Constructor for <init>. */
 BIND(void *, jcl_proxy_method0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_method0",
-     (void *cls, void *name, void *desc, int32_t modifiers, void *exceptions, void *signature)) {
+     (void *cls, void *name, void *desc, int32_t modifiers, void *exceptions, void *signature, void *params)) {
     s_method *st = (s_method *)jcl_alloc(sizeof(s_method));
     st->kind = K_METHOD;
     st->cls = jcl_dup(jcl_str(cls));
@@ -3386,7 +3839,27 @@ BIND(void *, jcl_proxy_method0, "io.github.potjerodekool.nabu.compiler.backend.b
     st->modifiers = modifiers;
     st->exceptions = exceptions != NULL ? jcl_dup(jcl_str(exceptions)) : NULL;
     st->signature = signature != NULL ? jcl_dup(jcl_str(signature)) : NULL;
+    st->params = params != NULL ? jcl_dup(jcl_str(params)) : NULL;
     return jcl_new_obj(jcl_is_constructor(st) ? "java/lang/reflect/Constructor" : "java/lang/reflect/Method", st);
+}
+
+/* ProxySupport.parameterName(Object method, int index): the name the class file gave the parameter, or null. */
+BIND(void *, jcl_proxy_parameterName, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_parameterName",
+     (void *method, int32_t index)) {
+    s_method *m = jcl_method_of(method);
+    if (m == NULL || m->params == NULL || index < 0) return NULL;
+    const char *p = m->params;
+    for (int32_t i = 0; i < index; i++) {
+        p = strchr(p, ',');
+        if (p == NULL) return NULL;
+        p++;
+    }
+    const char *end = strchr(p, ',');
+    size_t n = end != NULL ? (size_t)(end - p) : strlen(p);
+    char *name = (char *)jcl_alloc(n + 1);
+    memcpy(name, p, n);
+    name[n] = 0;
+    return nabu_jstring_new(name);
 }
 
 /* ProxySupport.methodKey(Object): "owner#name#descriptor", or null for an
@@ -3395,7 +3868,11 @@ BIND(void *, jcl_proxy_methodKey, "io.github.potjerodekool.nabu.compiler.backend
      (void *method)) {
     s_method *m = jcl_method_of(method);
     if (m == NULL) return NULL;
-    return nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(m->cls, "#"), m->name), "#"), m->desc));
+    /* every proxied call asks for it: made once, a Java String is immutable */
+    if (m->key == NULL) {
+        m->key = nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(m->cls, "#"), m->name), "#"), m->desc));
+    }
+    return m->key;
 }
 
 /* Length of the field descriptor at d ("I", "[J", "Ljava/lang/String;"). */
@@ -3646,6 +4123,10 @@ static void jcl_class_scope(const char *cls, jcl_type_scope *scope, void **varia
     *count = 0;
     if (ri != NULL && ri->signature != NULL && ri->signature[0] == '<') {
         jcl_parse_formals(ri->signature, scope, variables, count);
+    } else if (strcmp(cls, "java/lang/Class") == 0 || strcmp(cls, "java/lang/reflect/Constructor") == 0) {
+        /* The generic classes the runtime provides itself have no reflection data: Class<T> and Constructor<T>.
+         * Without their type variable java.beans' TypeResolver finds Class<X> malformed (0 formal arguments). */
+        jcl_parse_formals("<T:Ljava/lang/Object;>Ljava/lang/Object;", scope, variables, count);
     }
 }
 
@@ -3692,6 +4173,35 @@ BIND(void *, jcl_java_lang_Class_getTypeParameters, "java.lang.Class_getTypePara
     void *arr = jcl_arr_ref(count);
     jcl_arr_set_type(arr, "[Ljava/lang/reflect/TypeVariable;");
     for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, variables[i]);
+    return arr;
+}
+
+/* Class.getGenericSuperclass / getGenericInterfaces: from the class signature "<formals>Lsuper;Liface;..."
+ * when the class has one, else the erased ones. */
+static const char *jcl_class_signature_rest(const char *cls, jcl_type_scope *scope) {
+    const nabu_reflection_info *ri = nabu_lookup_reflection(cls);
+    if (ri == NULL || ri->signature == NULL) return NULL;
+    void *ignored[16];
+    int32_t count;
+    return jcl_parse_formals(ri->signature, scope, ignored, &count);
+}
+BIND(void *, jcl_java_lang_Class_getGenericSuperclass, "java.lang.Class_getGenericSuperclass", (void *self)) {
+    jcl_type_scope scope = {{0}, {0}, 0};
+    const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
+    if (p == NULL || *p != 'L') return jcl_java_lang_Class_getSuperclass(self);
+    return jcl_parse_type(&p, &scope).type;
+}
+BIND(void *, jcl_java_lang_Class_getGenericInterfaces, "java.lang.Class_getGenericInterfaces", (void *self)) {
+    jcl_type_scope scope = {{0}, {0}, 0};
+    const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
+    if (p == NULL) return jcl_java_lang_Class_getInterfaces(self);
+    if (*p == 'L') jcl_parse_type(&p, &scope);   /* the superclass */
+    void *types[64];
+    int32_t count = 0;
+    while (*p == 'L' && count < 64) types[count++] = jcl_parse_type(&p, &scope).type;
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[Ljava/lang/reflect/Type;");
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, types[i]);
     return arr;
 }
 
@@ -3883,6 +4393,30 @@ void *jcl_executable_annotation(void *self, void *ann) {
     const nabu_annotation_entry *e = nabu_get_field_annotation(m->cls, jcl_exec_annotation_owner(m), jcl_str(ann));
     return e != NULL ? jcl_ann_obj(e) : NULL;
 }
+/* Declared annotations of whatever an AnnotatedElement call arrives on: a Field, a Method/Constructor or a Class. */
+static void *jcl_element_annotations(void *self) {
+    s_field *f = jcl_field_of(self);
+    if (f != NULL) return jcl_annotations_for(f->cls, f->f->name);
+    s_method *m = jcl_method_of(self);
+    if (m != NULL) return jcl_annotations_for(m->cls, jcl_exec_annotation_owner(m));
+    const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(self));
+    int32_t count = 0;
+    for (int i = 0; ri != NULL && i < ri->annotation_count; i++) if (ri->annotations[i].owner == NULL) count++;
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[Ljava/lang/annotation/Annotation;");
+    int32_t k = 0;
+    for (int i = 0; ri != NULL && i < ri->annotation_count; i++) {
+        if (ri->annotations[i].owner == NULL) jcl_arr_set(arr, k++, jcl_ann_obj(&ri->annotations[i]));
+    }
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_getDeclaredAnnotations, "java.lang.Class_getDeclaredAnnotations", (void *self)) { return jcl_element_annotations(self); }
+BIND(void *, jcl_java_lang_Class_getAnnotations, "java.lang.Class_getAnnotations", (void *self)) { return jcl_element_annotations(self); }
+BIND(void *, jcl_java_lang_Class_getDeclaredAnnotation, "java.lang.Class_getDeclaredAnnotation", (void *self, void *ann)) { return jcl_java_lang_Class_getAnnotation(self, ann); }
+BIND(int, jcl_java_lang_Class_isAnnotationPresent, "java.lang.Class_isAnnotationPresent", (void *self, void *ann)) { return jcl_java_lang_Class_getAnnotation(self, ann) != NULL; }
+BIND(void *, jcl_java_lang_reflect_AnnotatedElement_getDeclaredAnnotations, "java.lang.reflect.AnnotatedElement_getDeclaredAnnotations", (void *self)) { return jcl_element_annotations(self); }
+BIND(void *, jcl_java_lang_reflect_AnnotatedElement_getAnnotations, "java.lang.reflect.AnnotatedElement_getAnnotations", (void *self)) { return jcl_element_annotations(self); }
+/* AnnotatedElement.getDeclaredAnnotation / isAnnotationPresent are default methods, compiled from the JDK. */
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotation, "java.lang.reflect.Method_getAnnotation", (void *self, void *ann)) {
     return jcl_executable_annotation(self, ann);
 }
@@ -3931,10 +4465,29 @@ BIND(int, jcl_java_lang_reflect_Method_equals, "java.lang.reflect.Method_equals"
     return a != NULL && b != NULL && strcmp(a->cls, b->cls) == 0 && strcmp(a->name, b->name) == 0
             && strcmp(a->desc, b->desc) == 0;
 }
+/* Field.equals/hashCode (a Field is made again for every lookup, so == does not do): same class and name. */
+BIND(int, jcl_java_lang_reflect_Field_equals, "java.lang.reflect.Field_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    s_field *a = (s_field *)jcl_state_kind(self, K_FIELD);
+    s_field *b = (s_field *)jcl_state_kind(other, K_FIELD);
+    return a != NULL && b != NULL && a->f != NULL && b->f != NULL && strcmp(a->cls, b->cls) == 0
+            && strcmp(a->f->name, b->f->name) == 0;
+}
+BIND(int, jcl_java_lang_reflect_AccessibleObject_equals, "java.lang.reflect.AccessibleObject_equals", (void *self, void *other)) {
+    return self == other;
+}
 static int32_t jcl_string_hash(const char *s, int dots) {
     int32_t h = 0;
     for (; *s; s++) h = 31 * h + (dots && *s == '/' ? '.' : (unsigned char)*s);
     return h;
+}
+BIND(int32_t, jcl_java_lang_reflect_Field_hashCode, "java.lang.reflect.Field_hashCode", (void *self)) {
+    s_field *f = (s_field *)jcl_state_kind(self, K_FIELD);
+    if (f == NULL || f->f == NULL) return (int32_t)((intptr_t)self >> 4);
+    return jcl_string_hash(f->cls, 1) ^ jcl_string_hash(f->f->name, 0);
+}
+BIND(int32_t, jcl_java_lang_reflect_AccessibleObject_hashCode, "java.lang.reflect.AccessibleObject_hashCode", (void *self)) {
+    return (int32_t)((intptr_t)self >> 4);
 }
 BIND(int32_t, jcl_java_lang_reflect_Method_hashCode, "java.lang.reflect.Method_hashCode", (void *self)) {
     s_method *m = jcl_method_of(self);
@@ -4029,8 +4582,53 @@ BIND(void *, jcl_java_lang_reflect_Constructor_getDeclaringClass, "java.lang.ref
     s_ctor *st = (s_ctor *)jcl_state_kind(self, K_CTOR);
     return jcl_class(st != NULL ? st->e->name : "");
 }
+/* Access checks do not exist here: everything is accessible. */
+BIND(int, jcl_ctor_isAccessible, "java.lang.reflect.Constructor_isAccessible", (void *self)) { (void)self; return 1; }
+BIND(int, jcl_field_isAccessible, "java.lang.reflect.Field_isAccessible", (void *self)) { (void)self; return 1; }
+BIND(void, jcl_field_setAccessible, "java.lang.reflect.Field_setAccessible", (void *self, int v)) { (void)self; (void)v; }
+BIND(int, jcl_field_trySetAccessible, "java.lang.reflect.Field_trySetAccessible", (void *self)) { (void)self; return 1; }
+BIND(int, jcl_ao_canAccess, "java.lang.reflect.AccessibleObject_canAccess", (void *self, void *o)) { (void)self; (void)o; return 1; }
+BIND(void, jcl_ao_setAccessible_array, "java.lang.reflect.AccessibleObject_setAccessible$P3ad1f50fZ", (void *array, int v)) { (void)array; (void)v; }
+BIND(int, jcl_field_isSynthetic, "java.lang.reflect.Field_isSynthetic", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_field_isEnumConstant, "java.lang.reflect.Field_isEnumConstant", (void *self)) {
+    return (jcl_java_lang_reflect_Field_getModifiers(self) & 0x4000) != 0;
+}
+BIND(int, jcl_exec_isSynthetic, "java.lang.reflect.Executable_isSynthetic", (void *self)) {
+    return jcl_java_lang_reflect_Method_isSynthetic(self);
+}
+/* java.lang.reflect.Member through the interface: the object is a Field, a Method or a Constructor of the C runtime,
+ * no compiled class implements Member (hibernate-validator's ReflectionHelper asks a Member for its declaring class). */
+BIND(void *, jcl_member_getDeclaringClass, "java.lang.reflect.Member_getDeclaringClass", (void *self)) {
+    if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_Field_getDeclaringClass(self);
+    return jcl_java_lang_reflect_Constructor_getDeclaringClass(self);
+}
+BIND(void *, jcl_member_getName, "java.lang.reflect.Member_getName", (void *self)) {
+    if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_Field_getName_jstr(self);
+    return jcl_java_lang_reflect_Method_getName_jstr(self);
+}
+BIND(int32_t, jcl_member_getModifiers, "java.lang.reflect.Member_getModifiers", (void *self)) {
+    if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_Field_getModifiers(self);
+    return jcl_java_lang_reflect_Method_getModifiers(self);
+}
+BIND(int, jcl_member_isSynthetic, "java.lang.reflect.Member_isSynthetic", (void *self)) {
+    if (jcl_field_of(self) != NULL) return 0;
+    return jcl_java_lang_reflect_Method_isSynthetic(self);
+}
+BIND(void *, jcl_field_getAnnotation, "java.lang.reflect.Field_getAnnotation", (void *self, void *ann)) {
+    return jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann);
+}
+BIND(int, jcl_field_isAnnotationPresent, "java.lang.reflect.Field_isAnnotationPresent", (void *self, void *ann)) {
+    return jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann) != NULL;
+}
+BIND(int, jcl_exec_isAnnotationPresent, "java.lang.reflect.Executable_isAnnotationPresent", (void *self, void *ann)) {
+    return jcl_java_lang_reflect_Method_isAnnotationPresent(self, ann);
+}
 JCL_ALIAS1(void *, jcl_exec_getName, "java.lang.reflect.Executable_getName", jcl_java_lang_reflect_Method_getName_jstr)
 JCL_ALIAS1(void *, jcl_exec_getParameterTypes, "java.lang.reflect.Executable_getParameterTypes", jcl_java_lang_reflect_Method_getParameterTypes)
+/* Package-private Executable methods the compiled Parameter and Executable code call. */
+JCL_ALIAS1(void *, jcl_exec_getSharedParameterTypes, "java.lang.reflect.Executable_getSharedParameterTypes", jcl_java_lang_reflect_Method_getParameterTypes)
+JCL_ALIAS1(void *, jcl_exec_getAllGenericParameterTypes, "java.lang.reflect.Executable_getAllGenericParameterTypes", jcl_java_lang_reflect_Method_getGenericParameterTypes)
+JCL_ALIAS1(void *, jcl_exec_toGenericString, "java.lang.reflect.Executable_toGenericString", jcl_java_lang_reflect_Method_toGenericString_jstr)
 JCL_ALIAS1(int32_t, jcl_exec_getParameterCount, "java.lang.reflect.Executable_getParameterCount", jcl_java_lang_reflect_Method_getParameterCount)
 JCL_ALIAS1(void *, jcl_exec_getGenericParameterTypes, "java.lang.reflect.Executable_getGenericParameterTypes", jcl_java_lang_reflect_Method_getGenericParameterTypes)
 JCL_ALIAS1(int32_t, jcl_exec_getModifiers, "java.lang.reflect.Executable_getModifiers", jcl_java_lang_reflect_Method_getModifiers)
@@ -4170,7 +4768,10 @@ BIND(void *, jcl_java_lang_Class_getPrimitiveClass, "java.lang.Class_getPrimitiv
 /* Assertions staan uit, net als bij een JVM zonder -ea. */
 BIND(int, jcl_java_lang_Class_desiredAssertionStatus0, "java.lang.Class_desiredAssertionStatus0", (void *cls)) { (void)cls; return 0; }
 BIND(int, jcl_java_lang_Class_isHidden, "java.lang.Class_isHidden", (void *self)) { (void)self; return 0; }
-BIND(int, jcl_java_lang_Class_isRecord0, "java.lang.Class_isRecord0", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_java_lang_Class_isRecord0, "java.lang.Class_isRecord0", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x10000) != 0;
+}
 BIND(int64_t, jcl_java_lang_Double_doubleToRawLongBits, "java.lang.Double_doubleToRawLongBits", (double v)) { int64_t r; memcpy(&r, &v, 8); return r; }
 BIND(double, jcl_java_lang_Double_longBitsToDouble, "java.lang.Double_longBitsToDouble", (int64_t v)) { double r; memcpy(&r, &v, 8); return r; }
 BIND(int32_t, jcl_java_lang_Float_floatToRawIntBits, "java.lang.Float_floatToRawIntBits", (float v)) { int32_t r; memcpy(&r, &v, 4); return r; }
@@ -4312,10 +4913,7 @@ BIND(int32_t, jcl_java_lang_Runtime_availableProcessors, "java.lang.Runtime_avai
 }
 BIND(void, jcl_java_lang_Runtime_gc, "java.lang.Runtime_gc", (void *self)) {
     (void)self;
-#ifdef NABU_GC_BOEHM
-    GC_gcollect();
-    GC_invoke_finalizers();
-#endif
+    nabu_gc_collect();
 }
 BIND(int, jcl_java_lang_Class_desiredAssertionStatus, "java.lang.Class_desiredAssertionStatus", (void *self)) { (void)self; return 0; }
 /* Arrays.copyOf(Object[], int): de JDK-versie vraagt original.getClass() op,
@@ -4432,10 +5030,61 @@ BIND(int32_t, jcl_Unsafe_arrayIndexScale0, "jdk.internal.misc.Unsafe_arrayIndexS
     }
 }
 extern int32_t nabu_compiled_type_count_for_trace(void);
+/* objectFieldOffset1 scans the fields of the class and its supers by name; the JDK asks for the same few offsets again
+ * and again (field updaters, VarHandles), so the answers are kept. */
+typedef struct jcl_ofo_entry { struct jcl_ofo_entry *next; char *cls; char *field; int64_t offset; } jcl_ofo_entry;
+static jcl_ofo_entry *volatile jcl_ofo_cache[1024];
+static int64_t jcl_unsafe_field_offset_slow(const char *cls_name, const char *field);
+
+/* The C string of a short ASCII String in buf, without allocating (nabu_cstr makes a new copy on the heap each time);
+ * anything else goes through nabu_cstr. */
+static const char *jcl_cstr_buf(const void *p, char *buf, size_t cap) {
+    if (nabu_is_jstring(p)) {
+        const nabu_jstring *js = (const nabu_jstring *) p;
+        if (js->value != NULL && js->coder == 0) {
+            const int32_t n = *(const int32_t *) js->value;
+            const unsigned char *data = (const unsigned char *) js->value + 8;
+            if (n >= 0 && (size_t) n < cap) {
+                int ascii = 1;
+                for (int32_t i = 0; i < n; i++) {
+                    if (data[i] == 0 || data[i] >= 0x80) { ascii = 0; break; }
+                    buf[i] = (char) data[i];
+                }
+                if (ascii) { buf[n] = 0; return buf; }
+            }
+        }
+    }
+    return nabu_cstr(p);
+}
+
 BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFieldOffset1", (void *self, void *cls, void *name)) {
     (void)self;
     const char *cls_name = jcl_unsafe_class_name(cls);
-    const char *field = nabu_cstr(name);
+    char field_buf[128];
+    const char *field = jcl_cstr_buf(name, field_buf, sizeof field_buf);
+    uint32_t h = 2166136261u;
+    for (const char *q = cls_name; *q; q++) h = (h ^ (unsigned char) *q) * 16777619u;
+    for (const char *q = field; *q; q++) h = (h ^ (unsigned char) *q) * 16777619u;
+    jcl_ofo_entry *volatile *bucket = &jcl_ofo_cache[h & 1023];
+    for (jcl_ofo_entry *e = *bucket; e != NULL; e = e->next) {
+        if (strcmp(e->field, field) == 0 && strcmp(e->cls, cls_name) == 0) return e->offset;
+    }
+    const int64_t offset = jcl_unsafe_field_offset_slow(cls_name, field);
+    if (offset >= 0) {
+        jcl_ofo_entry *entry = (jcl_ofo_entry *) JCL_MEM(sizeof *entry);
+        entry->cls = jcl_dup(cls_name);
+        entry->field = jcl_dup(field);
+        entry->offset = offset;
+        for (;;) {
+            jcl_ofo_entry *head = *bucket;
+            entry->next = head;
+            if (__sync_bool_compare_and_swap(bucket, head, entry)) break;
+        }
+    }
+    return offset;
+}
+
+static int64_t jcl_unsafe_field_offset_slow(const char *cls_name, const char *field) {
     /* java.lang.Thread is not compiled: its Unsafe-reached fields (ThreadLocalRandom's seed and probes) live in
      * the room behind the thread object. */
     if (strcmp(cls_name, "java.lang.Thread") == 0 || strcmp(cls_name, "java/lang/Thread") == 0) {
@@ -4567,7 +5216,7 @@ static void *jcl_main_thread(void) {
 /* The Thread object of the running thread: the thread's own, or "main". */
 /* Continuations need the Boehm collector, and fibers (Windows) or ucontext (Linux and macOS, x86-64 and aarch64).
  * They are on unless NABU_CONTINUATIONS=0. */
-#if defined(NABU_GC_BOEHM) && (defined(_WIN32) || ((defined(__linux__) || defined(__APPLE__)) && (defined(__x86_64__) || defined(__aarch64__))))
+#if NABU_GC_CONTINUATIONS && (defined(_WIN32) || ((defined(__linux__) || defined(__APPLE__)) && (defined(__x86_64__) || defined(__aarch64__))))
 #define JCL_CONTINUATIONS_PLATFORM 1
 #else
 #define JCL_CONTINUATIONS_PLATFORM 0
@@ -4678,12 +5327,6 @@ BIND(void, jcl_thread_init_vt, "java.lang.Thread_init$vt", (void *self, void *na
 /* ---------------------------------------------------------------
  * Threads: real native threads that run one at a time (nabu_gil_*), switching where a thread blocks.
  * --------------------------------------------------------------- */
-#ifdef NABU_GC_BOEHM
-extern int GC_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg);
-#define JCL_PTHREAD_CREATE GC_pthread_create
-#else
-#define JCL_PTHREAD_CREATE pthread_create
-#endif
 
 static void (*jcl_thread_run_fn)(void *) = NULL;
 void nabu_set_thread_run_fn(void *fn) { jcl_thread_run_fn = (void (*)(void *))fn; }
@@ -4701,14 +5344,6 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
 }
 
 /* vthread: a virtual thread that waits (Object.wait on a continuation) is woken by unparking it, a thread by its waiter. */
-#ifdef NABU_GC_BOEHM
-extern void *GC_malloc_uncollectable(size_t n);
-extern void GC_free(void *p);
-#else
-/* without the collector nothing is collected: plain memory is as good as a root */
-#define GC_malloc_uncollectable(n) calloc(1, (n))
-#define GC_free(p) free(p)
-#endif
 typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; void *vthread; int depth; } jcl_waiter;
 void nabu_set_virtual_unpark_fn(void *fn) { jcl_virtual_unpark_fn = (void (*)(void *))fn; }
 static jcl_waiter *jcl_waiters = NULL;
@@ -4759,7 +5394,6 @@ BIND(void, jcl_java_lang_Object_notifyAll, "java.lang.Object_notifyAll", (void *
 }
 
 BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t timeout)) {
-    nabu_object *h = (nabu_object *)self;
     if (!jcl_owns_monitor(self)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
     s_thread *cur = jcl_thread_of(jcl_carrier_thread());
     jcl_check_interrupt(cur);
@@ -4768,6 +5402,7 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
         if (timeout > 0) jcl_sleep_ms(timeout);
         return;
     }
+    nabu_object *h = (nabu_object *)self;
     const int me = nabu_current_thread_id();
     const int32_t depth = h->monitor_count;
     nabu_waiter *me_waiter = nabu_waiter_self();
@@ -4822,7 +5457,7 @@ BIND(int64_t, jcl_ThreadSupport_waitEnter0, "io.github.potjerodekool.nabu.compil
     if (!jcl_owns_monitor(object)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
     if (!nabu_threads_active || !nabu_parallel) return 0;
     /* a root: the waiting virtual thread may be referred to only from here */
-    jcl_waiter *w = (jcl_waiter *)GC_malloc_uncollectable(sizeof *w);
+    jcl_waiter *w = (jcl_waiter *)nabu_gc_alloc_pinned(sizeof *w);
     w->obj = object;
     w->vthread = thread;
     pthread_mutex_lock(&jcl_waiters_lock);
@@ -4845,7 +5480,7 @@ BIND(int, jcl_ThreadSupport_waitLeave0, "io.github.potjerodekool.nabu.compiler.b
     pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_monitor_acquire_n(w->obj, w->depth);
     const int notified = w->notified;
-    GC_free(w);
+    nabu_gc_free(w);
     return notified;
 }
 
@@ -5087,24 +5722,6 @@ BIND(void *, jcl_ThreadSupport_stackTrace0, "io.github.potjerodekool.nabu.compil
     return arr;
 }
 
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
-/* On Windows a thread made by pthread_create gets its whole stack committed at once. A thread made by CreateThread
- * with STACK_SIZE_PARAM_IS_A_RESERVATION only reserves the address space and commits the pages it touches, so a
- * big stack costs nothing until it is used. The collector is told about the thread by hand. */
-extern void GC_allow_register_threads(void);
-extern int GC_register_my_thread(const struct GC_stack_base *base);
-extern int GC_unregister_my_thread(void);
-
-static DWORD WINAPI jcl_windows_thread_main(LPVOID arg) {
-    struct GC_stack_base base;
-    GC_get_stack_base(&base);
-    GC_register_my_thread(&base);
-    jcl_thread_main(arg);
-    GC_unregister_my_thread();
-    return 0;
-}
-#endif
-
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     s_thread *st = jcl_thread_state(self);
     /* A virtual thread on a continuation is started by the JDK's VirtualThread (it is scheduled on a carrier). */
@@ -5120,9 +5737,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
         nabu_spin_hints = !nabu_parallel;
         nabu_threads_active = 1;
         nabu_set_wake_hook(jcl_capture_hook);
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
-        GC_allow_register_threads();
-#endif
+        nabu_gc_threads_enabled();
         nabu_gil_acquire();
         nabu_set_wait_slot(&jcl_thread_of(jcl_current_thread())->wait_state);
         jcl_thread_of(jcl_current_thread())->waiter = nabu_waiter_self();
@@ -5134,19 +5749,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     /* A virtual thread is meant to be one of very many: a smaller stack than a platform thread. */
     const size_t stack_size = st->is_virtual ? (size_t)4 << 20 : (size_t)16 << 20;
     jcl_starting_add(self);
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
-    HANDLE created = CreateThread(NULL, stack_size, jcl_windows_thread_main, st, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
-    int rc = created != NULL ? 0 : -1;
-    if (created != NULL) CloseHandle(created);
-#else
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&attr, stack_size);
-    pthread_t handle;
-    int rc = JCL_PTHREAD_CREATE(&handle, &attr, jcl_thread_main, st);
-    pthread_attr_destroy(&attr);
-#endif
+    int rc = nabu_gc_thread_create(jcl_thread_main, st, stack_size);
     if (rc != 0) {
         jcl_starting_remove(self);
         st->state = 2;
@@ -5156,11 +5759,27 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
 }
 
 BIND(void *, jcl_Thread_threadLocals, "java.lang.Thread_threadLocals", (void *self)) { return jcl_thread_of(self)->threadLocals; }
-BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->threadLocals = map; }
+static int jcl_diag_on(void);
+static void jcl_diag_report(const char *what, long a, long b);
+static void *jcl_diag_maps[1024];
+static void jcl_diag_map_set(s_thread *st, void *map) {
+    if (!jcl_diag_on() || map == NULL) return;
+    for (int i = 0; i < 1024; i++) {
+        if (jcl_diag_maps[i] == map && i != (int)(st->id & 1023)) jcl_diag_report("ThreadLocal map held by two threads: ids", (long)st->id, i);
+    }
+    jcl_diag_maps[st->id & 1023] = map;
+}
+BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) {
+    s_thread *st = jcl_thread_of(self);
+    jcl_diag_map_set(st, map);
+    st->threadLocals = map;
+}
 BIND(void *, jcl_Thread_inheritableThreadLocals, "java.lang.Thread_inheritableThreadLocals", (void *self)) { return jcl_thread_of(self)->inheritableThreadLocals; }
 BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->inheritableThreadLocals = map; }
-BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { (void)self; return NULL; }
-BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { (void)self; (void)map; }
+/* The values of a TerminatingThreadLocal live as long as the thread: the NIO buffer cache of the thread is made once.
+ * (Their threadTerminated callbacks are not run when a thread ends.) */
+BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { return jcl_thread_of(self)->terminatingThreadLocals; }
+BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->terminatingThreadLocals = map; }
 /* Scoped values (ScopedValue): the bindings and the cache of the running thread. A thread starts without bindings
  * (NULL); findScopedValueBindings, which the JVM answers by walking the stack, then also gives NULL: no bindings. */
 BIND(void *, jcl_Thread_threadContainer, "java.lang.Thread_threadContainer", (void *self)) { return jcl_thread_of(self)->container; }
@@ -5196,8 +5815,30 @@ BIND(void, jcl_Thread_setPriority, "java.lang.Thread_setPriority", (void *self, 
 BIND(void, jcl_Thread_setName, "java.lang.Thread_setName", (void *self, void *name)) { jcl_thread_of(self)->name = jcl_dup(nabu_cstr(name)); }
 BIND(void, jcl_Thread_setContextClassLoader, "java.lang.Thread_setContextClassLoader", (void *self, void *loader)) { (void)self; (void)loader; }
 BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { jcl_thread_of(self)->handler = handler; }
-BIND(void *, jcl_Thread_currentThread, "java.lang.Thread_currentThread", (void)) { return jcl_current_thread(); }
-BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentThread", (void)) { return jcl_current_thread(); }
+/* NABU_DIAG=1: checks of the thread bookkeeping, for hunting threads that share state. A Thread object that does not
+ * belong to the running thread, or a ThreadLocal map that two threads hold, is reported on stderr. */
+static int jcl_diag_on(void) {
+    static volatile int known = -1;
+    if (known < 0) known = getenv("NABU_DIAG") != NULL;
+    return known;
+}
+static void jcl_diag_report(const char *what, long a, long b) {
+    char line[200];
+    const int n = snprintf(line, sizeof line, "[nabu/diag] %s %ld %ld\n", what, a, b);
+    if (n > 0) fwrite(line, 1, (size_t)n, stderr);
+}
+static void *jcl_diag_current(void) {
+    void *obj = jcl_current_thread();
+    if (jcl_diag_on()) {
+        s_thread *st = jcl_thread_state(obj);
+        const int id = nabu_current_thread_id();
+        if (st == NULL) jcl_diag_report("currentThread without state", id, 0);
+        else if (st->id != id) jcl_diag_report("currentThread belongs to another thread: state id, os id", (long)st->id, id);
+    }
+    return obj;
+}
+BIND(void *, jcl_Thread_currentThread, "java.lang.Thread_currentThread", (void)) { return jcl_diag_current(); }
+BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentThread", (void)) { return jcl_diag_current(); }
 BIND(int, jcl_Thread_isVirtual, "java.lang.Thread_isVirtual", (void *self)) { return jcl_thread_of(self)->is_virtual; }
 BIND(int64_t, jcl_Thread_threadId, "java.lang.Thread_threadId", (void *self)) { return jcl_thread_of(self)->id; }
 BIND(void *, jcl_Thread_getName, "java.lang.Thread_getName", (void *self)) { return nabu_jstring_new(jcl_thread_of(self)->name); }
@@ -5248,16 +5889,6 @@ BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compil
 #endif
 #endif
 
-struct GC_stack_base;
-extern void GC_push_all_eager(void *bottom, void *top);
-extern void GC_set_push_other_roots(void (*proc)(void));
-extern void (*GC_get_push_other_roots(void))(void);
-extern void *GC_get_my_stackbottom(struct GC_stack_base *sb);
-extern void GC_set_stackbottom(void *gc_thread_handle, const struct GC_stack_base *sb);
-#ifdef NABU_GC_BOEHM
-extern void *GC_malloc_uncollectable(size_t n);
-extern void GC_free(void *p);
-#endif
 
 /* owned: the stack of a continuation; its collector object scans it (jcl_cont_mark), so the root hook skips it */
 typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; int owned; } jcl_region;
@@ -5271,10 +5902,8 @@ typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next
 #define JCL_SWITCH_BEGIN() ((void)0)
 #define JCL_SWITCH_END() ((void)0)
 #else
-extern void GC_disable(void);
-extern void GC_enable(void);
-#define JCL_SWITCH_BEGIN() GC_disable()
-#define JCL_SWITCH_END() GC_enable()
+#define JCL_SWITCH_BEGIN() nabu_gc_pause()
+#define JCL_SWITCH_END() nabu_gc_resume()
 #endif
 
 typedef struct jcl_cont {
@@ -5307,25 +5936,22 @@ static volatile long jcl_region_count = 0;
 static long jcl_region_cap = 0;
 static jcl_region *jcl_region_free = NULL;
 static pthread_mutex_t jcl_region_lock = PTHREAD_MUTEX_INITIALIZER;
-static void (*jcl_old_push_other_roots)(void) = NULL;
 static volatile int jcl_roots_hooked = 0;
 
-static void jcl_push_regions(void) {
+static void jcl_push_regions(void (*scan)(void *lo, void *hi)) {
     jcl_region *volatile *table = jcl_regions;
     const long n = jcl_region_count;
     for (long i = 0; i < n; i++) {
         jcl_region *r = table[i];
         void *sp = r->sp;
-        if (sp != NULL && !r->owned && r->hi != NULL && sp < r->hi) GC_push_all_eager(sp, r->hi);
+        if (sp != NULL && !r->owned && r->hi != NULL && sp < r->hi) scan(sp, r->hi);
     }
-    if (jcl_old_push_other_roots != NULL) jcl_old_push_other_roots();
 }
 
 static jcl_region *jcl_region_new(void *hi) {
     pthread_mutex_lock(&jcl_region_lock);
     if (!jcl_roots_hooked) {
-        jcl_old_push_other_roots = GC_get_push_other_roots();
-        GC_set_push_other_roots(jcl_push_regions);
+        nabu_gc_add_root_scanner(jcl_push_regions);
         jcl_roots_hooked = 1;
     }
     jcl_region *r = jcl_region_free;
@@ -5378,40 +6004,12 @@ static __thread void *jcl_gc_thread = NULL;      /* the collector's handle of th
 static __thread jcl_region *jcl_carrier_region = NULL;
 static __thread jcl_cont *jcl_running = NULL;    /* the continuation running on this thread, innermost */
 
-#ifndef _WIN32
-/* The collector scans the stack of the process's first thread up to GC_stackbottom, that of the others up to the
- * stack end it has recorded for them. */
-static int jcl_on_main_thread(void) {
-    static __thread int known = 0, main_thread = 0;
-    if (!known) {
-#ifdef __APPLE__
-        main_thread = pthread_main_np() != 0;
-#else
-        main_thread = (pid_t)syscall(SYS_gettid) == getpid();
-#endif
-        known = 1;
-    }
-    return main_thread;
-}
-#endif
-
 static void jcl_set_gc_base(void *handle, void *hi) {
-    struct { void *mem_base; } sb;
-    sb.mem_base = hi;
-    GC_set_stackbottom(handle, (const struct GC_stack_base *)&sb);
-#ifndef _WIN32
-    if (jcl_on_main_thread()) GC_stackbottom = (char *)hi;
-#endif
+    nabu_gc_set_stack_base(handle, hi);
 }
 
 static void *jcl_get_gc_base(void) {
-#ifndef _WIN32
-    if (jcl_on_main_thread()) return (void *)GC_stackbottom;
-#endif
-    struct { void *mem_base; } sb;
-    sb.mem_base = NULL;
-    GC_get_my_stackbottom((struct GC_stack_base *)&sb);
-    return sb.mem_base;
+    return nabu_gc_stack_base();
 }
 
 #ifdef _WIN32
@@ -5452,8 +6050,7 @@ static void jcl_cont_claim(jcl_cont *k) {
 static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     __builtin_unwind_init();
     if (jcl_gc_thread == NULL) {
-        struct { void *mem_base; } sb;
-        jcl_gc_thread = GC_get_my_stackbottom((struct GC_stack_base *)&sb);
+        jcl_gc_thread = nabu_gc_thread_handle();
     }
 #ifdef _WIN32
     if (!IsThreadAFiber()) ConvertThreadToFiber(NULL);
@@ -5509,39 +6106,22 @@ static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
  * its tail field; the thread that runs it, through its frames) the mark procedure also scans the parked stack. The
  * stack of a continuation that nothing refers to any more (an abandoned parked virtual thread) is therefore garbage,
  * and so is everything only that stack refers to; the finalizer gives the stack back. */
-struct GC_ms_entry;
-extern struct GC_ms_entry *GC_mark_and_push(void *obj, struct GC_ms_entry *top, struct GC_ms_entry *limit, void **src);
-extern unsigned GC_new_proc(struct GC_ms_entry *(*proc)(uintptr_t *, struct GC_ms_entry *, struct GC_ms_entry *, uintptr_t));
-extern unsigned GC_new_kind(void **free_list, uintptr_t descriptor, int add_size, int clear);
-extern void **GC_new_free_list(void);
-extern void *GC_malloc_kind(size_t n, int kind);
-extern void GC_register_finalizer_no_order(void *obj, void (*fn)(void *, void *), void *data, void (**old_fn)(void *, void *), void **old_data);
-
-static struct GC_ms_entry *jcl_cont_mark(uintptr_t *addr, struct GC_ms_entry *msp, struct GC_ms_entry *limit, uintptr_t env) {
-    (void)env;
-    jcl_cont *k = (jcl_cont *)addr;
-    uintptr_t *w = addr;
-    for (uintptr_t *end = addr + sizeof(jcl_cont) / sizeof(uintptr_t); w < end; w++) msp = GC_mark_and_push((void *)*w, msp, limit, (void **)w);
+static void jcl_cont_trace(void *obj, void (*mark)(void *candidate)) {
+    jcl_cont *k = (jcl_cont *)obj;
+    uintptr_t *w = (uintptr_t *)obj;
+    for (uintptr_t *end = w + sizeof(jcl_cont) / sizeof(uintptr_t); w < end; w++) mark((void *)*w);
     jcl_region *r = k->region;
     if (r != NULL && r->sp != NULL && r->hi != NULL) {
         uintptr_t *hi = (uintptr_t *)r->hi;
-        for (w = (uintptr_t *)(((uintptr_t)r->sp + 7) & ~(uintptr_t)7); w < hi; w++) msp = GC_mark_and_push((void *)*w, msp, limit, (void **)w);
+        for (w = (uintptr_t *)(((uintptr_t)r->sp + 7) & ~(uintptr_t)7); w < hi; w++) mark((void *)*w);
     }
-    return msp;
 }
 
 #ifndef _WIN32
 static void jcl_stack_unreserve(void);
 #endif
-static int jcl_cont_kind = -1;
 static void *jcl_cont_alloc(void) {
-    pthread_mutex_lock(&jcl_region_lock);
-    if (jcl_cont_kind < 0) {
-        const unsigned proc = GC_new_proc(jcl_cont_mark);
-        jcl_cont_kind = (int)GC_new_kind(GC_new_free_list(), ((uintptr_t)proc << 2) | 2 /* GC_DS_PROC */, 0, 1);
-    }
-    pthread_mutex_unlock(&jcl_region_lock);
-    return GC_malloc_kind(sizeof(jcl_cont), jcl_cont_kind);
+    return nabu_gc_alloc_traced(sizeof(jcl_cont), jcl_cont_trace);
 }
 
 /* Gives back the stack of a continuation that is done or abandoned. */
@@ -5594,10 +6174,7 @@ static int jcl_stack_reserve(void) {
     if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         /* the stacks are not collector memory, so they do not make it collect: abandoned ones may be waiting for a cycle */
-        extern void GC_gcollect(void);
-        extern int GC_invoke_finalizers(void);
-        GC_gcollect();
-        GC_invoke_finalizers();
+        nabu_gc_collect();
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         static int told = 0;
@@ -5666,21 +6243,21 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         if (!created) {
             jcl_region_release(k->region);
             k->region = NULL;
-            GC_free(k);
+            nabu_gc_free(k);
             jcl_throw_new("java/lang/OutOfMemoryError", "java/lang/Error", "Cannot create a stack for a continuation");
             return;
         }
         *slot = k;
-        GC_register_finalizer_no_order(k, jcl_cont_finalize, NULL, NULL, NULL);
+        nabu_gc_set_finalizer(k, jcl_cont_finalize);
     }
     jcl_cont_claim(k);
     jcl_cont_switch_in(k);
     if (k->state == 3) {
         void *failure = k->failure;
         *slot = NULL;
-        GC_register_finalizer_no_order(k, NULL, NULL, NULL, NULL);
+        nabu_gc_set_finalizer(k, NULL);
         jcl_cont_dispose(k);
-        GC_free(k);
+        nabu_gc_free(k);
         if (failure != NULL) nabu_throw(failure);
     }
 }
@@ -5754,6 +6331,8 @@ BIND(void, jcl_Continuation_pin, "jdk.internal.vm.Continuation_pin", (void)) { }
 BIND(void, jcl_Continuation_unpin, "jdk.internal.vm.Continuation_unpin", (void)) { }
 BIND(int, jcl_Continuation_isPinned0, "jdk.internal.vm.Continuation_isPinned0", (void *scope)) { (void)scope; return 0; }
 BIND(void, jcl_Continuation_registerNatives, "jdk.internal.vm.Continuation_registerNatives", (void)) { }
+/* no continuations: nothing is parked */
+BIND(void *, jcl_ThreadSupport_parkedFrames0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_parkedFrames0", (void *c)) { (void)c; return NULL; }
 #endif
 
 /* java.lang.VirtualThread: the JVMTI notifications are not there; the thread that unblocks virtual threads waiting
@@ -5845,9 +6424,18 @@ BIND(int32_t, jcl_Class_hashCode, "java.lang.Class_hashCode", (void *self)) {
     while (*s) h = h * 33u + *s++;
     return (int32_t)h;
 }
+/* Whether the class (internal name) is an annotation type of the program: an object the runtime made for an
+ * annotation counts as a java.lang.annotation.Annotation (nabu_instanceof asks). */
+int nabu_class_is_annotation(const char *internal) {
+    int32_t f = jcl_class_flags((void *)internal);
+    return f >= 0 && (f & 0x2000) != 0;
+}
+extern int nabu_instanceof_array(void *obj, const char *wanted);
 BIND(int, jcl_Class_isInstance, "java.lang.Class_isInstance", (void *self, void *obj)) {
     if (obj == NULL) return 0;
     const char *name = jcl_str(self);
+    if (strcmp(name, "java/lang/Object") == 0) return 1;   /* every object, an array too */
+    if (name[0] == '[') return nabu_instanceof_array(obj, name);
     if (nabu_is_jstring(obj)) {
         return strcmp(name, "java/lang/String") == 0 || strcmp(name, "java/lang/Object") == 0
                 || strcmp(name, "java/lang/CharSequence") == 0;
@@ -5855,12 +6443,23 @@ BIND(int, jcl_Class_isInstance, "java.lang.Class_isInstance", (void *self, void 
     if (!nabu_jcl_is_object(obj) && jcl_compiled_type_name(obj) == NULL) return 0;
     return nabu_instanceof(obj, name);
 }
-BIND(int32_t, jcl_Class_getModifiers, "java.lang.Class_getModifiers", (void *self)) { (void)self; return 1; }
-BIND(int, jcl_Class_isAnnotation, "java.lang.Class_isAnnotation", (void *self)) { (void)self; return 0; }
+BIND(int32_t, jcl_Class_getModifiers, "java.lang.Class_getModifiers", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f < 0 ? 1 : (f & 0xffff & ~0x1000);
+}
+BIND(int, jcl_Class_isAnnotation, "java.lang.Class_isAnnotation", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x2000) != 0;
+}
 BIND(int, jcl_Class_isAnonymousClass, "java.lang.Class_isAnonymousClass", (void *self)) { (void)self; return 0; }
 BIND(int, jcl_Class_isLocalClass, "java.lang.Class_isLocalClass", (void *self)) { (void)self; return 0; }
-BIND(int, jcl_Class_isRecord, "java.lang.Class_isRecord", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_Class_isRecord, "java.lang.Class_isRecord", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x10000) != 0;
+}
 BIND(void *, jcl_Class_getClassLoader0, "java.lang.Class_getClassLoader0", (void *self)) { (void)self; return NULL; }
+/* Class.toGenericString: no type parameters are recorded, so the type name (as in a message). */
+BIND(void *, jcl_Class_toGenericString, "java.lang.Class_toGenericString", (void *self)) { return nabu_jstring_new(jcl_source_name(jcl_str(self), 0)); }
 BIND(void *, jcl_Class_getTypeName, "java.lang.Class_getTypeName", (void *self)) { return nabu_jstring_new(jcl_source_name(jcl_str(self), 0)); }
 
 /* VM.getNanoTimeAdjustment(offsetInSeconds): nanoseconds of the current time since that offset, or -1 when
@@ -6004,4 +6603,1401 @@ BIND(int32_t, jcl_CRC32_updateBytes0, "java.util.zip.CRC32_updateBytes0", (int32
 }
 BIND(int32_t, jcl_CRC32_updateByteBuffer0, "java.util.zip.CRC32_updateByteBuffer0", (int32_t crc, int64_t address, int32_t off, int32_t len)) {
     return (int32_t)jcl_crc_update((uint32_t)crc, (const unsigned char *)(intptr_t)address + off, len);
+}
+
+/* java.util.zip.Inflater natives (the JDK uses zlib): a resumable inflate (RFC 1951) with the zlib wrapper (RFC 1950)
+ * when the stream is not "nowrap". The state keeps the input it has not used yet and a 32 KB window, so input and
+ * output can be supplied in pieces, as Inflater and InflaterInputStream do. */
+typedef struct { uint16_t count[16]; uint16_t symbol[320]; } jcl_huff;
+typedef struct {
+    int nowrap, phase, last;
+    unsigned char *in; size_t in_len, in_cap, in_pos;
+    uint32_t bitbuf; int bitcnt;
+    unsigned char win[32768]; uint32_t wtotal;
+    uint32_t stored_left; int copy_len, copy_dist;
+    jcl_huff lencode, distcode;
+    uint32_t adler;
+    char err[64];
+} jcl_inflater;
+enum { INF_HDR, INF_BLOCK, INF_STORED, INF_CODES, INF_TRAILER, INF_DONE };
+typedef struct { size_t pos; uint32_t buf; int cnt; } jcl_inf_snap;
+
+static int jcl_inf_bits(jcl_inflater *s, int n) {
+    while (s->bitcnt < n) {
+        if (s->in_pos >= s->in_len) return -1;
+        s->bitbuf |= (uint32_t)s->in[s->in_pos++] << s->bitcnt;
+        s->bitcnt += 8;
+    }
+    int v = (int)(s->bitbuf & ((1u << n) - 1));
+    s->bitbuf >>= n;
+    s->bitcnt -= n;
+    return v;
+}
+static int jcl_inf_decode(jcl_inflater *s, const jcl_huff *h) {
+    int code = 0, first = 0, index = 0;
+    for (int len = 1; len <= 15; len++) {
+        int bit = jcl_inf_bits(s, 1);
+        if (bit < 0) return -1;
+        code |= bit;
+        int count = h->count[len];
+        if (code - count < first) return h->symbol[index + (code - first)];
+        index += count; first += count; first <<= 1; code <<= 1;
+    }
+    return -2;
+}
+/* Builds a decoding table; < 0 when the lengths are over-subscribed. */
+static int jcl_inf_construct(jcl_huff *h, const short *length, int n) {
+    short offs[16];
+    for (int i = 0; i < 16; i++) h->count[i] = 0;
+    for (int i = 0; i < n; i++) h->count[length[i]]++;
+    if (h->count[0] == n) return 0;
+    int left = 1;
+    for (int len = 1; len <= 15; len++) { left <<= 1; left -= h->count[len]; if (left < 0) return left; }
+    offs[1] = 0;
+    for (int len = 1; len < 15; len++) offs[len + 1] = offs[len] + h->count[len];
+    for (int i = 0; i < n; i++) if (length[i] != 0) h->symbol[offs[length[i]]++] = (uint16_t)i;
+    return left;
+}
+static const short jcl_inf_lbase[29] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
+static const short jcl_inf_lext[29] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
+static const short jcl_inf_dbase[30] = {1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
+static const short jcl_inf_dext[30] = {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
+
+static uint32_t jcl_adler32(uint32_t adler, const unsigned char *p, size_t n) {
+    uint32_t a = adler & 0xffff, b = adler >> 16;
+    while (n > 0) {
+        size_t k = n < 5552 ? n : 5552;
+        n -= k;
+        while (k--) { a += *p++; b += a; }
+        a %= 65521; b %= 65521;
+    }
+    return (b << 16) | a;
+}
+
+static int jcl_inf_fail(jcl_inflater *s, const char *msg) { snprintf(s->err, sizeof s->err, "%s", msg); return -1; }
+
+/* 0 = tables built, 1 = needs more input, -1 = error */
+static int jcl_inf_dynamic(jcl_inflater *s) {
+    static const short order[19] = {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+    short lengths[320];
+    int nlen = jcl_inf_bits(s, 5), ndist = jcl_inf_bits(s, 5), ncode = jcl_inf_bits(s, 4);
+    if (nlen < 0 || ndist < 0 || ncode < 0) return 1;
+    nlen += 257; ndist += 1; ncode += 4;
+    if (nlen > 286 || ndist > 30) return jcl_inf_fail(s, "too many length or distance symbols");
+    int i;
+    for (i = 0; i < ncode; i++) { int v = jcl_inf_bits(s, 3); if (v < 0) return 1; lengths[order[i]] = (short)v; }
+    for (; i < 19; i++) lengths[order[i]] = 0;
+    jcl_huff cl;
+    if (jcl_inf_construct(&cl, lengths, 19) < 0) return jcl_inf_fail(s, "invalid code lengths set");
+    int idx = 0;
+    while (idx < nlen + ndist) {
+        int sym = jcl_inf_decode(s, &cl);
+        if (sym == -1) return 1;
+        if (sym < 0) return jcl_inf_fail(s, "invalid code lengths set");
+        if (sym < 16) { lengths[idx++] = (short)sym; continue; }
+        int len = 0, rep;
+        if (sym == 16) {
+            if (idx == 0) return jcl_inf_fail(s, "invalid bit length repeat");
+            len = lengths[idx - 1]; rep = jcl_inf_bits(s, 2); if (rep < 0) return 1; rep += 3;
+        } else if (sym == 17) { rep = jcl_inf_bits(s, 3); if (rep < 0) return 1; rep += 3; }
+        else { rep = jcl_inf_bits(s, 7); if (rep < 0) return 1; rep += 11; }
+        if (idx + rep > nlen + ndist) return jcl_inf_fail(s, "invalid bit length repeat");
+        while (rep--) lengths[idx++] = (short)len;
+    }
+    if (lengths[256] == 0) return jcl_inf_fail(s, "invalid code -- missing end-of-block");
+    if (jcl_inf_construct(&s->lencode, lengths, nlen) < 0) return jcl_inf_fail(s, "invalid literal/lengths set");
+    if (jcl_inf_construct(&s->distcode, lengths + nlen, ndist) < 0) return jcl_inf_fail(s, "invalid distances set");
+    return 0;
+}
+
+static void jcl_inf_fixed(jcl_inflater *s) {
+    short lengths[320];
+    int i;
+    for (i = 0; i < 144; i++) lengths[i] = 8;
+    for (; i < 256; i++) lengths[i] = 9;
+    for (; i < 280; i++) lengths[i] = 7;
+    for (; i < 288; i++) lengths[i] = 8;
+    jcl_inf_construct(&s->lencode, lengths, 288);
+    for (i = 0; i < 30; i++) lengths[i] = 5;
+    jcl_inf_construct(&s->distcode, lengths, 30);
+}
+
+#define JCL_INF_EMIT(b) do { unsigned char c_ = (unsigned char)(b); out[o++] = c_; s->win[s->wtotal++ & 32767] = c_; } while (0)
+
+/* Inflates until the input or the output is used up. Returns 0 or -1 (error); *o_out = bytes written. */
+static int jcl_inf_run(jcl_inflater *s, unsigned char *out, size_t outcap, size_t *o_out) {
+    size_t o = 0;
+    int rc = 0;
+    for (;;) {
+        jcl_inf_snap snap = { s->in_pos, s->bitbuf, s->bitcnt };
+        if (s->phase == INF_DONE) break;
+        if (s->phase == INF_HDR) {
+            if (s->nowrap) { s->phase = INF_BLOCK; continue; }
+            int cmf = jcl_inf_bits(s, 8), flg = jcl_inf_bits(s, 8);
+            if (cmf < 0 || flg < 0) goto suspend;
+            if (((cmf << 8) | flg) % 31 != 0) { rc = jcl_inf_fail(s, "incorrect header check"); break; }
+            if ((cmf & 15) != 8) { rc = jcl_inf_fail(s, "unknown compression method"); break; }
+            if (flg & 32) { rc = jcl_inf_fail(s, "preset dictionary not supported"); break; }
+            s->phase = INF_BLOCK;
+        } else if (s->phase == INF_BLOCK) {
+            int last = jcl_inf_bits(s, 1), type = jcl_inf_bits(s, 2);
+            if (last < 0 || type < 0) goto suspend;
+            if (type == 0) {
+                s->bitbuf >>= (s->bitcnt & 7); s->bitcnt -= (s->bitcnt & 7);
+                int len = jcl_inf_bits(s, 16), nlen = jcl_inf_bits(s, 16);
+                if (len < 0 || nlen < 0) goto suspend;
+                if ((len ^ 0xffff) != nlen) { rc = jcl_inf_fail(s, "invalid stored block lengths"); break; }
+                s->stored_left = (uint32_t)len; s->phase = INF_STORED;
+            } else if (type == 1) { jcl_inf_fixed(s); s->phase = INF_CODES; }
+            else if (type == 2) {
+                int r = jcl_inf_dynamic(s);
+                if (r < 0) { rc = -1; break; }
+                if (r > 0) goto suspend;
+                s->phase = INF_CODES;
+            } else { rc = jcl_inf_fail(s, "invalid block type"); break; }
+            s->last = last;
+        } else if (s->phase == INF_STORED) {
+            while (s->stored_left > 0 && o < outcap) {
+                int b = jcl_inf_bits(s, 8);
+                if (b < 0) goto done_loop;
+                JCL_INF_EMIT(b); s->stored_left--;
+            }
+            if (s->stored_left > 0) break;
+            s->phase = s->last ? INF_TRAILER : INF_BLOCK;
+        } else if (s->phase == INF_CODES) {
+            while (s->copy_len > 0 && o < outcap) {
+                JCL_INF_EMIT(s->win[(s->wtotal - (uint32_t)s->copy_dist) & 32767]); s->copy_len--;
+            }
+            if (s->copy_len > 0 || o >= outcap) break;
+            int sym = jcl_inf_decode(s, &s->lencode);
+            if (sym == -1) goto suspend;
+            if (sym < 0 || sym > 285) { rc = jcl_inf_fail(s, "invalid literal/length code"); break; }
+            if (sym < 256) { JCL_INF_EMIT(sym); continue; }
+            if (sym == 256) { s->phase = s->last ? INF_TRAILER : INF_BLOCK; continue; }
+            sym -= 257;
+            int extra = jcl_inf_bits(s, jcl_inf_lext[sym]);
+            if (extra < 0) goto suspend;
+            int len = jcl_inf_lbase[sym] + extra;
+            int dsym = jcl_inf_decode(s, &s->distcode);
+            if (dsym == -1) goto suspend;
+            if (dsym < 0 || dsym >= 30) { rc = jcl_inf_fail(s, "invalid distance code"); break; }
+            int dextra = jcl_inf_bits(s, jcl_inf_dext[dsym]);
+            if (dextra < 0) goto suspend;
+            int dist = jcl_inf_dbase[dsym] + dextra;
+            if ((uint32_t)dist > s->wtotal) { rc = jcl_inf_fail(s, "invalid distance too far back"); break; }
+            s->copy_len = len; s->copy_dist = dist;
+        } else { /* INF_TRAILER */
+            s->bitbuf >>= (s->bitcnt & 7); s->bitcnt -= (s->bitcnt & 7);
+            s->in_pos -= (size_t)(s->bitcnt / 8); s->bitbuf = 0; s->bitcnt = 0;
+            if (!s->nowrap) {
+                if (s->in_len - s->in_pos < 4) break;
+                const unsigned char *p = s->in + s->in_pos;
+                s->stored_left = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+                s->in_pos += 4;
+            }
+            s->phase = INF_DONE;
+        }
+        continue;
+    suspend:
+        s->in_pos = snap.pos; s->bitbuf = snap.buf; s->bitcnt = snap.cnt;
+        break;
+    }
+done_loop:
+    *o_out = o;
+    return rc;
+}
+
+static int64_t jcl_inf_call(int64_t addr, const unsigned char *in, int32_t inlen, unsigned char *out, int32_t outlen) {
+    jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
+    if (inlen > 0) {
+        if (s->in_pos > 0) {
+            memmove(s->in, s->in + s->in_pos, s->in_len - s->in_pos);
+            s->in_len -= s->in_pos; s->in_pos = 0;
+        }
+        if (s->in_len + (size_t)inlen > s->in_cap) {
+            s->in_cap = (s->in_len + (size_t)inlen) * 2;
+            s->in = (unsigned char *)realloc(s->in, s->in_cap);
+        }
+        memcpy(s->in + s->in_len, in, (size_t)inlen);
+        s->in_len += (size_t)inlen;
+    }
+    size_t produced = 0;
+    int was_done = s->phase == INF_DONE;
+    int rc = was_done ? 0 : jcl_inf_run(s, out, outlen < 0 ? 0 : (size_t)outlen, &produced);
+    s->adler = jcl_adler32(s->adler, out, produced);
+    if (rc == 0 && !was_done && s->phase == INF_DONE && !s->nowrap && s->stored_left != s->adler) {
+        rc = jcl_inf_fail(s, "incorrect data check");
+    }
+    if (rc < 0) {
+        nabu_throw(jcl_throw("java/util/zip/DataFormatException", "java/lang/Exception", jcl_dup(s->err)));
+        return 0;
+    }
+    int finished = s->phase == INF_DONE;
+    size_t left = s->in_len - s->in_pos;
+    int32_t used = inlen; /* unused input stays inside the state: all of it counts as used */
+    if (finished) used = left >= (size_t)inlen ? 0 : inlen - (int32_t)left;
+    return (int64_t)((uint64_t)(used & 0x7fffffff) | ((uint64_t)(produced & 0x7fffffff) << 31)
+            | ((uint64_t)finished << 62));
+}
+
+BIND(int64_t, jcl_Inflater_init, "java.util.zip.Inflater_init", (int32_t nowrap)) {
+    jcl_inflater *s = (jcl_inflater *)calloc(1, sizeof *s);
+    s->nowrap = (nowrap & 0xff) != 0;
+    s->phase = INF_HDR;
+    s->adler = 1;
+    return (int64_t)(intptr_t)s;
+}
+static void jcl_inf_reset(int64_t addr) {
+    jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
+    unsigned char *in = s->in;
+    size_t cap = s->in_cap;
+    int nowrap = s->nowrap;
+    memset(s, 0, sizeof *s);
+    s->in = in; s->in_cap = cap; s->nowrap = nowrap;
+    s->adler = 1; s->phase = INF_HDR;
+}
+BIND(void, jcl_Inflater_reset, "java.util.zip.Inflater_reset$I64", (int64_t addr)) { jcl_inf_reset(addr); }
+static void jcl_inf_end(int64_t addr) {
+    jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
+    if (s == NULL) return;
+    free(s->in);
+    free(s);
+}
+/* The static native end(long) is called through InflaterSupport (RuntimeCalls redirect): its own symbol "Inflater_end"
+ * is the one of the Java method end() too, and a C definition of it replaced that method. */
+BIND(void, jcl_Inflater_end3, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.InflaterSupport_end", (int64_t addr)) { jcl_inf_end(addr); }
+BIND(void, jcl_Inflater_end2, "java.util.zip.Inflater_end$I64", (int64_t addr)) { jcl_inf_end(addr); }
+BIND(int32_t, jcl_Inflater_getAdler2, "java.util.zip.Inflater_getAdler$I64", (int64_t addr)) {
+    return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;
+}
+BIND(int64_t, jcl_Inflater_bytesBytes, "java.util.zip.Inflater_inflateBytesBytes",
+     (int64_t addr, void *in, int32_t inOff, int32_t inLen, void *out, int32_t outOff, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)in + 8 + inOff, inLen, (unsigned char *)out + 8 + outOff, outLen);
+}
+BIND(int64_t, jcl_Inflater_bytesBuffer, "java.util.zip.Inflater_inflateBytesBuffer",
+     (int64_t addr, void *in, int32_t inOff, int32_t inLen, int64_t outAddr, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)in + 8 + inOff, inLen, (unsigned char *)(intptr_t)outAddr, outLen);
+}
+BIND(int64_t, jcl_Inflater_bufferBytes, "java.util.zip.Inflater_inflateBufferBytes",
+     (int64_t addr, int64_t inAddr, int32_t inLen, void *out, int32_t outOff, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)(intptr_t)inAddr, inLen, (unsigned char *)out + 8 + outOff, outLen);
+}
+BIND(int64_t, jcl_Inflater_bufferBuffer, "java.util.zip.Inflater_inflateBufferBuffer",
+     (int64_t addr, int64_t inAddr, int32_t inLen, int64_t outAddr, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)(intptr_t)inAddr, inLen, (unsigned char *)(intptr_t)outAddr, outLen);
+}
+
+/* ---- java.lang.Class: nesting, sealing, synthetic (what Spring Boot's binder and bean metadata ask) ---- */
+
+/* The outer class of a nested one ("a/B$C" -> "a/B"); NULL for a top-level class, an array and a primitive. */
+static const char *jcl_outer_name(const char *n) {
+    if (n[0] == '[') return NULL;
+    const char *dollar = strrchr(n, '$');
+    if (dollar == NULL || dollar == n || dollar[1] == 0) return NULL;
+    size_t len = (size_t)(dollar - n);
+    char *copy = (char *)jcl_alloc(len + 1);
+    memcpy(copy, n, len);
+    copy[len] = 0;
+    return copy;
+}
+/* An anonymous ("B$1") or local ("B$1Local") class starts its simple name with a digit. */
+static int jcl_is_member_name(const char *n) {
+    const char *dollar = strrchr(n, '$');
+    return jcl_outer_name(n) != NULL && !(dollar[1] >= '0' && dollar[1] <= '9');
+}
+BIND(int, jcl_java_lang_Class_isMemberClass, "java.lang.Class_isMemberClass", (void *self)) {
+    return jcl_is_member_name(jcl_str(self));
+}
+BIND(void *, jcl_java_lang_Class_getDeclaringClass, "java.lang.Class_getDeclaringClass", (void *self)) {
+    const char *n = jcl_str(self);
+    return jcl_is_member_name(n) ? jcl_class(jcl_outer_name(n)) : NULL;
+}
+BIND(void *, jcl_java_lang_Class_getEnclosingClass, "java.lang.Class_getEnclosingClass", (void *self)) {
+    const char *outer = jcl_outer_name(jcl_str(self));
+    return outer != NULL ? jcl_class(outer) : NULL;
+}
+BIND(void *, jcl_java_lang_Class_getEnclosingMethod, "java.lang.Class_getEnclosingMethod", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getEnclosingConstructor, "java.lang.Class_getEnclosingConstructor", (void *self)) { (void)self; return NULL; }
+BIND(int, jcl_java_lang_Class_isSynthetic, "java.lang.Class_isSynthetic", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x1000) != 0;
+}
+BIND(int, jcl_java_lang_Class_isSealed, "java.lang.Class_isSealed", (void *self)) { (void)self; return 0; }
+BIND(void *, jcl_java_lang_Class_getPermittedSubclasses, "java.lang.Class_getPermittedSubclasses", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getRecordComponents, "java.lang.Class_getRecordComponents", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getProtectionDomain, "java.lang.Class_getProtectionDomain", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getSigners, "java.lang.Class_getSigners", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_asSubclass, "java.lang.Class_asSubclass", (void *self, void *other)) { (void)other; return self; }
+extern int nabu_reflection_table_size(void);
+extern const char *nabu_reflection_table_name(int i);
+extern const char *nabu_compiled_type_name_at(int32_t i);
+/* The names of the classes of the program (compiled classes and reflection entries) that start with prefix and,
+ * with direct_only, have no further '$' after it; without duplicates. */
+static int jcl_nested_names_scan(const char *prefix, int direct_only, const char ***out);
+
+/* The classes of the program do not change: the answer for a prefix is kept (the scan is over every class there is,
+ * and Class.getDeclaredClasses / getNestMembers are asked again and again by frameworks). */
+typedef struct jcl_nested_entry {
+    const char *prefix; int direct_only; int count; const char **names; struct jcl_nested_entry *next;
+} jcl_nested_entry;
+static jcl_nested_entry *volatile jcl_nested_cache[256];
+
+static int jcl_nested_names(const char *prefix, int direct_only, const char ***out) {
+    unsigned h = (unsigned) direct_only;
+    for (const char *c = prefix; *c; c++) h = h * 31u + (unsigned char) *c;
+    h &= 255;
+    for (jcl_nested_entry *e = __atomic_load_n(&jcl_nested_cache[h], __ATOMIC_ACQUIRE); e != NULL; e = e->next) {
+        if (e->direct_only == direct_only && strcmp(e->prefix, prefix) == 0) {
+            *out = e->names;
+            return e->count;
+        }
+    }
+    const char **names;
+    int n = jcl_nested_names_scan(prefix, direct_only, &names);
+    jcl_nested_entry *entry = (jcl_nested_entry *) jcl_alloc(sizeof(jcl_nested_entry));
+    entry->prefix = jcl_dup(prefix);
+    entry->direct_only = direct_only;
+    entry->count = n;
+    entry->names = names;
+    entry->next = __atomic_load_n(&jcl_nested_cache[h], __ATOMIC_ACQUIRE);
+    while (!__atomic_compare_exchange_n(&jcl_nested_cache[h], &entry->next, entry, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
+    }
+    *out = names;
+    return n;
+}
+
+static int jcl_nested_names_scan(const char *prefix, int direct_only, const char ***out) {
+    size_t plen = strlen(prefix);
+    int cap = 16, n = 0;
+    const char **names = (const char **)jcl_alloc((size_t)cap * sizeof(char *));
+    for (int pass = 0; pass < 2; pass++) {
+        int total = pass == 0 ? (int)nabu_compiled_type_count_for_trace() : nabu_reflection_table_size();
+        for (int i = 0; i < total; i++) {
+            const char *name = pass == 0 ? nabu_compiled_type_name_at(i) : nabu_reflection_table_name(i);
+            if (name == NULL || strncmp(name, prefix, plen) != 0 || name[plen] != '$' || name[plen + 1] == 0) continue;
+            if (name[plen + 1] >= '0' && name[plen + 1] <= '9') continue;
+            if (direct_only && strchr(name + plen + 1, '$') != NULL) continue;
+            int dup = 0;
+            for (int k = 0; k < n && !dup; k++) dup = strcmp(names[k], name) == 0;
+            if (dup) continue;
+            if (n == cap) {
+                const char **bigger = (const char **)jcl_alloc((size_t)cap * 2 * sizeof(char *));
+                memcpy(bigger, names, (size_t)n * sizeof(char *));
+                names = bigger;
+                cap *= 2;
+            }
+            names[n++] = name;
+        }
+    }
+    *out = names;
+    return n;
+}
+BIND(void *, jcl_java_lang_Class_getDeclaredClasses, "java.lang.Class_getDeclaredClasses", (void *self)) {
+    const char **names;
+    int n = jcl_nested_names(jcl_str(self), 1, &names);
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/Class;");
+    for (int i = 0; i < n; i++) jcl_arr_set(arr, i, jcl_class(names[i]));
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_getNestMembers, "java.lang.Class_getNestMembers", (void *self)) {
+    const char *n = jcl_str(self);
+    const char *dollar = strchr(n, '$');
+    size_t hostLen = dollar != NULL && dollar != n ? (size_t)(dollar - n) : strlen(n);
+    char *host = (char *)jcl_alloc(hostLen + 1);
+    memcpy(host, n, hostLen);
+    host[hostLen] = 0;
+    const char **names;
+    int count = jcl_nested_names(host, 0, &names);
+    void *arr = jcl_arr_typed(count + 1, "[Ljava/lang/Class;");
+    jcl_arr_set(arr, 0, jcl_class(host));
+    for (int i = 0; i < count; i++) jcl_arr_set(arr, i + 1, jcl_class(names[i]));
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_getAnnotationsByType, "java.lang.Class_getAnnotationsByType", (void *self, void *ann)) {
+    void *found = jcl_java_lang_Class_getAnnotation(self, ann);
+    void *arr = jcl_arr_typed(found != NULL ? 1 : 0, "[Ljava/lang/annotation/Annotation;");
+    if (found != NULL) jcl_arr_set(arr, 0, found);
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_toString, "java.lang.Class_toString", (void *self)) {
+    const char *n = jcl_str(self);
+    char *dotted = jcl_dup(n);
+    for (char *c = dotted; *c; c++) if (*c == '/') *c = '.';
+    int primitive = strchr(n, '/') == NULL && n[0] != '[' && strchr(n, '.') == NULL
+            && (strcmp(n, "int") == 0 || strcmp(n, "long") == 0 || strcmp(n, "boolean") == 0 || strcmp(n, "double") == 0
+                || strcmp(n, "float") == 0 || strcmp(n, "short") == 0 || strcmp(n, "byte") == 0
+                || strcmp(n, "char") == 0 || strcmp(n, "void") == 0);
+    if (primitive) return nabu_jstring_new(dotted);
+    return nabu_jstring_new(jcl_concat(jcl_java_lang_Class_isInterface(self) ? "interface " : "class ", dotted));
+}
+
+/* ===========================================================================
+ * Sockets: java.net.InetAddress & co, sun.nio.ch.Net, SocketDispatcher, the pipe of IOUtil and WEPoll (the selector
+ * of the Windows JDK; here an epoll emulation on poll). IPv4 only. A socket is the int in the `fd` slot of a
+ * FileDescriptor. Values that are Java objects (an InetAddress, an InetSocketAddress) are made by NetSupport.java.
+ * =========================================================================== */
+#ifdef _WIN32
+typedef SOCKET jcl_sock;
+#define JCL_SOCK_FAIL INVALID_SOCKET
+#define JCL_SOCK_CLOSE(s) closesocket(s)
+#define JCL_SOCK_ERRNO() WSAGetLastError()
+#define JCL_E_WOULDBLOCK WSAEWOULDBLOCK
+#define JCL_E_INPROGRESS WSAEWOULDBLOCK
+#define JCL_E_INTR WSAEINTR
+#define JCL_E_ADDRINUSE WSAEADDRINUSE
+#define JCL_E_CONNREFUSED WSAECONNREFUSED
+#define JCL_E_CONNRESET WSAECONNRESET
+#define JCL_E_CONNABORTED WSAECONNABORTED
+#define JCL_E_NETUNREACH WSAENETUNREACH
+#define JCL_E_HOSTUNREACH WSAEHOSTUNREACH
+#define JCL_POLL(fds, n, ms) WSAPoll((fds), (ULONG)(n), (ms))
+typedef WSAPOLLFD jcl_pollfd;
+typedef int jcl_socklen;
+#else
+typedef int jcl_sock;
+#define JCL_SOCK_FAIL (-1)
+#define JCL_SOCK_CLOSE(s) close(s)
+#define JCL_SOCK_ERRNO() errno
+#define JCL_E_WOULDBLOCK EWOULDBLOCK
+#define JCL_E_INPROGRESS EINPROGRESS
+#define JCL_E_INTR EINTR
+#define JCL_E_ADDRINUSE EADDRINUSE
+#define JCL_E_CONNREFUSED ECONNREFUSED
+#define JCL_E_CONNRESET ECONNRESET
+#define JCL_E_CONNABORTED ECONNABORTED
+#define JCL_E_NETUNREACH ENETUNREACH
+#define JCL_E_HOSTUNREACH EHOSTUNREACH
+#define JCL_POLL(fds, n, ms) poll((fds), (nfds_t)(n), (ms))
+typedef struct pollfd jcl_pollfd;
+typedef socklen_t jcl_socklen;
+#endif
+
+/* Winsock has to be started once; a POSIX system needs nothing (SIGPIPE is ignored here, send reports EPIPE). */
+static pthread_once_t jcl_net_once = PTHREAD_ONCE_INIT;
+static void jcl_net_startup_once(void) {
+#ifdef _WIN32
+    WSADATA data;
+    WSAStartup(MAKEWORD(2, 2), &data);
+#else
+    signal(SIGPIPE, SIG_IGN);
+#endif
+}
+static void jcl_net_startup(void) { pthread_once(&jcl_net_once, jcl_net_startup_once); }
+
+/* The blocking calls give up the global lock where there is one (POSIX); on Windows the threads run in parallel. */
+#ifdef _WIN32
+#define JCL_NET_BLOCK_BEGIN() 0
+#define JCL_NET_BLOCK_END(r) ((void)(r))
+#else
+#define JCL_NET_BLOCK_BEGIN() jcl_blocking_begin()
+#define JCL_NET_BLOCK_END(r) jcl_blocking_end(r)
+#endif
+
+#define JCL_IOS_UNAVAILABLE (-2)
+#define JCL_IOS_INTERRUPTED (-3)
+#define JCL_IOS_EOF (-1)
+
+/* The events, the same bits as the epoll constants of WEPoll.java: Net.pollinValue() & co answer these. */
+#define JCL_EV_IN 1
+#define JCL_EV_OUT 4
+#define JCL_EV_ERR 8
+#define JCL_EV_HUP 16
+#define JCL_EV_NVAL 32
+#define JCL_EV_ONESHOT ((uint32_t)1 << 31)
+
+static short jcl_ev_to_sys(uint32_t ev) {
+    short s = 0;
+    if (ev & JCL_EV_IN) s |= POLLIN;
+    if (ev & JCL_EV_OUT) s |= POLLOUT;
+    return s;
+}
+static uint32_t jcl_ev_from_sys(short r) {
+    uint32_t e = 0;
+    if (r & POLLIN) e |= JCL_EV_IN;
+    if (r & POLLOUT) e |= JCL_EV_OUT;
+    if (r & POLLERR) e |= JCL_EV_ERR;
+    if (r & POLLHUP) e |= JCL_EV_HUP;
+    if (r & POLLNVAL) e |= JCL_EV_NVAL;
+    return e;
+}
+
+static const char *jcl_net_reason(int err) {
+    if (err == JCL_E_ADDRINUSE) return "Address already in use";
+    if (err == JCL_E_CONNREFUSED) return "Connection refused";
+    if (err == JCL_E_CONNRESET) return "Connection reset";
+    if (err == JCL_E_CONNABORTED) return "Software caused connection abort";
+    if (err == JCL_E_NETUNREACH) return "Network is unreachable";
+    if (err == JCL_E_HOSTUNREACH) return "No route to host";
+    return NULL;
+}
+static void jcl_net_fail(const char *cls, const char *super, const char *what, int err) {
+    char msg[200];
+    const char *reason = jcl_net_reason(err);
+    if (reason != NULL) snprintf(msg, sizeof msg, "%s: %s", reason, what);
+    else snprintf(msg, sizeof msg, "%s failed (error %d)", what, err);
+    nabu_throw(jcl_throw(cls, super, jcl_dup(msg)));
+}
+static void jcl_net_socket_fail(const char *what, int err) {
+    jcl_net_fail("java/net/SocketException", "java/io/IOException", what, err);
+}
+
+static jcl_sock jcl_sock_of(void *fdObj) {
+    const int fd = jcl_chan_fd(fdObj);
+    return fd < 0 ? JCL_SOCK_FAIL : (jcl_sock)fd;
+}
+
+/* The IPv4 address (host byte order) of an InetAddress: InetAddress.holder.address. */
+static int jcl_inet_ipv4(void *inetAddress, uint32_t *out) {
+    if (inetAddress == NULL) return 0;
+    const intptr_t holderOffset = nabu_instance_field_offset(inetAddress, "holder");
+    if (holderOffset < 0) return 0;
+    void *holder = *(void **)((char *)inetAddress + holderOffset);
+    if (holder == NULL) return 0;
+    const intptr_t addressOffset = nabu_instance_field_offset(holder, "address");
+    if (addressOffset < 0) return 0;
+    *out = (uint32_t)*(int32_t *)((char *)holder + addressOffset);
+    return 1;
+}
+
+static void jcl_sockaddr_in(struct sockaddr_in *sa, uint32_t hostOrderAddress, int port) {
+    memset(sa, 0, sizeof *sa);
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons((unsigned short)port);
+    sa->sin_addr.s_addr = htonl(hostOrderAddress);
+}
+
+/* Whether sockets of the IPv6 family can be made. Every socket is then one of that family, accepting IPv4 as well
+ * (dual stack), as in the JDK: a client that tries ::1 for "localhost" finds the server there. */
+static int jcl_ipv6_ok(void) {
+    static volatile int known = -1;
+    if (known < 0) {
+        jcl_net_startup();
+        const jcl_sock s = socket(AF_INET6, SOCK_STREAM, 0);
+        if (s != JCL_SOCK_FAIL) {
+            JCL_SOCK_CLOSE(s);
+            known = 1;
+        } else {
+            known = 0;
+        }
+    }
+    return known;
+}
+
+/* The address of an InetAddress as bytes: 4 (an IPv4 address, in out[0..3]) or 6 (an IPv6 address, 16 bytes, with its
+ * scope id), 0 when it is neither. Inet6Address.holder6.ipaddress and scope_id. */
+static int jcl_inet_bytes(void *inetAddress, unsigned char *out, uint32_t *scope) {
+    if (inetAddress == NULL) return 0;
+    const char *type = nabu_compiled_type_name(inetAddress);
+    if (type != NULL && strcmp(type, "java/net/Inet6Address") == 0) {
+        const intptr_t holderOffset = nabu_instance_field_offset(inetAddress, "holder6");
+        if (holderOffset < 0) return 0;
+        void *holder = *(void **)((char *)inetAddress + holderOffset);
+        if (holder == NULL) return 0;
+        const intptr_t addressOffset = nabu_instance_field_offset(holder, "ipaddress");
+        if (addressOffset < 0) return 0;
+        void *bytes = *(void **)((char *)holder + addressOffset);
+        if (bytes == NULL || *(int32_t *)bytes < 16) return 0;
+        memcpy(out, (char *)bytes + 8, 16);
+        const intptr_t scopeOffset = nabu_instance_field_offset(holder, "scope_id");
+        *scope = scopeOffset >= 0 ? (uint32_t)*(int32_t *)((char *)holder + scopeOffset) : 0;
+        return 6;
+    }
+    uint32_t v4 = 0;
+    if (!jcl_inet_ipv4(inetAddress, &v4)) return 0;
+    out[0] = (unsigned char)(v4 >> 24);
+    out[1] = (unsigned char)(v4 >> 16);
+    out[2] = (unsigned char)(v4 >> 8);
+    out[3] = (unsigned char)v4;
+    return 4;
+}
+
+/* The socket address for bind and connect. A socket of the IPv6 family takes an IPv4 address as IPv4-mapped
+ * (::ffff:a.b.c.d), the IPv4 wildcard as the IPv6 one. 0 when the address does not fit the family of the socket. */
+static int jcl_make_sockaddr(void *inetAddress, int port, int v6socket, struct sockaddr_storage *ss, jcl_socklen *length) {
+    unsigned char b[16];
+    uint32_t scope = 0;
+    const int family = jcl_inet_bytes(inetAddress, b, &scope);
+    if (family == 0) return 0;
+    memset(ss, 0, sizeof *ss);
+    if (!v6socket) {
+        if (family != 4) return 0;
+        struct sockaddr_in *sa = (struct sockaddr_in *)ss;
+        sa->sin_family = AF_INET;
+        sa->sin_port = htons((unsigned short)port);
+        memcpy(&sa->sin_addr, b, 4);
+        *length = sizeof *sa;
+        return 1;
+    }
+    struct sockaddr_in6 *sa = (struct sockaddr_in6 *)ss;
+    sa->sin6_family = AF_INET6;
+    sa->sin6_port = htons((unsigned short)port);
+    if (family == 4) {
+        if (b[0] != 0 || b[1] != 0 || b[2] != 0 || b[3] != 0) {
+            unsigned char *a = (unsigned char *)&sa->sin6_addr;
+            a[10] = 0xff;
+            a[11] = 0xff;
+            memcpy(a + 12, b, 4);
+        }
+    } else {
+        memcpy(&sa->sin6_addr, b, 16);
+        sa->sin6_scope_id = scope;
+    }
+    *length = sizeof *sa;
+    return 1;
+}
+
+static void jcl_sock_set_blocking(jcl_sock s, int blocking) {
+#ifdef _WIN32
+    u_long mode = blocking ? 0 : 1;
+    ioctlsocket(s, FIONBIO, &mode);
+#else
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0) fcntl(s, F_SETFL, blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK));
+#endif
+}
+
+/* ---- java.net.InetAddress and friends: no IPv6, no interface list ---- */
+BIND(void, jcl_InetAddress_init, "java.net.InetAddress_init", (void)) { jcl_net_startup(); }
+BIND(void, jcl_Inet4Address_init, "java.net.Inet4Address_init", (void)) { }
+BIND(void, jcl_Inet6Address_init, "java.net.Inet6Address_init", (void)) { }
+BIND(uint8_t, jcl_InetAddress_isIPv4Available, "java.net.InetAddress_isIPv4Available", (void)) { return 1; }
+BIND(uint8_t, jcl_InetAddress_isIPv6Supported, "java.net.InetAddress_isIPv6Supported", (void)) { return 0; }
+BIND(void *, jcl_Inet4AddressImpl_getLocalHostName, "java.net.Inet4AddressImpl_getLocalHostName", (void *self)) {
+    (void)self;
+    jcl_net_startup();
+    char name[256];
+    if (gethostname(name, sizeof name) != 0 || name[0] == 0) snprintf(name, sizeof name, "localhost");
+    return nabu_jstring_new(name);
+}
+BIND(void *, jcl_Inet4AddressImpl_getHostByAddr, "java.net.Inet4AddressImpl_getHostByAddr", (void *self, void *addr)) {
+    (void)self; (void)addr;
+    nabu_throw(jcl_throw("java/net/UnknownHostException", "java/io/IOException", "no host name for the address"));
+    return NULL;
+}
+BIND(void *, jcl_Inet6AddressImpl_getLocalHostName, "java.net.Inet6AddressImpl_getLocalHostName", (void *self)) {
+    return jcl_Inet4AddressImpl_getLocalHostName(self);
+}
+BIND(void *, jcl_Inet6AddressImpl_getHostByAddr, "java.net.Inet6AddressImpl_getHostByAddr", (void *self, void *addr)) {
+    return jcl_Inet4AddressImpl_getHostByAddr(self, addr);
+}
+BIND(void, jcl_NetworkInterface_init, "java.net.NetworkInterface_init", (void)) { }
+BIND(void *, jcl_NetworkInterface_getAll, "java.net.NetworkInterface_getAll", (void)) {
+    return jcl_arr_typed(0, "[Ljava/net/NetworkInterface;");
+}
+BIND(void *, jcl_NetworkInterface_getByName0, "java.net.NetworkInterface_getByName0", (void *name)) { (void)name; return NULL; }
+BIND(void *, jcl_NetworkInterface_getByIndex0, "java.net.NetworkInterface_getByIndex0", (int32_t index)) { (void)index; return NULL; }
+BIND(void *, jcl_NetworkInterface_getByInetAddress0, "java.net.NetworkInterface_getByInetAddress0", (void *addr)) { (void)addr; return NULL; }
+BIND(uint8_t, jcl_NetworkInterface_boundInetAddress0, "java.net.NetworkInterface_boundInetAddress0", (void *addr)) { (void)addr; return 0; }
+
+/* ---- NetSupport (the runtime package): what needs more than primitives is done in Java on top of these ---- */
+#define JCL_NS(n) "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NetSupport_" n
+BIND(int32_t, jcl_NetSupport_fdVal0, JCL_NS("fdVal0"), (void *fdObj)) { return jcl_chan_fd(fdObj); }
+BIND(void, jcl_NetSupport_setFdVal0, JCL_NS("setFdVal0"), (void *fdObj, int32_t fd)) {
+    int32_t *slot = jcl_fd_slot(fdObj);
+    if (slot != NULL) *slot = fd;
+}
+/* The new socket of an accept (the listening socket is the int), IOStatus.UNAVAILABLE when none is waiting. */
+BIND(int32_t, jcl_NetSupport_accept0, JCL_NS("accept0"), (int32_t listening)) {
+    struct sockaddr_storage sa;
+    jcl_socklen length = sizeof sa;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const jcl_sock s = accept((jcl_sock)listening, (struct sockaddr *)&sa, &length);
+    const int err = s == JCL_SOCK_FAIL ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    if (s == JCL_SOCK_FAIL) {
+        if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+        if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+        jcl_net_socket_fail("Accept", err);
+        return -1;
+    }
+    return (int32_t)s;
+}
+/* A new byte[] of n bytes. */
+static void *jcl_bytes_new(const unsigned char *data, size_t n) {
+    void *array = jcl_alloc(8 + n);
+    ((int32_t *)array)[0] = (int32_t)n;
+    ((int32_t *)array)[1] = 1;
+    jcl_arr_set_type(array, "[B");
+    memcpy((char *)array + 8, data, n);
+    return array;
+}
+/* The address and port of the local or the remote end as bytes: the address (4 bytes for IPv4, 16 for IPv6; an
+ * IPv4-mapped IPv6 address of a dual stack socket counts as IPv4) and then the port, 2 bytes, big endian. Null when
+ * there is none. */
+BIND(void *, jcl_NetSupport_nameBytes0, JCL_NS("nameBytes0"), (int32_t fd, uint8_t remote)) {
+    struct sockaddr_storage sa;
+    jcl_socklen length = sizeof sa;
+    const int r = remote ? getpeername((jcl_sock)fd, (struct sockaddr *)&sa, &length)
+                         : getsockname((jcl_sock)fd, (struct sockaddr *)&sa, &length);
+    if (r != 0) return NULL;
+    unsigned char out[18];
+    if (sa.ss_family == AF_INET6) {
+        const struct sockaddr_in6 *s6 = (const struct sockaddr_in6 *)&sa;
+        const unsigned char *a = (const unsigned char *)&s6->sin6_addr;
+        static const unsigned char mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+        if (memcmp(a, mapped, 12) == 0) {
+            memcpy(out, a + 12, 4);
+            memcpy(out + 4, &s6->sin6_port, 2);
+            return jcl_bytes_new(out, 6);
+        }
+        memcpy(out, a, 16);
+        memcpy(out + 16, &s6->sin6_port, 2);
+        return jcl_bytes_new(out, 18);
+    }
+    const struct sockaddr_in *s4 = (const struct sockaddr_in *)&sa;
+    memcpy(out, &s4->sin_addr, 4);
+    memcpy(out + 4, &s4->sin_port, 2);
+    return jcl_bytes_new(out, 6);
+}
+/* The addresses of a host name: IPv4 ones first, then IPv6 ones, each as a length byte (4 or 16) and the address;
+ * null when the name is unknown. */
+BIND(void *, jcl_NetSupport_resolve0, JCL_NS("resolve0"), (void *host)) {
+    jcl_net_startup();
+    struct addrinfo hints, *result = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = jcl_ipv6_ok() ? AF_UNSPEC : AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if (host == NULL || getaddrinfo(jcl_str(host), NULL, &hints, &result) != 0 || result == NULL) return NULL;
+    unsigned char bytes[(1 + 16) * 16];
+    size_t n = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        const int want = pass == 0 ? AF_INET : AF_INET6;
+        const size_t size = pass == 0 ? 4 : 16;
+        for (struct addrinfo *a = result; a != NULL && n + 1 + size <= sizeof bytes; a = a->ai_next) {
+            if (a->ai_family != want) continue;
+            bytes[n++] = (unsigned char)size;
+            if (pass == 0) memcpy(bytes + n, &((struct sockaddr_in *)a->ai_addr)->sin_addr, 4);
+            else memcpy(bytes + n, &((struct sockaddr_in6 *)a->ai_addr)->sin6_addr, 16);
+            n += size;
+        }
+    }
+    freeaddrinfo(result);
+    if (n == 0) return NULL;
+    return jcl_bytes_new(bytes, n);
+}
+
+/* ---- sun.nio.ch.Net ---- */
+BIND(uint8_t, jcl_Net_isIPv6Available0, "sun.nio.ch.Net_isIPv6Available0", (void)) { return (uint8_t)jcl_ipv6_ok(); }
+BIND(uint8_t, jcl_Net_isReusePortAvailable0, "sun.nio.ch.Net_isReusePortAvailable0", (void)) { return 0; }
+BIND(int32_t, jcl_Net_isExclusiveBindAvailable, "sun.nio.ch.Net_isExclusiveBindAvailable", (void)) { return -1; }
+BIND(uint8_t, jcl_Net_shouldShutdownWriteBeforeClose0, "sun.nio.ch.Net_shouldShutdownWriteBeforeClose0", (void)) { return 1; }
+BIND(uint8_t, jcl_Net_shouldSetBothIPv4AndIPv6Options0, "sun.nio.ch.Net_shouldSetBothIPv4AndIPv6Options0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_canIPv6SocketJoinIPv4Group0, "sun.nio.ch.Net_canIPv6SocketJoinIPv4Group0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_canJoin6WithIPv4Group0, "sun.nio.ch.Net_canJoin6WithIPv4Group0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_canUseIPv6OptionsWithIPv4LocalAddress0, "sun.nio.ch.Net_canUseIPv6OptionsWithIPv4LocalAddress0", (void)) { return 0; }
+BIND(int16_t, jcl_Net_pollinValue, "sun.nio.ch.Net_pollinValue", (void)) { return JCL_EV_IN; }
+BIND(int16_t, jcl_Net_polloutValue, "sun.nio.ch.Net_polloutValue", (void)) { return JCL_EV_OUT; }
+BIND(int16_t, jcl_Net_pollerrValue, "sun.nio.ch.Net_pollerrValue", (void)) { return JCL_EV_ERR; }
+BIND(int16_t, jcl_Net_pollhupValue, "sun.nio.ch.Net_pollhupValue", (void)) { return JCL_EV_HUP; }
+BIND(int16_t, jcl_Net_pollnvalValue, "sun.nio.ch.Net_pollnvalValue", (void)) { return JCL_EV_NVAL; }
+BIND(int16_t, jcl_Net_pollconnValue, "sun.nio.ch.Net_pollconnValue", (void)) { return JCL_EV_OUT; }
+
+BIND(int32_t, jcl_Net_socket0, "sun.nio.ch.Net_socket0", (uint8_t preferIPv6, uint8_t stream, uint8_t reuse, uint8_t fastLoopback)) {
+    (void)fastLoopback;
+    jcl_net_startup();
+    const int v6 = preferIPv6 && jcl_ipv6_ok();
+    const jcl_sock s = socket(v6 ? AF_INET6 : AF_INET, stream ? SOCK_STREAM : SOCK_DGRAM, 0);
+    if (s == JCL_SOCK_FAIL) {
+        jcl_net_socket_fail("Socket creation", JCL_SOCK_ERRNO());
+        return -1;
+    }
+    if (v6) {
+        /* dual stack: also IPv4 (Windows makes the socket IPv6 only by default) */
+        int off = 0;
+        setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&off, sizeof off);
+    }
+#ifndef _WIN32
+    if (reuse) {
+        int one = 1;
+        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
+    }
+#else
+    (void)reuse;   /* SO_REUSEADDR on Windows lets a second socket take the port */
+#endif
+    return (int32_t)s;
+}
+
+BIND(void, jcl_Net_bind0, "sun.nio.ch.Net_bind0", (void *fdObj, uint8_t preferIPv6, uint8_t useExclBind, void *inetAddress, int32_t port)) {
+    (void)useExclBind;
+    struct sockaddr_storage sa;
+    jcl_socklen length = 0;
+    if (!jcl_make_sockaddr(inetAddress, port, preferIPv6 && jcl_ipv6_ok(), &sa, &length)) {
+        jcl_net_socket_fail("Bind (an address that does not fit the socket)", 0);
+        return;
+    }
+    if (bind(jcl_sock_of(fdObj), (struct sockaddr *)&sa, length) != 0) {
+        const int err = JCL_SOCK_ERRNO();
+        jcl_net_fail("java/net/BindException", "java/net/SocketException", "bind", err);
+    }
+}
+
+BIND(void, jcl_Net_listen, "sun.nio.ch.Net_listen", (void *fdObj, int32_t backlog)) {
+    if (listen(jcl_sock_of(fdObj), backlog) != 0) jcl_net_socket_fail("Listen", JCL_SOCK_ERRNO());
+}
+
+BIND(int32_t, jcl_Net_connect0, "sun.nio.ch.Net_connect0", (uint8_t preferIPv6, void *fdObj, void *inetAddress, int32_t port)) {
+    struct sockaddr_storage sa;
+    jcl_socklen length = 0;
+    if (!jcl_make_sockaddr(inetAddress, port, preferIPv6 && jcl_ipv6_ok(), &sa, &length)) {
+        jcl_net_socket_fail("Connect (an address that does not fit the socket)", 0);
+        return -1;
+    }
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int r = connect(jcl_sock_of(fdObj), (struct sockaddr *)&sa, length);
+    const int err = r != 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    if (r == 0) return 1;
+    if (err == JCL_E_INPROGRESS || err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+    if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+    jcl_net_fail("java/net/ConnectException", "java/net/SocketException", "connect", err);
+    return -1;
+}
+
+BIND(void, jcl_Net_shutdown, "sun.nio.ch.Net_shutdown", (void *fdObj, int32_t how)) {
+    if (shutdown(jcl_sock_of(fdObj), how) != 0) {
+        const int err = JCL_SOCK_ERRNO();
+        if (err != 10057 /* WSAENOTCONN */ && err != 107 /* ENOTCONN */) jcl_net_socket_fail("Shutdown", err);
+    }
+}
+
+/* The port of a socket address of either family. */
+static int jcl_sockaddr_port(const struct sockaddr_storage *sa) {
+    return ntohs(sa->ss_family == AF_INET6 ? ((const struct sockaddr_in6 *)sa)->sin6_port
+                                           : ((const struct sockaddr_in *)sa)->sin_port);
+}
+BIND(int32_t, jcl_Net_localPort, "sun.nio.ch.Net_localPort", (void *fdObj)) {
+    struct sockaddr_storage sa;
+    jcl_socklen length = sizeof sa;
+    if (getsockname(jcl_sock_of(fdObj), (struct sockaddr *)&sa, &length) != 0) {
+        jcl_net_socket_fail("getsockname", JCL_SOCK_ERRNO());
+        return -1;
+    }
+    return jcl_sockaddr_port(&sa);
+}
+BIND(int32_t, jcl_Net_remotePort, "sun.nio.ch.Net_remotePort", (void *fdObj)) {
+    struct sockaddr_storage sa;
+    jcl_socklen length = sizeof sa;
+    if (getpeername(jcl_sock_of(fdObj), (struct sockaddr *)&sa, &length) != 0) {
+        jcl_net_socket_fail("getpeername", JCL_SOCK_ERRNO());
+        return -1;
+    }
+    return jcl_sockaddr_port(&sa);
+}
+
+BIND(int32_t, jcl_Net_getIntOption0, "sun.nio.ch.Net_getIntOption0", (void *fdObj, uint8_t mayNeedConversion, int32_t level, int32_t option)) {
+    (void)mayNeedConversion;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    if (level == SOL_SOCKET && option == SO_LINGER) {
+        struct linger linger;
+        jcl_socklen length = sizeof linger;
+        if (getsockopt(s, level, option, (char *)&linger, &length) != 0) {
+            jcl_net_socket_fail("getsockopt", JCL_SOCK_ERRNO());
+            return 0;
+        }
+        return linger.l_onoff ? (int32_t)linger.l_linger : -1;
+    }
+    int value = 0;
+    jcl_socklen length = sizeof value;
+    if (getsockopt(s, level, option, (char *)&value, &length) != 0) {
+        jcl_net_socket_fail("getsockopt", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return value;
+}
+BIND(void, jcl_Net_setIntOption0, "sun.nio.ch.Net_setIntOption0", (void *fdObj, uint8_t mayNeedConversion, int32_t level, int32_t option, int32_t arg, uint8_t isIPv6)) {
+    (void)mayNeedConversion; (void)isIPv6;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    int r;
+    if (level == SOL_SOCKET && option == SO_LINGER) {
+        struct linger linger;
+        linger.l_onoff = arg >= 0;
+        linger.l_linger = (unsigned short)(arg >= 0 ? arg : 0);
+        r = setsockopt(s, level, option, (const char *)&linger, sizeof linger);
+    } else {
+        int value = arg;
+        r = setsockopt(s, level, option, (const char *)&value, sizeof value);
+    }
+    if (r != 0) jcl_net_socket_fail("setsockopt", JCL_SOCK_ERRNO());
+}
+
+/* Waits for the events (JCL_EV_*) on one socket; the events that happened, 0 on a time-out. */
+BIND(int32_t, jcl_Net_poll, "sun.nio.ch.Net_poll", (void *fdObj, int32_t events, int64_t timeout)) {
+    jcl_pollfd p;
+    p.fd = jcl_sock_of(fdObj);
+    p.events = jcl_ev_to_sys((uint32_t)events);
+    p.revents = 0;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int r = JCL_POLL(&p, 1, (int)(timeout > 2147483647 ? 2147483647 : timeout));
+    JCL_NET_BLOCK_END(released);
+    if (r < 0) {
+        jcl_net_socket_fail("poll", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return r == 0 ? 0 : (int32_t)jcl_ev_from_sys(p.revents);
+}
+/* Whether a non-blocking connect has finished (within the time-out); a failed one throws. */
+BIND(uint8_t, jcl_Net_pollConnect, "sun.nio.ch.Net_pollConnect", (void *fdObj, int64_t timeout)) {
+    const jcl_sock s = jcl_sock_of(fdObj);
+    jcl_pollfd p;
+    p.fd = s;
+    p.events = POLLOUT;
+    p.revents = 0;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int r = JCL_POLL(&p, 1, (int)(timeout > 2147483647 ? 2147483647 : timeout));
+    JCL_NET_BLOCK_END(released);
+    if (r <= 0) return 0;
+    int error = 0;
+    jcl_socklen length = sizeof error;
+    getsockopt(s, SOL_SOCKET, SO_ERROR, (char *)&error, &length);
+    if (error != 0) {
+        jcl_net_fail("java/net/ConnectException", "java/net/SocketException", "connect", error);
+        return 0;
+    }
+    return 1;
+}
+BIND(int32_t, jcl_Net_available, "sun.nio.ch.Net_available", (void *fdObj)) {
+#ifdef _WIN32
+    u_long n = 0;
+    if (ioctlsocket(jcl_sock_of(fdObj), FIONREAD, &n) != 0) {
+        jcl_net_socket_fail("available", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return (int32_t)n;
+#else
+    int n = 0;
+    if (ioctl(jcl_sock_of(fdObj), FIONREAD, &n) != 0) {
+        jcl_net_socket_fail("available", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return n;
+#endif
+}
+BIND(uint8_t, jcl_Net_discardOOB, "sun.nio.ch.Net_discardOOB", (void *fdObj)) { (void)fdObj; return 0; }
+
+/* ---- sun.nio.ch.SocketDispatcher ---- */
+static int32_t jcl_sock_read_status(int64_t n, int err, int32_t length) {
+    if (n > 0 || length == 0) return (int32_t)n;
+    if (n == 0) return JCL_IOS_EOF;
+    if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+    if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+    if (err == JCL_E_CONNRESET || err == JCL_E_CONNABORTED) {
+        jcl_net_fail("java/net/SocketException", "java/io/IOException", "read", err);
+        return 0;
+    }
+    jcl_net_socket_fail("read", err);
+    return 0;
+}
+BIND(int32_t, jcl_SocketDispatcher_read0, "sun.nio.ch.SocketDispatcher_read0", (void *fdObj, int64_t address, int32_t length)) {
+    const jcl_sock s = jcl_sock_of(fdObj);
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int n = (int)recv(s, (char *)(intptr_t)address, length, 0);
+    const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    return jcl_sock_read_status(n, err, length);
+}
+BIND(int32_t, jcl_SocketDispatcher_write0, "sun.nio.ch.SocketDispatcher_write0", (void *fdObj, int64_t address, int32_t length)) {
+    const jcl_sock s = jcl_sock_of(fdObj);
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int n = (int)send(s, (const char *)(intptr_t)address, length, 0);
+    const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    if (n >= 0) return n;
+    if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+    if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+    jcl_net_fail("java/net/SocketException", "java/io/IOException", "write", err);
+    return 0;
+}
+/* The gathering and scattering variants: an array of { void *base; size_t length } at the address. */
+typedef struct { void *base; size_t length; } jcl_iovec;
+BIND(int64_t, jcl_SocketDispatcher_readv0, "sun.nio.ch.SocketDispatcher_readv0", (void *fdObj, int64_t address, int32_t count)) {
+    const jcl_iovec *iov = (const jcl_iovec *)(intptr_t)address;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    int64_t total = 0;
+    for (int32_t i = 0; i < count; i++) {
+        if (iov[i].length == 0) continue;
+        const int released = JCL_NET_BLOCK_BEGIN();
+        const int n = (int)recv(s, (char *)iov[i].base, (int)iov[i].length, 0);
+        const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+        JCL_NET_BLOCK_END(released);
+        if (n <= 0) {
+            if (total > 0) return total;
+            return jcl_sock_read_status(n, err, 1);
+        }
+        total += n;
+        if ((size_t)n < iov[i].length) break;
+    }
+    return total;
+}
+BIND(int64_t, jcl_SocketDispatcher_writev0, "sun.nio.ch.SocketDispatcher_writev0", (void *fdObj, int64_t address, int32_t count)) {
+    const jcl_iovec *iov = (const jcl_iovec *)(intptr_t)address;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    int64_t total = 0;
+    for (int32_t i = 0; i < count; i++) {
+        if (iov[i].length == 0) continue;
+        const int released = JCL_NET_BLOCK_BEGIN();
+        const int n = (int)send(s, (const char *)iov[i].base, (int)iov[i].length, 0);
+        const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+        JCL_NET_BLOCK_END(released);
+        if (n < 0) {
+            if (total > 0) return total;
+            if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+            if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+            jcl_net_fail("java/net/SocketException", "java/io/IOException", "write", err);
+            return 0;
+        }
+        total += n;
+        if ((size_t)n < iov[i].length) break;
+    }
+    return total;
+}
+BIND(void, jcl_SocketDispatcher_close0, "sun.nio.ch.SocketDispatcher_close0", (int32_t fd)) {
+    if (fd >= 0) JCL_SOCK_CLOSE((jcl_sock)fd);
+}
+
+/* ---- the wake-up pipe of a selector: a connected pair of sockets (a loopback pair on Windows) ---- */
+static int jcl_socket_pair(jcl_sock pair[2]) {
+    jcl_net_startup();
+#ifdef _WIN32
+    const jcl_sock listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == JCL_SOCK_FAIL) return -1;
+    struct sockaddr_in sa;
+    jcl_socklen length = sizeof sa;
+    jcl_sockaddr_in(&sa, 0x7f000001u, 0);
+    pair[0] = pair[1] = JCL_SOCK_FAIL;
+    if (bind(listener, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(listener, 1) != 0
+            || getsockname(listener, (struct sockaddr *)&sa, &length) != 0) {
+        closesocket(listener);
+        return -1;
+    }
+    pair[0] = socket(AF_INET, SOCK_STREAM, 0);
+    if (pair[0] == JCL_SOCK_FAIL || connect(pair[0], (struct sockaddr *)&sa, sizeof sa) != 0) {
+        if (pair[0] != JCL_SOCK_FAIL) closesocket(pair[0]);
+        closesocket(listener);
+        return -1;
+    }
+    pair[1] = accept(listener, NULL, NULL);
+    closesocket(listener);
+    if (pair[1] == JCL_SOCK_FAIL) {
+        closesocket(pair[0]);
+        return -1;
+    }
+    return 0;
+#else
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return -1;
+    pair[0] = sv[0];
+    pair[1] = sv[1];
+    return 0;
+#endif
+}
+/* (read end << 32) | write end. */
+BIND(int64_t, jcl_IOUtil_makePipe, "sun.nio.ch.IOUtil_makePipe", (uint8_t blocking)) {
+    jcl_sock pair[2];
+    if (jcl_socket_pair(pair) != 0) {
+        jcl_net_socket_fail("Pipe creation", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    if (!blocking) {
+        jcl_sock_set_blocking(pair[0], 0);
+        jcl_sock_set_blocking(pair[1], 0);
+    }
+    return ((int64_t)(int32_t)pair[0] << 32) | (int64_t)(uint32_t)(int32_t)pair[1];
+}
+BIND(int32_t, jcl_IOUtil_write1, "sun.nio.ch.IOUtil_write1", (int32_t fd, int8_t byte)) {
+    const char b = (char)byte;
+    const int n = (int)send((jcl_sock)fd, &b, 1, 0);
+    if (n < 0) {
+        const int err = JCL_SOCK_ERRNO();
+        if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+        if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+        jcl_net_socket_fail("write", err);
+    }
+    return n;
+}
+/* Reads and drops what is there; whether anything was. */
+BIND(uint8_t, jcl_IOUtil_drain, "sun.nio.ch.IOUtil_drain", (int32_t fd)) {
+    char buffer[128];
+    int any = 0;
+    for (;;) {
+        const int n = (int)recv((jcl_sock)fd, buffer, sizeof buffer, 0);
+        if (n <= 0) break;
+        any = 1;
+        if (n < (int)sizeof buffer) break;
+    }
+    return (uint8_t)any;
+}
+BIND(int32_t, jcl_IOUtil_drain1, "sun.nio.ch.IOUtil_drain1", (int32_t fd)) {
+    char b;
+    const int n = (int)recv((jcl_sock)fd, &b, 1, 0);
+    return n > 0 ? 1 : 0;
+}
+
+/* ---- WEPoll: epoll on top of poll. The event structure is { uint32 events; (pad); int32 descriptor at +8 } ---- */
+typedef struct { jcl_sock fd; uint32_t events; } jcl_ep_entry;
+typedef struct { pthread_mutex_t lock; jcl_ep_entry *entries; int count; int capacity; } jcl_epoll;
+#define JCL_EP_EVENT_SIZE 16
+#define JCL_EP_DATA_OFFSET 8
+
+BIND(int32_t, jcl_WEPoll_eventSize, "sun.nio.ch.WEPoll_eventSize", (void)) { return JCL_EP_EVENT_SIZE; }
+BIND(int32_t, jcl_WEPoll_eventsOffset, "sun.nio.ch.WEPoll_eventsOffset", (void)) { return 0; }
+BIND(int32_t, jcl_WEPoll_dataOffset, "sun.nio.ch.WEPoll_dataOffset", (void)) { return JCL_EP_DATA_OFFSET; }
+BIND(int64_t, jcl_WEPoll_create, "sun.nio.ch.WEPoll_create", (void)) {
+    jcl_net_startup();
+    jcl_epoll *ep = (jcl_epoll *)calloc(1, sizeof *ep);
+    if (ep == NULL) {
+        jcl_net_socket_fail("epoll_create", 0);
+        return 0;
+    }
+    pthread_mutex_init(&ep->lock, NULL);
+    return (int64_t)(intptr_t)ep;
+}
+static int jcl_ep_trace(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("NABU_TRACE_EPOLL") != NULL;
+    return on;
+}
+static jcl_ep_entry *jcl_ep_find(jcl_epoll *ep, jcl_sock fd) {
+    for (int i = 0; i < ep->count; i++) if (ep->entries[i].fd == fd) return &ep->entries[i];
+    return NULL;
+}
+/* 0 on success, else an errno-like code (EEXIST 17, ENOENT 2, EINVAL 22) like epoll_ctl. */
+BIND(int32_t, jcl_WEPoll_ctl, "sun.nio.ch.WEPoll_ctl", (int64_t handle, int32_t opcode, int64_t socket, int32_t events)) {
+    jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
+    const jcl_sock fd = (jcl_sock)socket;
+    int result = 0;
+    pthread_mutex_lock(&ep->lock);
+    jcl_ep_entry *e = jcl_ep_find(ep, fd);
+    if (jcl_ep_trace()) fprintf(stderr, "epoll %p ctl op=%d fd=%d events=%x found=%d\n", (void *)ep, opcode, (int)fd, (unsigned)events, e != NULL);
+    if (opcode == 1) {          /* EPOLL_CTL_ADD */
+        if (e != NULL) {
+            result = 17;
+        } else {
+            if (ep->count == ep->capacity) {
+                const int capacity = ep->capacity == 0 ? 64 : ep->capacity * 2;
+                jcl_ep_entry *grown = (jcl_ep_entry *)realloc(ep->entries, sizeof *grown * (size_t)capacity);
+                if (grown == NULL) {
+                    result = 12;
+                } else {
+                    ep->entries = grown;
+                    ep->capacity = capacity;
+                }
+            }
+            if (result == 0) {
+                ep->entries[ep->count].fd = fd;
+                ep->entries[ep->count].events = (uint32_t)events;
+                ep->count++;
+            }
+        }
+    } else if (opcode == 2) {   /* EPOLL_CTL_MOD (the numbers of wepoll.h, as WEPoll.java: ADD 1, MOD 2, DEL 3) */
+        if (e == NULL) result = 2; else e->events = (uint32_t)events;
+    } else if (opcode == 3) {   /* EPOLL_CTL_DEL */
+        if (e == NULL) {
+            result = 2;
+        } else {
+            *e = ep->entries[ep->count - 1];
+            ep->count--;
+        }
+    } else {
+        result = 22;
+    }
+    pthread_mutex_unlock(&ep->lock);
+    return result;
+}
+/* Waits (timeout in ms, -1: for ever) for the registered sockets; fills the event structures at the address.
+ * A poll cannot be told about a registration that is made while it waits (epoll_wait sees it): the wait is made in
+ * short slices, each with a new snapshot of the registered sockets, so that a socket that is registered (or armed
+ * again) during the wait is watched within JCL_EP_SLICE_MS. */
+#define JCL_EP_SLICE_MS 5
+BIND(int32_t, jcl_WEPoll_wait, "sun.nio.ch.WEPoll_wait", (int64_t handle, int64_t address, int32_t maxEvents, int32_t timeout)) {
+    jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
+    int remaining = timeout;
+    int ready = 0;
+    int err = 0;
+    int delivered = 0;
+    for (;;) {
+        pthread_mutex_lock(&ep->lock);
+        const int count = ep->count;
+        jcl_pollfd *fds = (jcl_pollfd *)malloc(sizeof *fds * (size_t)(count > 0 ? count : 1));
+        uint32_t *wanted = (uint32_t *)malloc(sizeof *wanted * (size_t)(count > 0 ? count : 1));
+        int n = 0;
+        for (int i = 0; i < count && fds != NULL && wanted != NULL; i++) {
+            if (ep->entries[i].events == 0) continue;
+            fds[n].fd = ep->entries[i].fd;
+            fds[n].events = jcl_ev_to_sys(ep->entries[i].events);
+            fds[n].revents = 0;
+            wanted[n] = ep->entries[i].events;
+            n++;
+        }
+        pthread_mutex_unlock(&ep->lock);
+        if (fds == NULL || wanted == NULL) {
+            free(fds);
+            free(wanted);
+            jcl_net_socket_fail("epoll_wait", 0);
+            return 0;
+        }
+        if (jcl_ep_trace()) {
+            fprintf(stderr, "epoll %p wait n=%d timeout=%d:", (void *)ep, n, (int)remaining);
+            for (int i = 0; i < n; i++) fprintf(stderr, " %d/%x", (int)fds[i].fd, (unsigned)wanted[i]);
+            fprintf(stderr, "\n");
+        }
+        const int slice = (remaining < 0 || remaining > JCL_EP_SLICE_MS) ? JCL_EP_SLICE_MS : remaining;
+        const int released = JCL_NET_BLOCK_BEGIN();
+        if (n == 0) {
+#ifdef _WIN32
+            if (slice != 0) Sleep((DWORD)slice);
+#else
+            if (slice != 0) poll(NULL, 0, slice);
+#endif
+            ready = 0;
+        } else {
+            ready = JCL_POLL(fds, n, slice);
+        }
+        err = ready < 0 ? JCL_SOCK_ERRNO() : 0;
+        JCL_NET_BLOCK_END(released);
+        delivered = 0;
+        if (ready > 0) {
+            pthread_mutex_lock(&ep->lock);
+            for (int i = 0; i < n && delivered < maxEvents; i++) {
+                if (fds[i].revents == 0) continue;
+                uint32_t events = jcl_ev_from_sys(fds[i].revents);
+                events &= (wanted[i] | JCL_EV_ERR | JCL_EV_HUP | JCL_EV_NVAL);
+                if (events == 0) continue;
+                char *slot = (char *)(intptr_t)address + (size_t)delivered * JCL_EP_EVENT_SIZE;
+                memset(slot, 0, JCL_EP_EVENT_SIZE);
+                *(uint32_t *)slot = events;
+                *(int32_t *)(slot + JCL_EP_DATA_OFFSET) = (int32_t)fds[i].fd;
+                delivered++;
+                if (wanted[i] & JCL_EV_ONESHOT) {
+                    jcl_ep_entry *e = jcl_ep_find(ep, fds[i].fd);
+                    if (e != NULL) e->events = 0;
+                }
+            }
+            pthread_mutex_unlock(&ep->lock);
+        }
+        if (jcl_ep_trace() && (ready != 0 || delivered != 0)) {
+            fprintf(stderr, "epoll %p wait -> ready=%d delivered=%d\n", (void *)ep, ready, delivered);
+        }
+        free(fds);
+        free(wanted);
+        if (ready < 0 || delivered > 0) {
+            break;
+        }
+        if (remaining >= 0) {
+            remaining -= slice;
+            if (remaining <= 0) {
+                break;
+            }
+        }
+    }
+    if (ready < 0 && err != JCL_E_INTR) {
+        jcl_net_socket_fail("epoll_wait", err);
+        return 0;
+    }
+    return delivered;
+}
+BIND(void, jcl_WEPoll_close, "sun.nio.ch.WEPoll_close", (int64_t handle)) {
+    jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
+    if (ep == NULL) return;
+    free(ep->entries);
+    pthread_mutex_destroy(&ep->lock);
+    free(ep);
+}
+
+/* No Unix domain sockets: sun.nio.ch.PipeImpl then connects its two ends through TCP on the loopback. */
+BIND(uint8_t, jcl_UnixDomainSockets_init, "sun.nio.ch.UnixDomainSockets_init", (void)) { return 0; }
+
+/* ---- EPoll: Linux epoll used by EPollSelectorImpl/Tomcat NIO. Not used on Windows (WEPoll) or macOS (KQueue). ----
+ * On Linux x86-64, struct epoll_event is packed: { uint32_t events; epoll_data_t data } with sizeof=12,
+ * events at offset 0, data.fd at offset 4. */
+BIND(int32_t, jcl_EPoll_eventSize, "sun.nio.ch.EPoll_eventSize", (void)) {
+#ifdef __linux__
+    return (int32_t)sizeof(struct epoll_event);
+#else
+    return 12;
+#endif
+}
+BIND(int32_t, jcl_EPoll_eventsOffset, "sun.nio.ch.EPoll_eventsOffset", (void)) { return 0; }
+BIND(int32_t, jcl_EPoll_dataOffset, "sun.nio.ch.EPoll_dataOffset", (void)) { return 4; }
+BIND(int32_t, jcl_EPoll_create, "sun.nio.ch.EPoll_create", (void)) {
+#ifdef __linux__
+    int fd = epoll_create1(EPOLL_CLOEXEC);
+    if (fd < 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(errno))));
+        return -1;
+    }
+    return fd;
+#else
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "epoll not available"));
+    return -1;
+#endif
+}
+/* Returns 0 on success, or errno on failure (as OpenJDK's EPoll.c does). */
+BIND(int32_t, jcl_EPoll_ctl, "sun.nio.ch.EPoll_ctl", (int32_t epfd, int32_t op, int32_t fd, int32_t events)) {
+#ifdef __linux__
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.events = (uint32_t)events;
+    ev.data.fd = fd;
+    return epoll_ctl(epfd, op, fd, &ev) == 0 ? 0 : errno;
+#else
+    return 22; /* EINVAL */
+#endif
+}
+/* Returns the number of ready events, or -3 (IOStatus.INTERRUPTED) on EINTR. */
+BIND(int32_t, jcl_EPoll_wait, "sun.nio.ch.EPoll_wait",
+     (int32_t epfd, int64_t pollArrayAddress, int32_t numfds, int32_t timeout)) {
+#ifdef __linux__
+    struct epoll_event *events = (struct epoll_event *)(intptr_t)pollArrayAddress;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    int result = epoll_wait(epfd, events, numfds, timeout);
+    const int err = result < 0 ? errno : 0;
+    JCL_NET_BLOCK_END(released);
+    if (result < 0) {
+        if (err == EINTR) return -3; /* IOStatus.INTERRUPTED */
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(err))));
+        return -1;
+    }
+    return result;
+#else
+    (void)pollArrayAddress; (void)numfds; (void)timeout;
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "epoll not available"));
+    return -1;
+#endif
+}
+/* Close epfd when EPollSelectorImpl is closed. */
+BIND(void, jcl_EPoll_close, "sun.nio.ch.EPoll_close", (int32_t epfd)) {
+#ifndef _WIN32
+    if (epfd >= 0) close(epfd);
+#endif
+}
+
+/* ---- EventFD: used by EPollSelectorImpl to implement Selector.wakeup() on Linux. ---- */
+BIND(int32_t, jcl_EventFD_eventfd0, "sun.nio.ch.EventFD_eventfd0", (void)) {
+#ifdef __linux__
+    int efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (efd < 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(errno))));
+        return -1;
+    }
+    return efd;
+#else
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "eventfd not available"));
+    return -1;
+#endif
+}
+/* Write 1 to the eventfd to wake up the selector. */
+BIND(void, jcl_EventFD_set0, "sun.nio.ch.EventFD_set0", (int32_t efd)) {
+#ifdef __linux__
+    uint64_t val = 1;
+    ssize_t n = write(efd, &val, sizeof val);
+    if (n < 0 && errno != EAGAIN) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(errno))));
+    }
+#else
+    (void)efd;
+#endif
 }

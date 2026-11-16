@@ -109,6 +109,13 @@ public class SymbolTable {
         return module;
     }
 
+    /** Forgets every package, class and module that was entered. The table is not usable for resolving after this. */
+    public void release() {
+        modulesMap.clear();
+        packagesMap.clear();
+        classesMap.clear();
+    }
+
     public static SymbolTable getInstance(final CompilerContextImpl compilerContext) {
         var symbolTable = compilerContext.get(KEY);
 

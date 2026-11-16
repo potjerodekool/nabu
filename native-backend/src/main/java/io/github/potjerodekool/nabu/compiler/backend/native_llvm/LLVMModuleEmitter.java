@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollector;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollectors;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
@@ -54,6 +56,7 @@ public class LLVMModuleEmitter {
         this.ctx   = ctx;
         this.mod   = mod;
         this.opts  = opts;
+        this.gc    = GarbageCollectors.of(opts.gcStrategy());
 
         this.types       = new TypeMapper(ctx);
         this.constants   = new ConstantResolver(ctx, mod, types, globalValueMap);
@@ -62,12 +65,14 @@ public class LLVMModuleEmitter {
         this.instructions = new InstructionEmitter(
                 builder, ctx, types, constants, globalValueMap, blockMap, opts, classLayouts);
         this.functions   = new FunctionEmitter(
-                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts);
+                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts,
+                opts.debugInfo());
     }
 
 public void setReflectionRegistry(
             final io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry reflectionRegistry) {
         this.reflectionRegistry = reflectionRegistry;
+        this.classLayouts.setReflectionRegistry(reflectionRegistry);
     }
 
     /**
@@ -87,26 +92,56 @@ public void setReflectionRegistry(
      *      over klassen heen gedeeld kunnen worden
      *   3. bodies
      */
+    /** Compiles the bodies in chunks while they are emitted (null: all at the end), see {@link ChunkedCodegen}. */
+    private final GarbageCollector gc;
+
+    private ChunkedCodegen chunker;
+    private long chunkInstructions;
+
+    public void setChunker(final ChunkedCodegen chunker, final long instructionsPerChunk) {
+        this.chunker = chunker;
+        this.chunkInstructions = instructionsPerChunk;
+        functions.setCompiledNames(chunker != null ? chunker.compiledFunctions() : null);
+    }
+
     public void emitAll(List<IRModule> modules) {
+        final boolean timing = Boolean.getBoolean("nabu.llvm.phaseTiming");
+        long tp = System.nanoTime();
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
+        functions.setEntryPolls(SafepointPlan.entryPolls(modules));
+        // Which instance fields does the program read? Dead-field elimination leaves the others out of the object
+        // struct (FieldReachability); the same scan feeds the closureStats report.
+        final boolean eliminate = FieldReachability.eliminate();
+        if (eliminate || Boolean.getBoolean("nabu.closureStats")) {
+            final FieldReachability reach = FieldReachability.analyze(modules);
+            if (Boolean.getBoolean("nabu.closureStats")) {
+                FieldReachability.report(modules, reach);
+            }
+            if (eliminate) {
+                this.classLayouts.setFieldReachability(reach);
+            }
+        }
 
         // 0.5 Modules indexeren (naam-normalisatie, functie-resolutie, itable-slot-
         //     volgorde). Moet vóór stap 2 en 2.5: die moeten kunnen zien of een
         //     call-target naar een functie verwijst die hier gedeclareerd is.
         this.classLayouts.indexModules(modules);
 
+        tp = lap(timing, "index", tp);
         // 1. Globals (string-literals, variabelen) — vóór functies
         for (var module : modules)
             for (var global : module.globals().values())
                 globals.emit(global);
 
+        tp = lap(timing, "globals", tp);
         // 2. Alle signaturen — vóór bodies (wederzijdse recursie)
         //    Ook nodig vóór de vtable-opbouw, die functiepointers gebruikt.
         for (var module : modules)
             for (IRFunction fn : module.functions())
                 functions.declareSignature(fn);
 
+        tp = lap(timing, "signatures", tp);
         // 2.5 Laat-externe callee's: calls naar functies die in geen enkele
         //     te-compileren module als IRFunction gedeclareerd zijn (bv.
         //     interface-calls java.util.Iterator_hasNext). Zonder declaratie
@@ -154,15 +189,23 @@ public void setReflectionRegistry(
             }
         }
 
+        tp = lap(timing, "late externals", tp);
         // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
         //    signaturen. Ouders vóór kinderen binnen één registerAll.
         this.classLayouts.registerAll(mod, modules);
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            System.err.println("[nabu/LLVM] dead-field elimination: " + this.classLayouts.eliminatedFieldCount()
+                    + " instance fields left out of object structs");
+        }
         emitStringMeta();
         emitPropertiesMeta();
         emitEnumTable(modules);
         emitCtorTable(modules);
+        emitClassFlagsTable(modules);
+        emitMainClassName();
         emitExceptionTable(modules);
 
+        tp = lap(timing, "object model", tp);
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
         //     nabu_reflection_info-globals + @llvm.global_ctors-registratie.
         //     3.6 GC-init hoort in dezelfde ctor-array: één appending global
@@ -171,7 +214,7 @@ public void setReflectionRegistry(
         new ReflectionInfoEmitter(ctx, mod, globalValueMap,
                 internalName -> instructions.classInitFunction(internalName, mod))
                 .emit(mod, this.classLayouts, modules, reflectionRegistry, ctors);
-        registerBoehmGcInit(ctors);
+        registerGcInit(ctors);
         registerObjectVtable(ctors);
         registerBootstrapInit(ctors);
         // <clinit>-functies draaien precies één keer (JLS §12.4): lazy via de
@@ -185,7 +228,9 @@ public void setReflectionRegistry(
         registerClassInitCtors(ctors, modules);
         ctors.emit();
 
+        tp = lap(timing, "reflection/ctors", tp);
         // 4. Bodies
+        long sinceChunk = 0;
         for (var module : modules) {
             for (IRFunction fn : module.functions()) {
                 // Dezelfde voorstap als het ASM-backend: phi's zijn SSA-
@@ -194,15 +239,52 @@ public void setReflectionRegistry(
                 // naar een temp die in een ander blok gedefinieerd is).
                 if (!fn.isExternal()) {
                     io.github.potjerodekool.nabu.backend.ir.PhiElimination.run(fn);
+                    if (chunker != null) {
+                        for (final var block : fn.blocks()) {
+                            sinceChunk += block.instructions().size();
+                        }
+                    }
                 }
                 functions.emitBody(fn);
             }
+            if (chunker != null && sinceChunk >= chunkInstructions) {
+                flushChunk();
+                sinceChunk = 0;
+            }
         }
 
+        tp = lap(timing, "bodies", tp);
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            System.err.println("[closureStats] devirtualized calls: virtual " + InstructionEmitter.DEVIRTUALIZED[0]
+                    + " (indirect " + InstructionEmitter.VIRTUAL_CALLS[0] + "), interface "
+                    + InstructionEmitter.DEVIRTUALIZED[1] + " (indirect " + InstructionEmitter.INTERFACE_CALLS[0] + ")");
+        }
         functions.finishDebugInfo();
 
         // 5. Array classes, after the bodies that allocate the arrays.
         emitArrayTypeTable(instructions.arrayTypeNames());
+    }
+
+    private void flushChunk() {
+        final long t = System.nanoTime();
+        functions.finishDebugInfo();
+        try {
+            chunker.flush();
+        } catch (final io.github.potjerodekool.nabu.util.CompileException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+        if (Boolean.getBoolean("nabu.llvm.phaseTiming")) {
+            System.err.println("[LLVMModuleEmitter] chunk " + chunker.objects().size() + ": "
+                    + (System.nanoTime() - t) / 1_000_000L + " ms");
+        }
+    }
+
+    private static long lap(final boolean on, final String phase, final long since) {
+        final long now = System.nanoTime();
+        if (on) {
+            System.err.println("[LLVMModuleEmitter] " + phase + ": " + (now - since) / 1_000_000L + " ms");
+        }
+        return now;
     }
 
     /**
@@ -258,14 +340,20 @@ public void setReflectionRegistry(
         for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull();
              fn = LLVMGetNextFunction(fn)) {
             if (LLVMIsDeclaration(fn) == 0 || LLVMGetIntrinsicID(fn) != 0) continue;
-            final var firstUse = LLVMGetFirstUse(fn);
-            if (firstUse == null || firstUse.isNull()) continue;
             final String name = LLVMGetValueName(fn).getString();
+            // With chunks, the callers of a function are gone by now (and the function that was compiled in a chunk
+            // is a declaration again): what was seen while they were there counts.
+            if (chunker != null && chunker.compiledFunctions().contains(name)) continue;
+            final var firstUse = LLVMGetFirstUse(fn);
+            if ((firstUse == null || firstUse.isNull()) && (chunker == null || !chunker.usedDeclarations().contains(name))) continue;
             // Alleen JDK-leden (`pkg.Owner_member`): C-runtime-, libc- en
             // GC-symbolen hebben geen punt in hun naam.
             if (name.indexOf('.') < 0 || name.startsWith("llvm.") || runtime.contains(name)) {
                 continue;
             }
+            // Weak: a definition in the C runtime (a BIND of jcl_lite.c) replaces the stub when the program is
+            // linked, so a missing JDK function can be added without compiling the whole program again.
+            LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
             LLVMPositionBuilderAtEnd(stubBuilder,
                     LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("entry")));
             final LLVMValueRef symbolName = LLVMBuildGlobalStringPtr(stubBuilder,
@@ -368,7 +456,7 @@ public void setReflectionRegistry(
         final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
         long size = 0;
         if (compiled) {
-            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
             size = LLVMABISizeOfType(dl, layout.structType);
             LLVMDisposeTargetData(dl);
         }
@@ -390,6 +478,94 @@ public void setReflectionRegistry(
     }
 
     /**
+     * Emits {@code nabu_class_flags} ({@code { i8* internalName, i32 flags }}) and {@code nabu_class_flag_count}: what
+     * {@code Class.isInterface}, {@code isAnnotation}, {@code getModifiers} and {@code isRecord} answer for the classes
+     * of the program. The flags are those of a class file (public 0x1, final 0x10, interface 0x200, abstract 0x400,
+     * synthetic 0x1000, annotation 0x2000, enum 0x4000) plus 0x10000 for a record.
+     */
+    private void emitClassFlagsTable(final List<IRModule> modules) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(2);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, i32);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 2, 0);
+        final List<LLVMValueRef> entries = new java.util.ArrayList<>();
+        final java.util.Set<String> seen = new java.util.HashSet<>();
+        int index = 0;
+        for (final IRModule module : modules) {
+            final String internalName = ClassLayouts.normalizeInternalName(module.name);
+            if (internalName == null || !seen.add(internalName)) {
+                continue;
+            }
+            int flags = 0;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.PUBLIC)) flags |= 0x0001;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.FINAL)) flags |= 0x0010;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.STATIC)) flags |= 0x0008;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.INTERFACE)) flags |= 0x0200 | 0x0400;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ABSTRACT)) flags |= 0x0400;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.SYNTHETIC)) flags |= 0x1000;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ANNOTATION)) flags |= 0x2000;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ENUM)) flags |= 0x4000;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.RECORD)
+                    || (module.superType() instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr p
+                        && "Ljava/lang/Record;".equals(p.jvmDescriptor()))) {
+                flags |= 0x10000;
+            }
+            // An enum (without constant bodies) and a record are implicitly final.
+            if ((flags & (0x4000 | 0x10000)) != 0 && (flags & 0x0400) == 0) {
+                flags |= 0x0010;
+            }
+            final LLVMValueRef nameStr = LLVMConstStringInContext(ctx, new BytePointer(internalName),
+                    internalName.length(), 0);
+            final LLVMValueRef nameGlobal = LLVMAddGlobal(mod, LLVMTypeOf(nameStr),
+                    new BytePointer(".flags.name." + (index++)));
+            LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(nameGlobal, 1);
+            LLVMSetInitializer(nameGlobal, nameStr);
+            final LLVMValueRef[] fields = {nameGlobal, LLVMConstInt(i32, flags, 0)};
+            entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
+        }
+        final PointerPointer<Pointer> elems = new PointerPointer<>(Math.max(1, entries.size()));
+        for (int i = 0; i < entries.size(); i++) {
+            elems.put(i, entries.get(i));
+        }
+        final LLVMTypeRef arrayType = LLVMArrayType(entryType, entries.size());
+        final LLVMValueRef table = LLVMAddGlobal(mod, arrayType, new BytePointer("nabu_class_flags"));
+        LLVMSetInitializer(table, LLVMConstArray(entryType, elems, entries.size()));
+        LLVMSetGlobalConstant(table, 1);
+        final LLVMValueRef count = LLVMAddGlobal(mod, i32, new BytePointer("nabu_class_flag_count"));
+        LLVMSetInitializer(count, LLVMConstInt(i32, entries.size(), 0));
+        LLVMSetGlobalConstant(count, 1);
+    }
+
+    private String mainClassName;
+
+    /** The internal name of the class with the entry point; {@code nabu_main_class_name} holds it. */
+    public void setMainClassName(final String mainClassName) {
+        this.mainClassName = mainClassName;
+    }
+
+    /**
+     * Emits {@code nabu_main_class_name}, the class with {@code main}: a native program has no stack to find it in
+     * ({@code StackWalker}, which Spring Boot uses to deduce its main application class).
+     */
+    private void emitMainClassName() {
+        final String name = mainClassName != null ? ClassLayouts.normalizeInternalName(mainClassName) : null;
+        if (name == null) {
+            return;
+        }
+        final LLVMValueRef text = LLVMConstStringInContext(ctx, new BytePointer(name), name.length(), 0);
+        final LLVMValueRef global = LLVMAddGlobal(mod, LLVMTypeOf(text), new BytePointer("nabu_main_class_name"));
+        LLVMSetInitializer(global, text);
+        LLVMSetGlobalConstant(global, 1);
+    }
+
+    private static boolean flag(final IRModule module, final long flag) {
+        return io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, flag);
+    }
+
+    /**
      * Emitteert {@code nabu_ctor_table} ({@code { i8* internalName, ptr type,
      * ptr vtable, ptr itable, i64 size, ptr init }} per instantieerbare
      * klasse met een no-arg-constructor) en {@code nabu_ctor_count}. Daarmee
@@ -402,14 +578,17 @@ public void setReflectionRegistry(
     private void emitCtorTable(final List<IRModule> modules) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
-        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(6);
-        for (int i = 0; i < 6; i++) {
-            memberTypes.put(i, i == 4 ? i64 : ptrType);
-        }
-        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 6, 0);
+        // { i8* name, i8* type, i64 size, i8* init } — vtable/itable in type_info
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(4);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, ptrType);
+        memberTypes.put(2, i64);
+        memberTypes.put(3, ptrType);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 4, 0);
+        Reference.reachabilityFence(memberTypes);
         final List<LLVMValueRef> entries = new java.util.ArrayList<>();
         final java.util.Set<String> seen = new java.util.HashSet<>();
-        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         int index = 0;
         for (final IRModule module : modules) {
             if (io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, io.github.potjerodekool.nabu.lang.Flags.ABSTRACT)
@@ -434,7 +613,7 @@ public void setReflectionRegistry(
                             "L" + internalName + ";"));
             LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
                     new BytePointer("_ZNabu" + this.classLayouts.typeSymbol(internalName) + "Etype_info"));
-            if (initValue == null || initValue.isNull() || layout == null || layout.vtableGlobal == null
+            if (initValue == null || initValue.isNull() || layout == null
                     || typeInfo == null || typeInfo.isNull()) {
                 continue;
             }
@@ -445,11 +624,10 @@ public void setReflectionRegistry(
             LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
             LLVMSetGlobalConstant(nameGlobal, 1);
             LLVMSetInitializer(nameGlobal, nameStr);
+            // vtable/itable are in type_info now; entry only needs name, type, size, init
             final LLVMValueRef[] fields = {
                     nameGlobal,
                     typeInfo,
-                    layout.vtableGlobal,
-                    layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType),
                     LLVMConstInt(i64, LLVMABISizeOfType(dl, layout.structType), 0),
                     initValue};
             entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
@@ -480,15 +658,18 @@ public void setReflectionRegistry(
     private void emitExceptionTable(final List<IRModule> modules) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
-        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(6);
-        for (int i = 0; i < 6; i++) {
-            memberTypes.put(i, i == 4 ? i64 : ptrType);
-        }
-        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 6, 0);
+        // { i8* name, i8* type, i64 size, i8* init } — vtable/itable in type_info
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(4);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, ptrType);
+        memberTypes.put(2, i64);
+        memberTypes.put(3, ptrType);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 4, 0);
+        Reference.reachabilityFence(memberTypes);
         final List<LLVMValueRef> entries = new java.util.ArrayList<>();
         final java.util.Set<String> wanted = new java.util.HashSet<>(
                 io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES);
-        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         int index = 0;
         for (final IRModule module : modules) {
             final String internalName = ClassLayouts.normalizeInternalName(module.name);
@@ -511,7 +692,7 @@ public void setReflectionRegistry(
                             "L" + internalName + ";"));
             final LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
                     new BytePointer("_ZNabu" + this.classLayouts.typeSymbol(internalName) + "Etype_info"));
-            if (initValue == null || initValue.isNull() || layout == null || layout.vtableGlobal == null
+            if (initValue == null || initValue.isNull() || layout == null
                     || typeInfo == null || typeInfo.isNull()) {
                 continue;
             }
@@ -522,11 +703,10 @@ public void setReflectionRegistry(
             LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
             LLVMSetGlobalConstant(nameGlobal, 1);
             LLVMSetInitializer(nameGlobal, nameStr);
+            // vtable/itable are in type_info now; entry only needs name, type, size, init
             final LLVMValueRef[] fields = {
                     nameGlobal,
                     typeInfo,
-                    layout.vtableGlobal,
-                    layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType),
                     LLVMConstInt(i64, LLVMABISizeOfType(dl, layout.structType), 0),
                     initValue};
             entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
@@ -716,6 +896,16 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_instanceof"), instanceofFnType);
         LLVMSetLinkage(instanceofFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_instanceof", instanceofFn);
+        // int nabu_instanceof_cached(void* obj, i8* type_name, i64* cache): as nabu_instanceof, the cache of the call site
+        // remembers the answer for the last class it saw
+        PointerPointer<Pointer> cachedParams = new PointerPointer<>(3);
+        cachedParams.put(0, i8ptr);
+        cachedParams.put(1, i8ptr);
+        cachedParams.put(2, i8ptr);
+        final LLVMValueRef instanceofCachedFn = LLVMAddFunction(mod, new BytePointer("nabu_instanceof_cached"),
+                LLVMFunctionType(LLVMInt32TypeInContext(ctx), cachedParams, 3, 0));
+        LLVMSetLinkage(instanceofCachedFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_instanceof_cached", instanceofCachedFn);
 
         // --- Throw (altijd nodig) ---
         PointerPointer<Pointer> throwParams = new PointerPointer<>(1);
@@ -816,6 +1006,18 @@ public void setReflectionRegistry(
                 LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<Pointer>(0), 0, 0));
         LLVMSetLinkage(safepointPollFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_safepoint_poll", safepointPollFn);
+        // -Dnabu.trace=<name,name>: a call of void nabu_diag_trace(i8* name, i64 a, i64 b) at the entry of the functions that
+        // match (a hunt for races: the runtime keeps the events of every thread and shows them on an error)
+        {
+            final PointerPointer<Pointer> traceParams = new PointerPointer<>(3);
+            traceParams.put(0, LLVMPointerTypeInContext(ctx, 0));
+            traceParams.put(1, LLVMInt64TypeInContext(ctx));
+            traceParams.put(2, LLVMInt64TypeInContext(ctx));
+            final LLVMValueRef traceFn = LLVMAddFunction(mod, new BytePointer("nabu_diag_trace"),
+                    LLVMFunctionType(LLVMVoidTypeInContext(ctx), traceParams, 3, 0));
+            LLVMSetLinkage(traceFn, LLVMExternalLinkage);
+            globalValueMap.put("@nabu_diag_trace", traceFn);
+        }
 
         // --- String-concat (altijd nodig) ---
         // i8* nabu_concat(i8* a, i8* b)
@@ -926,11 +1128,11 @@ public void setReflectionRegistry(
         LLVMSetGlobalConstant(excNameGlobal, 1);
         LLVMSetInitializer(excNameGlobal, excNameStr);
 
-        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count,
-        //                         i8** interfaces, i32 interface_count,
-        //                         nabu_type_field* instance_fields, i32 instance_field_count }
+        // struct nabu_type_info { name, size, super_type, field_count,
+        //                         interfaces, interface_count, instance_fields, instance_field_count,
+        //                         vtable, itable }
         LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
-        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(8);
+        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(10);
         excInfoTypes.put(0, i8ptr);
         excInfoTypes.put(1, i64);
         excInfoTypes.put(2, i8ptr);
@@ -939,7 +1141,9 @@ public void setReflectionRegistry(
         excInfoTypes.put(5, i32);
         excInfoTypes.put(6, i8ptr);
         excInfoTypes.put(7, i32);
-        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 8, 0);
+        excInfoTypes.put(8, i8ptr);  // vtable
+        excInfoTypes.put(9, i8ptr);  // itable
+        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 10, 0);
         Reference.reachabilityFence(excInfoTypes);
 
         LLVMValueRef excTypeInfo = LLVMAddGlobal(mod, excInfoType,
@@ -947,7 +1151,7 @@ public void setReflectionRegistry(
         LLVMSetLinkage(excTypeInfo, LLVMExternalLinkage);
         LLVMSetGlobalConstant(excTypeInfo, 1);
 
-        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(8);
+        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(10);
         excInfoFields.put(0, excNameGlobal);
         excInfoFields.put(1, LLVMConstInt(i64, 0, 0));
         excInfoFields.put(2, LLVMConstNull(i8ptr));
@@ -956,7 +1160,9 @@ public void setReflectionRegistry(
         excInfoFields.put(5, LLVMConstInt(i32, 0, 0));
         excInfoFields.put(6, LLVMConstNull(i8ptr));
         excInfoFields.put(7, LLVMConstInt(i32, 0, 0));
-        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 8);
+        excInfoFields.put(8, LLVMConstNull(i8ptr));
+        excInfoFields.put(9, LLVMConstNull(i8ptr));
+        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 10);
         LLVMSetInitializer(excTypeInfo, excInit);
         Reference.reachabilityFence(excInit);
         globalValueMap.put("@nabu_exception_typeinfo", excTypeInfo);
@@ -987,6 +1193,14 @@ public void setReflectionRegistry(
                 LLVMFunctionType(i8ptr, classLitParams, 1, 0));
         LLVMSetLinkage(classLitFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_class_literal", classLitFn);
+        // void *nabu_class_literal_cached(void **slot, const char *name): the slot keeps the answer
+        final PointerPointer<Pointer> classLitCachedParams = new PointerPointer<>(2);
+        classLitCachedParams.put(0, i8ptr);
+        classLitCachedParams.put(1, i8ptr);
+        final LLVMValueRef classLitCachedFn = LLVMAddFunction(mod, new BytePointer("nabu_class_literal_cached"),
+                LLVMFunctionType(i8ptr, classLitCachedParams, 2, 0));
+        LLVMSetLinkage(classLitCachedFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_class_literal_cached", classLitCachedFn);
 
         // --- void nabu_set_object_vtable(i8* vtable) ---
         PointerPointer<Pointer> setVtableParams = new PointerPointer<>(1);
@@ -1086,65 +1300,55 @@ public void setReflectionRegistry(
         LLVMSetLinkage(regTypesFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_register_type_infos", regTypesFn);
 
-        // --- GC-specifieke helpers ---
-        switch (opts.gcStrategy()) {
-            case BOEHM -> declareBoehmHelpers(i8ptr, i64);
-            case NONE -> { /* geen extra helpers nodig */ }
+        declareGcHelpers(i8ptr, i64);
+    }
+
+    /** The two allocation functions of the collector: {@code i8* f(i64)}. The collector starts itself (a constructor in its C file). */
+    private void declareGcHelpers(LLVMTypeRef i8ptr, LLVMTypeRef i64) {
+        final PointerPointer<Pointer> params = new PointerPointer<>(1);
+        params.put(0, i64);
+        final LLVMTypeRef allocType = LLVMFunctionType(i8ptr, params, 1, 0);
+        final LLVMValueRef alloc = LLVMAddFunction(mod, new BytePointer(gc.allocateSymbol()), allocType);
+        LLVMSetLinkage(alloc, LLVMExternalLinkage);
+        globalValueMap.put(InstructionEmitter.GC_ALLOC, alloc);
+        // memory without pointers: not cleared
+        final LLVMValueRef atomic = LLVMAddFunction(mod, new BytePointer(gc.allocateAtomicSymbol()), allocType);
+        LLVMSetLinkage(atomic, LLVMExternalLinkage);
+        globalValueMap.put(InstructionEmitter.GC_ALLOC_ATOMIC, atomic);
+        // The memory an allocation returns is not reachable by any other pointer yet (noalias), and the function does not
+        // unwind: the optimizer can then tell the new object from everything else.
+        for (final LLVMValueRef allocation : new LLVMValueRef[] {alloc, atomic}) {
+            LLVMAddAttributeAtIndex(allocation, 0,
+                    LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("noalias", 7), 0));
+            LLVMAddAttributeAtIndex(allocation, -1,
+                    LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("nounwind", 8), 0));
         }
+        // void nabu_gc_init(): starts the collector (idempotent; the collector's own constructor calls it too)
+        final LLVMValueRef init = LLVMAddFunction(mod, new BytePointer("nabu_gc_init"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0));
+        LLVMSetLinkage(init, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_gc_init", init);
     }
 
     /**
-     * Boehm GC helpers: GC_init() en GC_malloc(size_t) -> i8*.
+     * Starts the collector before anything else of the program: the first of the constructors (the driver
+     * nabu_run_constructors calls them in order; a linker does not always keep to the priorities). It is the same call
+     * for every collector.
      */
-    private void declareBoehmHelpers(LLVMTypeRef i8ptr, LLVMTypeRef i64) {
-        // void GC_init()
-        LLVMTypeRef gcInitType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
-                new PointerPointer<>(0), 0, 0);
-        LLVMValueRef gcInit = LLVMAddFunction(mod,
-                new BytePointer("GC_init"), gcInitType);
-        LLVMSetLinkage(gcInit, LLVMExternalLinkage);
-        globalValueMap.put("@GC_init", gcInit);
-
-        // i8* GC_malloc(size_t)
-        PointerPointer<Pointer> gcMallocParams = new PointerPointer<>(1);
-        gcMallocParams.put(0, i64);
-        LLVMTypeRef gcMallocType = LLVMFunctionType(i8ptr, gcMallocParams, 1, 0);
-        LLVMValueRef gcMalloc = LLVMAddFunction(mod,
-                new BytePointer("GC_malloc"), gcMallocType);
-        LLVMSetLinkage(gcMalloc, LLVMExternalLinkage);
-        globalValueMap.put("@GC_malloc", gcMalloc);
-    }
-
-    /**
-     * BOEHM: zet de collector op vóórdat er ook maar één {@code GC_malloc}
-     * gebeurt. Via {@code @llvm.global_ctors} — niet als eerste instructie van
-     * {@code main} — zodat de init ook draait wanneer de module in een ander
-     * programma gelinkt wordt. De thunk is nodig om de {@code void(void)}-vorm
-     * van een constructor-entry expliciet te maken.
-     */
-    private void registerBoehmGcInit(final ModuleCtors ctors) {
-        if (opts.gcStrategy() != CompileOptions.GcStrategy.BOEHM) {
-            return;
-        }
-        final LLVMValueRef gcInit = globalValueMap.get("@GC_init");
+    private void registerGcInit(final ModuleCtors ctors) {
+        final LLVMValueRef gcInit = globalValueMap.get("@nabu_gc_init");
         if (gcInit == null) {
-            throw new IllegalStateException("Runtime helper @GC_init not defined");
+            throw new IllegalStateException("Runtime helper @nabu_gc_init not defined");
         }
-
-        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
-                new PointerPointer<>(0), 0, 0);
-        final LLVMValueRef thunk = LLVMAddFunction(mod,
-                new BytePointer("nabu_gc_init_thunk"), fnType);
+        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0);
+        final LLVMValueRef thunk = LLVMAddFunction(mod, new BytePointer("nabu_gc_init_thunk"), fnType);
         LLVMSetLinkage(thunk, LLVMExternalLinkage);
-
         final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
-        LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit,
-                new PointerPointer<>(0), 0, "");
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit, new PointerPointer<>(0), 0, "");
         LLVMBuildRetVoid(builder);
         LLVMDisposeBuilder(builder);
-
         ctors.add(thunk);
     }
 

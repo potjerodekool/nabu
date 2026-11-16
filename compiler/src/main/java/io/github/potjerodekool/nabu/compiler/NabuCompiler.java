@@ -154,10 +154,11 @@ public class NabuCompiler implements Compiler {
             // bronbestanden heen in één backend-run worden opgelost.
             final var gcStrategy = getGcStrategy(compilerOptions);
             final var optLevel = getOptLevel(compilerOptions);
+            final var debugInfo = getDebugInfo(compilerOptions);
             final var classPath = getClassPath(compilerOptions);
             final var compileOptions = new CompileOptions(
                     optLevel,
-                    false,
+                    debugInfo,
                     null,
                     gcStrategy,
                     targetVersion,
@@ -186,13 +187,13 @@ public class NabuCompiler implements Compiler {
                 }
                     SsaBuilder.run(module);
 
-                    final var optimized = Optimizer.optimize(module);
-
-                    allModules.add(optimized);
+                    // Optimalisatie wordt uitgesteld tot na de closure, zodat de inliner
+                    // een globale callee-map over alle modules (bron + closure) heeft.
+                    allModules.add(module);
 
                     if (producedBySource != null) {
                         producedBySource.computeIfAbsent(sourceName, k -> new ArrayList<>())
-                                .add(optimized.name.replace('.', '/') + ".class");
+                                .add(module.name.replace('.', '/') + ".class");
                     }
                 }
             }
@@ -206,6 +207,47 @@ public class NabuCompiler implements Compiler {
             // bereiken: vanaf de aanroepen in de broncode en de klassen uit de
             // GraalVM-reflectie-configuratie (META-INF/native-image/**).
             if (codeBackend.compilesLibraryBytecode()) {
+                // The closure and everything it needs (class nodes, shapes) lives in this method only: its
+                // frame is gone before the backend runs, so the memory can be reclaimed for the code generation.
+                addLibraryClosure(allModules, compileOptions, compilerOptions, compilerContext, classPath);
+            }
+
+            // Everything the backend needs is in allModules now. The trees and the symbols of the source and of the
+            // classes it resolved are not: for a large program they are memory the code generation can use.
+            if (codeBackend.compilesLibraryBytecode()) {
+                try {
+                    compilationUnits.clear();
+                } catch (final UnsupportedOperationException e) {
+                    // an immutable list: the caller keeps its trees
+                }
+                compilerContext.releaseSymbols();
+            }
+
+            try {
+                final long backendStart = System.nanoTime();
+                codeBackend.compileAll(allModules, compileOptions, targetDirectory);
+                final long backendMillis = (System.nanoTime() - backendStart) / 1_000_000L;
+                System.err.println("[NabuCompiler] Backend (codegen/optimalisatie/linken): "
+                        + backendMillis + " ms");
+            } catch (final CompileException e) {
+                compilerDiagnosticListener.report(new DefaultDiagnostic(
+                        Diagnostic.Kind.ERROR,
+                        e.getMessage() != null ? e.getMessage() : "Backend fout",
+                        null
+                ));
+                return -1;
+            }
+            return 0;
+        } else {
+            return -1;
+        }
+    }
+
+    private void addLibraryClosure(final ArrayList<io.github.potjerodekool.nabu.backend.ir.IRModule> allModules,
+                                   final CompileOptions compileOptions,
+                                   final CompilerOptions compilerOptions,
+                                   final CompilerContextImpl compilerContext,
+                                   final List<Path> classPath) {
                 // Lambdas and method references from source become real
                 // classes, as LambdaMetafactory would make them at run time.
                 allModules.addAll(io.github.potjerodekool.nabu.compiler.backend.bytecode.SourceLambdaLowering
@@ -275,30 +317,47 @@ public class NabuCompiler implements Compiler {
                 final long reachStart = System.nanoTime();
                 // allModules bevat op dit punt alleen de Nabu-source-modules:
                 // de sluiting volgt hun aanroepen.
-                allModules.addAll(reachabilityCompiler.compileClosure(reflectionRoots, java.util.List.copyOf(allModules)));
+                final var closureModules = reachabilityCompiler.compileClosure(reflectionRoots, java.util.List.copyOf(allModules));
+                allModules.addAll(closureModules);
+
+                // Cross-module optimalisatie: globale inliner over alle modules (bron + closure),
+                // gevolgd door de per-functie passes. -Dnabu.optimizeClosure=false schakelt het uit.
+                if (!"false".equals(System.getProperty("nabu.optimizeClosure", "true"))) {
+                    final var optimized = io.github.potjerodekool.nabu.backend.ir.Optimizer.optimizeAll(allModules);
+                    allModules.clear();
+                    allModules.addAll(optimized);
+                }
                 final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
                 System.err.println("[NabuCompiler] Bytecode reachability closure + lowering: "
                         + reachMillis + " ms (" + allModules.size() + " modules in total)");
-            }
+                if (Boolean.getBoolean("nabu.closureStats")) {
+                    printClosureStats(allModules);
+                }
+    }
 
-            try {
-                final long backendStart = System.nanoTime();
-                codeBackend.compileAll(allModules, compileOptions, targetDirectory);
-                final long backendMillis = (System.nanoTime() - backendStart) / 1_000_000L;
-                System.err.println("[NabuCompiler] Backend (codegen/optimalisatie/linken): "
-                        + backendMillis + " ms");
-            } catch (final CompileException e) {
-                compilerDiagnosticListener.report(new DefaultDiagnostic(
-                        Diagnostic.Kind.ERROR,
-                        e.getMessage() != null ? e.getMessage() : "Backend fout",
-                        null
-                ));
-                return -1;
+    /** -Dnabu.closureStats=true: modules, functions and instructions of the closure per package (three segments). */
+    private static void printClosureStats(final List<io.github.potjerodekool.nabu.backend.ir.IRModule> modules) {
+        final var stats = new java.util.TreeMap<String, long[]>();
+        for (final var module : modules) {
+            final String[] parts = String.valueOf(module.name).replace('.', '/').split("/");
+            final String pkg = String.join(".", java.util.Arrays.copyOf(parts, Math.min(3, Math.max(1, parts.length - 1))));
+            final long[] row = stats.computeIfAbsent(pkg, k -> new long[3]);
+            row[0]++;
+            for (final var fn : module.functions()) {
+                row[1]++;
+                for (final var block : fn.blocks()) {
+                    row[2] += block.instructions().size();
+                }
             }
-            return 0;
-        } else {
-            return -1;
         }
+        long total = stats.values().stream().mapToLong(r -> r[2]).sum();
+        System.err.println("[closureStats] instructions in total: " + total);
+        stats.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue()[2], a.getValue()[2]))
+                .limit(60)
+                .forEach(e -> System.err.println("[closureStats] " + e.getKey() + ": modules " + e.getValue()[0]
+                        + ", functions " + e.getValue()[1] + ", instructions " + e.getValue()[2]
+                        + " (" + 100 * e.getValue()[2] / Math.max(1, total) + "%)"));
     }
 
     private boolean isIncremental(final CompilerOptions compilerOptions) {
@@ -353,9 +412,18 @@ public class NabuCompiler implements Compiler {
             return CompileOptions.OptLevel.valueOf(raw.trim().toUpperCase());
         } catch (final IllegalArgumentException e) {
             System.err.println("nabu: unknown --opt value '" + raw
-                    + "', use NONE, DEFAULT or AGGRESSIVE. Falling back to DEFAULT.");
+                    + "', use NONE, DEFAULT, AGGRESSIVE, SIZE or SIZE_AGGRESSIVE. Falling back to DEFAULT.");
             return CompileOptions.OptLevel.DEFAULT;
         }
+    }
+
+    /**
+     * Whether the native backend emits full debug info (DWARF), via the {@code --debug} compiler option. Off by
+     * default: the object files and the executable stay much smaller. Stack traces keep the method names and, for the
+     * program's own source, the file and line either way (the backend's line tables).
+     */
+    private boolean getDebugInfo(final CompilerOptions compilerOptions) {
+        return compilerOptions.getOption(CompilerOption.DEBUG, false, Boolean.class);
     }
 
     private CompileOptions.GcStrategy getGcStrategy(final CompilerOptions compilerOptions) {
@@ -381,13 +449,14 @@ public class NabuCompiler implements Compiler {
     public CompilerContextImpl configure(final CompilerOptions compilerOptions) {
         final var fullOptions = withDefaults(compilerOptions);
 
+        final var fileManager = new NabuCFileManager();
+        fileManager.processOptions(fullOptions);
         final var compilerContext = new CompilerContextImpl(
-                new NabuCFileManager(),
+                fileManager,
                 fullOptions,
                 new PluginRegistry(),
                 AsmClassElementLoader::new
         );
-        final var fileManager = compilerContext.getFileManager();
         setup(fileManager, fullOptions);
 
         return compilerContext;
@@ -491,11 +560,12 @@ public class NabuCompiler implements Compiler {
             return List.of();
         }
 
-        return compilationUnits.stream()
+        // A list that can be emptied: generateCode lets go of the trees before the backend runs.
+        return new ArrayList<>(compilationUnits.stream()
                 .map(LambdaToMethodPhase::lambdaToMethod)
                 .map(cu -> lower(cu, compilerContext))
                 //.map(cu -> IRPhase.ir(compilerContext, cu))
-                .toList();
+                .toList());
     }
 
     /** A name that two module imports provide as different types is an error where it is used (JLS 7.5.5). */

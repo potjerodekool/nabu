@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollector;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollectors;
 import io.github.potjerodekool.nabu.util.CompileException;
 
 import java.io.File;
@@ -30,15 +32,27 @@ public class Linker {
                              Path executable,
                              String targetTriple,
                              CompileOptions.GcStrategy gcStrategy) throws CompileException {
-        link(List.of(objectFile), executable, targetTriple, gcStrategy);
+        link(List.of(objectFile), executable, targetTriple, gcStrategy, false);
     }
 
     public static void link(List<Path> objectFiles,
                              Path       executable,
                              String     targetTriple,
                              CompileOptions.GcStrategy gcStrategy) throws CompileException {
+        link(objectFiles, executable, targetTriple, gcStrategy, false);
+    }
+
+    /**
+     * As above, with {@code debugInfo}: the C runtime is compiled with full DWARF ({@code -g}) when it is on. The line
+     * tables of the compiled program itself are emitted by the backend ({@link DebugLines}) and do not depend on it.
+     */
+    public static void link(List<Path> objectFiles,
+                             Path       executable,
+                             String     targetTriple,
+                             CompileOptions.GcStrategy gcStrategy,
+                             boolean    debugInfo) throws CompileException {
         List<String> cmd = buildCommand(objectFiles, executable, targetTriple, gcStrategy,
-                cachedRuntime(targetTriple, gcStrategy));
+                cachedRuntime(targetTriple, gcStrategy, debugInfo), debugInfo);
         try {
             Process process = new ProcessBuilder(cmd)
                     .redirectErrorStream(true)
@@ -66,7 +80,7 @@ public class Linker {
                                      Path exe,
                                      String triple,
                                      CompileOptions.GcStrategy gcStrategy) throws CompileException {
-        return buildCommand(objects, exe, triple, gcStrategy, null);
+        return buildCommand(objects, exe, triple, gcStrategy, null, false);
     }
 
     /**
@@ -78,6 +92,20 @@ public class Linker {
                                      String triple,
                                      CompileOptions.GcStrategy gcStrategy,
                                      List<Path> runtimeObjects) throws CompileException {
+        return buildCommand(objects, exe, triple, gcStrategy, runtimeObjects, false);
+    }
+
+    /**
+     * As above, with {@code debugInfo}: {@code -g}/{@code -gdwarf-4} is only added when it is on. That flag makes the
+     * C runtime carry full DWARF; the line tables of the compiled program are in its object files already and are not
+     * touched by the linker.
+     */
+    static List<String> buildCommand(List<Path> objects,
+                                     Path exe,
+                                     String triple,
+                                     CompileOptions.GcStrategy gcStrategy,
+                                     List<Path> runtimeObjects,
+                                     boolean debugInfo) throws CompileException {
         List<String> cmd = new ArrayList<>();
         if (triple != null && triple.contains("windows")) {
             if (triple.contains("gnu")) {
@@ -86,11 +114,20 @@ public class Linker {
                 // nabu_throw/_Unwind, nabu_init_object, etc.). gcc koppelt
                 // libgcc_s_seh automatisch.
                 cmd.add(resolveCompiler("gcc"));
-                cmd.add("-g"); cmd.add("-gdwarf-4");
+                if (debugInfo) { cmd.add("-g"); cmd.add("-gdwarf-4"); }
+                // LLVM's lld links the same objects in seconds where GNU ld needs minutes for a program of
+                // hundreds of megabytes of objects with debug information (10 minutes against 2 seconds).
+                final Path lld = findLld();
+                if (lld != null) {
+                    cmd.add("-B" + lld.getParent());
+                    cmd.add("-fuse-ld=lld");
+                }
                 cmd.add("-o"); cmd.add(exe.toString());
                 objects.forEach(o -> cmd.add(o.toString()));
                 addRuntime(cmd, gcStrategy, runtimeObjects);
                 addGcLibraries(cmd, gcStrategy);
+                // Winsock: java.net and the NIO channels of the runtime (jcl_lite.c).
+                cmd.add("-lws2_32");
                 if (linkStatic()) {
                     // The MinGW runtime (libgcc, libwinpthread, libstdc++) inside the executable: it then runs
                     // without the toolchain's bin directory on the PATH, and an older libwinpthread-1.dll that comes
@@ -102,7 +139,7 @@ public class Linker {
             }
         } else if (triple != null && triple.contains("apple")) {
             cmd.add("clang");
-            cmd.add("-g");
+            if (debugInfo) { cmd.add("-g"); }
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
             addRuntime(cmd, gcStrategy, runtimeObjects);
@@ -110,7 +147,7 @@ public class Linker {
             cmd.add("-lm");
         } else {
             cmd.add("gcc");
-            cmd.add("-g");
+            if (debugInfo) { cmd.add("-g"); }
             cmd.add("-rdynamic");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
@@ -119,6 +156,31 @@ public class Linker {
             cmd.add("-lm");
         }
         return cmd;
+    }
+
+    /**
+     * The {@code ld.lld} to link with, or null for the linker of the toolchain: found through
+     * {@code -Dnabu.lld=<path>}, the PATH or the LLVM installation (LLVM_HOME, Program Files); switched off with
+     * {@code -Dnabu.link.lld=false}.
+     */
+    static Path findLld() {
+        if (!"false".equalsIgnoreCase(System.getProperty("nabu.link.lld"))) {
+            final String prop = System.getProperty("nabu.lld");
+            if (prop != null && !prop.isBlank()) {
+                return java.nio.file.Files.isRegularFile(Path.of(prop)) ? Path.of(prop).toAbsolutePath() : null;
+            }
+            final Path onPath = findOnPath(executableName("ld.lld"));
+            if (onPath != null) return onPath.toAbsolutePath();
+            final String home = System.getenv("LLVM_HOME");
+            final List<Path> dirs = new ArrayList<>();
+            if (home != null && !home.isBlank()) dirs.add(Path.of(home, "bin"));
+            dirs.add(Path.of("C:/Program Files/LLVM/bin"));
+            for (final Path dir : dirs) {
+                final Path candidate = dir.resolve(executableName("ld.lld"));
+                if (java.nio.file.Files.isRegularFile(candidate)) return candidate;
+            }
+        }
+        return null;
     }
 
     /**
@@ -145,7 +207,7 @@ public class Linker {
      * The compiled runtime from the cache (compiled now when it is not there yet), or null when the target is not
      * one we link or the compilation fails: the link command then compiles the sources itself.
      */
-    private static List<Path> cachedRuntime(String triple, CompileOptions.GcStrategy gcStrategy) {
+    private static List<Path> cachedRuntime(String triple, CompileOptions.GcStrategy gcStrategy, boolean debugInfo) {
         final List<String> flags = new ArrayList<>();
         final String compiler;
         if (triple != null && triple.contains("windows")) {
@@ -153,29 +215,31 @@ public class Linker {
                 return null;
             }
             compiler = resolveCompiler("gcc");
-            flags.add("-g");
-            flags.add("-gdwarf-4");
+            if (debugInfo) {
+                flags.add("-g");
+                flags.add("-gdwarf-4");
+            }
         } else if (triple != null && triple.contains("apple")) {
             compiler = "clang";
-            flags.add("-g");
+            if (debugInfo) {
+                flags.add("-g");
+            }
         } else {
             compiler = "gcc";
-            flags.add("-g");
+            if (debugInfo) {
+                flags.add("-g");
+            }
         }
-        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
-            flags.add("-DNABU_GC_BOEHM");
-            homebrewPrefix().ifPresent(prefix -> flags.add("-I" + prefix + "/include"));
-        }
-        return RuntimeObjects.get(runtimeSources(), compiler, flags, triple);
+        final GarbageCollector gc = GarbageCollectors.of(gcStrategy);
+        flags.addAll(gc.compileFlags());
+        return RuntimeObjects.get(runtimeSources(gc), compiler, flags, triple);
     }
 
     private static void addRuntimeSources(List<String> cmd,
                                           CompileOptions.GcStrategy gcStrategy) {
-        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
-            cmd.add("-DNABU_GC_BOEHM");
-            homebrewPrefix().ifPresent(prefix -> cmd.add("-I" + prefix + "/include"));
-        }
-        runtimeSources().forEach(src -> cmd.add(src.toString()));
+        final GarbageCollector gc = GarbageCollectors.of(gcStrategy);
+        cmd.addAll(gc.compileFlags());
+        runtimeSources(gc).forEach(src -> cmd.add(src.toString()));
     }
 
     /**
@@ -223,13 +287,29 @@ public class Linker {
      * objectmodel) en jcl_lite (java.lang/java.util-implmentaties). Siblings
      * van {@link #runtimeSource()}; ontbrekende siblings worden overgeslagen.
      */
-    private static List<Path> runtimeSources() {
+    private static List<Path> runtimeSources(final GarbageCollector gc) {
         Path main = runtimeSource();
         if (main == null) return List.of();
         List<Path> srcs = new ArrayList<>();
         srcs.add(main);
         Path jcl = main.resolveSibling("jcl_lite.c");
         if (java.nio.file.Files.exists(jcl)) srcs.add(jcl);
+        // the collector: a file of its own next to the others
+        Path collector = main.resolveSibling(gc.runtimeSource());
+        if (java.nio.file.Files.exists(collector)) srcs.add(collector);
+        // Open world: the bytecode interpreter loads classes that are not part of the program (-Dnabu.interpreter=true)
+        if (Boolean.getBoolean("nabu.interpreter")) {
+            for (String name : new String[] {"nabu_interpreter.c", "nabu_classfile.c"}) {
+                Path src = main.resolveSibling(name);
+                if (java.nio.file.Files.exists(src)) srcs.add(src);
+            }
+        }
+        // PGO profile runtime: linked when -Dnabu.pgo.pipeline starts with pgo-instr-gen
+        String pgoPipeline = System.getProperty("nabu.pgo.pipeline");
+        if (pgoPipeline != null && pgoPipeline.startsWith("pgo-instr-gen")) {
+            Path profileRt = main.resolveSibling("nabu_profile_rt.c");
+            if (java.nio.file.Files.exists(profileRt)) srcs.add(profileRt);
+        }
         return srcs;
     }
 
@@ -257,7 +337,9 @@ public class Linker {
                 java.nio.file.Files.copy(in, src,
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-                for (final String extra : new String[] {"nabu_runtime.c", "nabu_runtime.h", "jcl_lite.c"}) {
+                for (final String extra : new String[] {"nabu_runtime.c", "nabu_runtime.h", "jcl_lite.c", "nabu_gc.h",
+                        "gc_boehm.c", "gc_none.c", "nabu_profile_rt.c", "nabu_interpreter.c", "nabu_interpreter.h",
+                        "nabu_classfile.c"}) {
                     if (extra.equals(fileName)) continue;
                     try (var e = loader.getResourceAsStream("nabu/runtime/" + extra)) {
                         if (e != null) {
@@ -367,11 +449,7 @@ public class Linker {
 
     private static void addGcLibraries(List<String> cmd,
                                         CompileOptions.GcStrategy gcStrategy) {
-        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
-            homebrewPrefix().ifPresent(prefix -> cmd.add("-L" + prefix + "/lib"));
-            cmd.add("-lgc");
-            cmd.add("-lpthread");
-        }
+        cmd.addAll(GarbageCollectors.of(gcStrategy).linkFlags());
     }
 
     /**

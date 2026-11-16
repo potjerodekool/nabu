@@ -21,6 +21,12 @@ public record CompilerOption(String optionName) {
     public static final CompilerOption BACKEND = new CompilerOption("--backend");
     public static final CompilerOption GC = new CompilerOption("--gc");
     public static final CompilerOption OPT = new CompilerOption("--opt");
+    /**
+     * "true": emit full debug info (DWARF) for the native backend. Off by default: the executable and the object files
+     * stay much smaller. Stack traces keep the method names (the symbol table) and the file and line of the program's
+     * own source (the backend's line tables) either way.
+     */
+    public static final CompilerOption DEBUG = new CompilerOption("--debug");
     public static final CompilerOption INCREMENTAL = new CompilerOption("--incremental");
     public static final CompilerOption BYTECODE_JDK_HOME = new CompilerOption("--bytecode-jdk-home");
     /** The class with the {@code main} method of a program that comes from jars (a name with dots). */
@@ -47,6 +53,7 @@ public record CompilerOption(String optionName) {
             BACKEND,
             GC,
             OPT,
+            DEBUG,
             INCREMENTAL,
             BYTECODE_JDK_HOME,
             MAIN_CLASS,
@@ -68,6 +75,7 @@ public record CompilerOption(String optionName) {
             BACKEND,
             GC,
             OPT,
+            DEBUG,
             MAIN_CLASS,
             IMAGE_NAME,
             COMPILE_LANGUAGE_SUPPORT

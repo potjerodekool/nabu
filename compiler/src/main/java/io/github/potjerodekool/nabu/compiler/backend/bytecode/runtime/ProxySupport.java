@@ -31,7 +31,10 @@ public final class ProxySupport {
      * signature (or null).
      */
     private static native Object method0(Class<?> declaring, String name, String descriptor, int modifiers,
-                                         String exceptions, String signature);
+                                         String exceptions, String signature, String parameters);
+
+    /** The name of parameter {@code index} of a Method or Constructor made by {@link #method0}, or null if unknown. */
+    public static native String parameterName(Object executable, int index);
 
     /** "owner#name#descriptor" of a Method or Constructor made by {@link #method0}, else null. */
     private static native String methodKey(Object executable);
@@ -48,12 +51,13 @@ public final class ProxySupport {
      * declared in an interface).
      */
     public static Object method(final Class<?> declaring, final String name, final String descriptor,
-                                final int modifiers, final String exceptions, final String signature) {
+                                final int modifiers, final String exceptions, final String signature,
+                                final String parameters) {
         final String key = declaring.getName().concat("#").concat(name).concat("#").concat(descriptor);
         synchronized (METHODS) {
             Object method = METHODS.get(key);
             if (method == null) {
-                method = method0(declaring, name, descriptor, modifiers, exceptions, signature);
+                method = method0(declaring, name, descriptor, modifiers, exceptions, signature, parameters);
                 METHODS.put(key, method);
             }
             return method;
@@ -72,13 +76,47 @@ public final class ProxySupport {
             }
             key.append(interfaces[i].getName());
         }
-        final Object proxy = ProxyClasses.create(key.toString(), h);
+        Object proxy = ProxyClasses.create(key.toString(), h);
+        if (proxy == null) {
+            // The request names interfaces the configuration leaves out because a configured one extends them
+            // (Spring asks for all the interfaces of Hibernate's query class): a proxy that implements the requested
+            // interfaces through the configured ones does.
+            final String[] configured = ProxyClasses.keys();
+            for (int c = 0; proxy == null && c < configured.length; c++) {
+                if (covers(configured[c], interfaces)) {
+                    proxy = ProxyClasses.create(configured[c], h);
+                }
+            }
+        }
         if (proxy == null) {
             throw new IllegalArgumentException(new StringBuilder("No proxy class for the interfaces [")
                     .append(key).append("]: add them to a proxy-config.json under META-INF/native-image")
                     .toString());
         }
         return proxy;
+    }
+
+    /** Whether every requested interface is one of the configured interfaces or a super interface of one. */
+    private static boolean covers(final String configured, final Class<?>[] requested) {
+        final String[] names = configured.split(",");
+        final Class<?>[] have = new Class<?>[names.length];
+        try {
+            for (int i = 0; i < names.length; i++) {
+                have[i] = Class.forName(names[i]);
+            }
+        } catch (final ClassNotFoundException e) {
+            return false;
+        }
+        for (final Class<?> want : requested) {
+            boolean found = false;
+            for (int i = 0; i < have.length && !found; i++) {
+                found = want.isAssignableFrom(have[i]);
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static InvocationHandler getInvocationHandler(final Object proxy) {

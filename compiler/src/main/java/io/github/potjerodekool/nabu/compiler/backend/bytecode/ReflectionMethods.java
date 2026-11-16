@@ -42,13 +42,47 @@ public final class ReflectionMethods {
     public static Map<String, ClassMethods> resolve(final List<ReflectEntry> entries,
                                                     final CompilerContextImpl compilerContext) {
         final Map<String, ClassMethods> result = new LinkedHashMap<>();
-        for (final ReflectEntry entry : entries) {
-            if (!entry.allDeclaredMethods() && !entry.allPublicMethods() && !entry.allDeclaredConstructors()
-                    && !entry.allPublicConstructors() && entry.methods().isEmpty()) {
-                continue;
-            }
+        for (final ReflectEntry entry : withAnnotationTypes(entries, compilerContext)) {
+            final boolean bare = !entry.allDeclaredMethods() && !entry.allPublicMethods()
+                    && !entry.allDeclaredConstructors() && !entry.allPublicConstructors()
+                    && entry.methods().isEmpty();
             final TypeElement type = ProxySpecs.load(compilerContext, entry.name());
             if (type == null) {
+                continue;
+            }
+            if (bare) {
+                // A type the hints name without members: as in a GraalVM image its methods and constructors can be
+                // enumerated (getDeclaredMethods, getMethods) but not called.
+                final List<ReflectedMethod> queryDeclared = new ArrayList<>();
+                final List<ReflectedMethod> queryConstructors = new ArrayList<>();
+                final List<ReflectedMethod> queryPublics;
+                try {
+                    for (final ExecutableElement method : methodsOf(type)) {
+                        try {
+                            queryDeclared.add(reflected(method, type));
+                        } catch (final RuntimeException e) {
+                            // a signature that cannot be worked out (a class that is not there): not enumerable
+                        }
+                    }
+                    for (final ExecutableElement constructor : constructorsOf(type)) {
+                        try {
+                            queryConstructors.add(reflectedConstructor(constructor, type));
+                        } catch (final RuntimeException e) {
+                            // see above
+                        }
+                    }
+                    queryPublics = publicMethods(type);
+                } catch (final RuntimeException e) {
+                    System.err.println("[nabu] warning: methods of " + entry.name() + " cannot be listed: " + e);
+                    continue;
+                }
+                final java.util.Set<String> keys = new HashSet<>();
+                queryDeclared.forEach(m -> keys.add(m.key()));
+                queryPublics.forEach(m -> keys.add(m.key()));
+                queryConstructors.forEach(m -> keys.add(m.key()));
+                final ClassMethods queryOnly = new ClassMethods(queryDeclared, queryPublics, queryConstructors, keys);
+                final ClassMethods known = result.get(type.getFlatName());
+                result.put(type.getFlatName(), known == null ? queryOnly : merge(known, queryOnly));
                 continue;
             }
             final List<ReflectedMethod> declared = new ArrayList<>();
@@ -78,13 +112,162 @@ public final class ReflectionMethods {
                     ? new ClassMethods(declared, publics, constructors)
                     : merge(existing, new ClassMethods(declared, publics, constructors)));
         }
+        addInheritedPublicMethods(result, compilerContext);
         return result;
     }
 
+    /**
+     * {@code getMethods} of a class also returns the public methods its superclasses and interfaces have registered
+     * (GraalVM collects them along the hierarchy): Spring's bean introspection finds {@code setOrder}, which the
+     * hints register on {@code ProxyProcessorSupport}, through {@code getMethods} of the bean class. A method the
+     * class (or a nearer class) overrides stays the nearer one.
+     */
+    private static void addInheritedPublicMethods(final Map<String, ClassMethods> result,
+                                                  final CompilerContextImpl compilerContext) {
+        final Map<String, ClassMethods> extended = new LinkedHashMap<>();
+        for (final var entry : result.entrySet()) {
+            final TypeElement type = ProxySpecs.load(compilerContext, entry.getKey());
+            if (type == null) {
+                continue;
+            }
+            final java.util.Set<String> queryOnly = new HashSet<>(entry.getValue().queryOnly());
+            final Map<String, ReflectedMethod> publics = new LinkedHashMap<>();
+            for (final ReflectedMethod m : entry.getValue().publics()) {
+                publics.put(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m);
+            }
+            final Deque<TypeElement> pending = new ArrayDeque<>();
+            final Set<String> seen = new HashSet<>();
+            seen.add(type.getFlatName());
+            enqueueSupertypes(type, pending);
+            while (!pending.isEmpty()) {
+                final TypeElement supertype = pending.poll();
+                if (!seen.add(supertype.getFlatName())) {
+                    continue;
+                }
+                final ClassMethods registered = result.get(supertype.getFlatName());
+                if (registered != null) {
+                    for (final ReflectedMethod m : registered.declared()) {
+                        final boolean isPublic = (m.modifiers() & 0x0001) != 0;
+                        final boolean isStatic = (m.modifiers() & 0x0008) != 0;
+                        if (isPublic && !isStatic && !m.isConstructor()) {
+                            if (publics.putIfAbsent(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m)
+                                    == null && registered.queryOnly().contains(m.key())) {
+                                queryOnly.add(m.key());
+                            }
+                        }
+                    }
+                }
+                enqueueSupertypes(supertype, pending);
+            }
+            extended.put(entry.getKey(), new ClassMethods(entry.getValue().declared(),
+                    List.copyOf(publics.values()), entry.getValue().constructors(), queryOnly));
+        }
+        result.putAll(extended);
+    }
+
+    private static void enqueueSupertypes(final TypeElement type, final Deque<TypeElement> pending) {
+        final TypeElement superclass = superclass(type);
+        if (superclass != null) {
+            pending.add(superclass);
+        }
+        for (final TypeMirror itf : type.getInterfaces()) {
+            if (itf.asTypeElement() != null) {
+                pending.add(itf.asTypeElement());
+            }
+        }
+    }
+
+    /**
+     * The entries plus one per annotation type that annotates a registered class or one of its members (and the
+     * annotation types on those annotation types): as GraalVM does, the elements of such an annotation type are
+     * reflectively visible, because frameworks (Spring's AttributeMethods) read an annotation through
+     * {@code getDeclaredMethods} of its type.
+     */
+    static List<ReflectEntry> withAnnotationTypes(final List<ReflectEntry> entries,
+                                                  final CompilerContextImpl compilerContext) {
+        final Map<String, ReflectEntry> byName = new LinkedHashMap<>();
+        entries.forEach(e -> byName.putIfAbsent(e.name(), e));
+        final Set<String> seen = new HashSet<>();
+        final Deque<TypeElement> pending = new ArrayDeque<>();
+        for (final ReflectEntry entry : entries) {
+            try {
+                final TypeElement type = ProxySpecs.load(compilerContext, entry.name());
+                if (type != null) {
+                    type.complete();
+                    if (type.getKind() == ElementKind.ANNOTATION_TYPE && seen.add(type.getFlatName())) {
+                        pending.add(type);
+                    }
+                    collectAnnotationTypes(type, seen, pending);
+                    for (final var member : type.getEnclosedElements()) {
+                        collectAnnotationTypes(member, seen, pending);
+                        if (member instanceof ExecutableElement executable) {
+                            for (final var parameter : executable.getParameters()) {
+                                collectAnnotationTypes(parameter, seen, pending);
+                            }
+                        }
+                    }
+                }
+            } catch (final RuntimeException e) {
+                System.err.println("[nabu] warning: annotation types of " + entry.name() + " skipped: " + e);
+            }
+        }
+        final List<ReflectEntry> result = new ArrayList<>(entries);
+        while (!pending.isEmpty()) {
+            final TypeElement annotation = pending.poll();
+            final String name = annotation.getFlatName();
+            try {
+                annotation.complete();
+            } catch (final RuntimeException e) {
+                System.err.println("[nabu] warning: annotation type " + name + " skipped: " + e);
+                continue;
+            }
+            // An entry that names the annotation type without its methods (the agent's "type": Order) gets them too;
+            // resolve merges the two.
+            final ReflectEntry known = byName.get(name);
+            if (known == null || !known.allDeclaredMethods()) {
+                final ReflectEntry added = new ReflectEntry(name, false, false, true, false, List.of(), List.of());
+                byName.put(name, added);
+                result.add(added);
+            }
+            collectAnnotationTypes(annotation, seen, pending);
+        }
+        return result;
+    }
+
+    private static void collectAnnotationTypes(final io.github.potjerodekool.nabu.lang.model.element.Element element,
+                                               final Set<String> seen, final Deque<TypeElement> pending) {
+        for (final var mirror : element.getAnnotationMirrors()) {
+            final var annotationType = mirror.getAnnotationType() != null
+                    ? mirror.getAnnotationType().asTypeElement() : null;
+            if (annotationType != null && seen.add(annotationType.getFlatName())) {
+                pending.add(annotationType);
+            }
+        }
+    }
+
     private static ClassMethods merge(final ClassMethods existing, final ClassMethods added) {
-        return new ClassMethods(union(existing.declared(), added.declared()),
-                union(existing.publics(), added.publics()),
-                union(existing.constructors(), added.constructors()));
+        final List<ReflectedMethod> declared = union(existing.declared(), added.declared());
+        final List<ReflectedMethod> publics = union(existing.publics(), added.publics());
+        final List<ReflectedMethod> constructors = union(existing.constructors(), added.constructors());
+        final java.util.Set<String> explicit = new HashSet<>();
+        for (final ClassMethods side : List.of(existing, added)) {
+            for (final var list : List.of(side.declared(), side.publics(), side.constructors())) {
+                for (final ReflectedMethod m : list) {
+                    if (!side.queryOnly().contains(m.key())) {
+                        explicit.add(m.key());
+                    }
+                }
+            }
+        }
+        final java.util.Set<String> queryOnly = new HashSet<>();
+        for (final var list : List.of(declared, publics, constructors)) {
+            for (final ReflectedMethod m : list) {
+                if (!explicit.contains(m.key())) {
+                    queryOnly.add(m.key());
+                }
+            }
+        }
+        return new ClassMethods(declared, publics, constructors, queryOnly);
     }
 
     private static List<ReflectedMethod> union(final List<ReflectedMethod> first, final List<ReflectedMethod> second) {
@@ -133,7 +316,38 @@ public final class ReflectionMethods {
         return new ReflectedMethod(ElementSignatures.internalName(owner), ElementSignatures.isInterface(owner),
                 method.getSimpleName(), ElementSignatures.descriptor(method),
                 ElementSignatures.modifiers(method, owner), ElementSignatures.exceptions(method),
-                ElementSignatures.genericSignature(method));
+                genericSignatureOrNull(method), parameterNames(method, 0));
+    }
+
+    /**
+     * The names of the parameters as the class file gave them, or null: a name that is no name ("arg0", the placeholder
+     * of a class file without them) means the file has none, and Parameter.isNamePresent says so.
+     * {@code leading} parameters are in the descriptor but not in the element (the enclosing instance of an inner class).
+     */
+    private static List<String> parameterNames(final ExecutableElement executable, final int leading) {
+        final List<String> names = new ArrayList<>();
+        for (int i = 0; i < leading; i++) {
+            names.add("this$0");
+        }
+        int index = 0;
+        for (final var parameter : executable.getParameters()) {
+            final String name = parameter.getSimpleName();
+            if (name == null || name.isEmpty() || name.equals("arg" + index) || name.contains(",")) {
+                return null;
+            }
+            names.add(name);
+            index++;
+        }
+        return names.isEmpty() ? null : names;
+    }
+
+    /** The generic signature, or null when it cannot be worked out (a type of a class that is not there). */
+    private static String genericSignatureOrNull(final ExecutableElement method) {
+        try {
+            return ElementSignatures.genericSignature(method);
+        } catch (final RuntimeException e) {
+            return null;
+        }
     }
 
     /** The constructors a type declares. */
@@ -157,11 +371,15 @@ public final class ReflectionMethods {
      */
     private static ReflectedMethod reflectedConstructor(final ExecutableElement constructor, final TypeElement owner) {
         final var descriptor = new StringBuilder("(");
+        int leading = 0;
         if (owner.getNestingKind() == io.github.potjerodekool.nabu.lang.model.element.NestingKind.MEMBER
                 && !owner.isStatic() && !ElementSignatures.isInterface(owner)
                 && owner.getEnclosingElement() instanceof TypeElement outer
-                && !ElementSignatures.isInterface(outer)) {
+                && !ElementSignatures.isInterface(outer)
+                && isRealClass(outer)
+                && !declaresEnclosingInstance(constructor, owner, outer)) {
             descriptor.append('L').append(ElementSignatures.internalName(outer)).append(';');
+            leading = 1;
         }
         for (final var parameter : constructor.getParameters()) {
             descriptor.append(ElementSignatures.descriptor(parameter.asType()));
@@ -172,7 +390,33 @@ public final class ReflectionMethods {
             modifiers |= ReflectionDataGenerator.ABSTRACT_OWNER;
         }
         return new ReflectedMethod(ElementSignatures.internalName(owner), false, "<init>", descriptor.toString(),
-                modifiers, ElementSignatures.exceptions(constructor), ElementSignatures.genericSignature(constructor));
+                modifiers, ElementSignatures.exceptions(constructor), genericSignatureOrNull(constructor),
+                parameterNames(constructor, leading));
+    }
+
+    /**
+     * The constructor of an inner class read from a class file lists the enclosing instance as its first parameter
+     * already (the class file descriptor has it); one of a source class does not.
+     */
+    private static boolean declaresEnclosingInstance(final ExecutableElement constructor, final TypeElement owner,
+                                                     final TypeElement outer) {
+        if (!(owner instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol symbol)
+                || symbol.getClassFile() == null || symbol.getSourceFile() != null
+                || constructor.getParameters().isEmpty()) {
+            return false;
+        }
+        return ("L" + ElementSignatures.internalName(outer) + ";").equals(
+                ElementSignatures.descriptor(constructor.getParameters().get(0).asType()));
+    }
+
+    /**
+     * A class read from a class file whose name has a {@code $} is taken for a member class of the part before it,
+     * also when that class does not exist ({@code JpaLogger_$logger} is a top-level class, generated by an annotation
+     * processor): such an outer class has no source and no class file.
+     */
+    private static boolean isRealClass(final TypeElement type) {
+        return !(type instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol symbol)
+                || (!symbol.isError() && (symbol.getClassFile() != null || symbol.getSourceFile() != null));
     }
 
     /** {@code Class.getMethods}: public methods of the class, its superclasses and all its interfaces. */

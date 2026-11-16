@@ -71,11 +71,22 @@ public final class NativeImage {
                   -o <name>                  name of the executable (default: the class or the jar)
                   -d, --output-dir <dir>     where the executable is written (default: the current directory)
                   --gc <BOEHM|NONE>           garbage collector (default BOEHM)
-                  -O0 .. -O3, --opt <level>  optimization: NONE, DEFAULT or AGGRESSIVE (-O0 / -O1, -O2 / -O3)
+                  -O0 .. -O3, -Os, -Oz, --opt <level>
+                                             optimization: NONE, DEFAULT, AGGRESSIVE, SIZE or SIZE_AGGRESSIVE
+                                             (-O0 / -O1, -O2 / -O3, -Os / -Oz)
+                  -g, --debug                emit full debug info (DWARF) in the executable; larger, but inlined JDK
+                                             methods become frames of a stack trace too (off by default)
                   --strict, --no-fallback    fail when the program or its libraries call a method without implementation
                   --static                   link the toolchain runtime into the executable (the default on Windows: the
                                              executable needs no MinGW DLLs)
                   --dynamic                  do not (Windows: the executable needs the MinGW DLLs on the PATH)
+                  --exclude <prefix>[,..]    treat the classes whose name starts with a prefix as not on the class
+                                             path: calls into them stop the program at run time. For code that the
+                                             program cannot reach in practice (the dialects of a database library
+                                             that are not used) but that the analysis cannot rule out; this makes
+                                             the executable and the build smaller
+                  --strip                    strip the symbol table from the executable afterwards. Smaller, but stack
+                                             traces lose their function names
                   --keep-work                keep the directory with the intermediate files
                   --doctor                   check the toolchain this command needs
                   --version                  print the version
@@ -120,6 +131,7 @@ public final class NativeImage {
                     .option(CompilerOption.BACKEND, "LLVM")
                     .option(CompilerOption.GC, arguments.gc())
                     .option(CompilerOption.OPT, arguments.opt())
+                    .option(CompilerOption.DEBUG, Boolean.toString(arguments.debug()))
                     .option(CompilerOption.MAIN_CLASS, arguments.mainClass())
                     .option(CompilerOption.IMAGE_NAME, arguments.imageName())
                     .build();
@@ -134,6 +146,9 @@ public final class NativeImage {
                 err.println(message);
             });
             System.setProperty("nabu.link.static", Boolean.toString(arguments.staticLink()));
+            if (!arguments.excludes().isEmpty()) {
+                System.setProperty("nabu.reachability.exclude", String.join(",", arguments.excludes()));
+            }
             out.println("Building " + arguments.mainClass() + " ...");
             final long start = System.nanoTime();
             final int result;
@@ -173,6 +188,13 @@ public final class NativeImage {
             final Path exe = outputDir.resolve(exeName);
             Files.copy(built, exe, StandardCopyOption.REPLACE_EXISTING);
             exe.toFile().setExecutable(true);
+            if (arguments.strip()) {
+                try {
+                    new ProcessBuilder("strip", exe.toString()).inheritIO().start().waitFor();
+                } catch (final Exception e) {
+                    err.println("nabu-native-image: strip failed: " + e.getMessage());
+                }
+            }
             final Path lib = built.toAbsolutePath().getParent().resolve("lib");
             if (Files.isDirectory(lib)) {
                 copyTree(lib, outputDir.resolve("lib"));

@@ -56,12 +56,28 @@ class NativeImageArgumentsTest {
     }
 
     @Test
+    void excludeCollectsThePrefixesOfAllOccurrences() throws Exception {
+        final var arguments = NativeImageArguments.parse(
+                List.of("--exclude", "org.a.X, org.b.", "--exclude", "org.c", "a.Main"));
+
+        assertEquals(List.of("org.a.X", "org.b.", "org.c"), arguments.excludes());
+        assertTrue(NativeImageArguments.parse(List.of("a.Main")).excludes().isEmpty());
+    }
+
+    @Test
     void optimizationAndGcOptions() throws Exception {
         final var arguments = NativeImageArguments.parse(List.of("-O3", "--gc=none", "a.Main"));
 
         assertEquals("AGGRESSIVE", arguments.opt());
         assertEquals("NONE", arguments.gc());
         assertEquals("NONE", NativeImageArguments.parse(List.of("-O0", "a.Main")).opt());
+    }
+
+    @Test
+    void debugInfoIsOffByDefaultAndSwitchedOnByGOrDebug() throws Exception {
+        assertTrue(!NativeImageArguments.parse(List.of("a.Main")).debug());
+        assertTrue(NativeImageArguments.parse(List.of("-g", "a.Main")).debug());
+        assertTrue(NativeImageArguments.parse(List.of("--debug", "a.Main")).debug());
     }
 
     @Test

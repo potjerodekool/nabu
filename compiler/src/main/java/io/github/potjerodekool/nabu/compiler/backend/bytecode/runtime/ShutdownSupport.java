@@ -58,8 +58,10 @@ public final class ShutdownSupport {
                 final Object target = targetOf0(hook);
                 if (target instanceof Runnable runnable) {
                     runnable.run();
-                } else {
-                    hook.run();
+                } else if (hook.getClass() != Thread.class) {
+                    // A subclass of Thread: its run through the Runnable interface (Thread.run itself has no body
+                    // in a native program, see ThreadSupport.runThread).
+                    ((Runnable) hook).run();
                 }
             } catch (final Throwable t) {
                 // A failing hook does not stop the others, as in the JVM.

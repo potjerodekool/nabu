@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.bytecode;
 
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import java.util.ArrayList;
+import java.util.List;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
@@ -17,6 +19,17 @@ import org.objectweb.asm.Type;
 final class DescriptorMapper {
 
     private DescriptorMapper() {
+    }
+
+    static IRType toIRType(final String descriptor) {
+        return mapType(Type.getType(descriptor));
+    }
+
+    static List<IRType> paramTypes(final String methodDescriptor) {
+        final Type[] args = Type.getArgumentTypes(methodDescriptor);
+        final List<IRType> result = new ArrayList<>();
+        for (final Type t : args) result.add(mapType(t));
+        return result;
     }
 
     static IRType mapType(final Type type) {

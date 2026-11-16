@@ -154,14 +154,43 @@ class LinearizerTest {
         assertInversion(IRInstruction.BinaryOp.Op.GTE, IRInstruction.BinaryOp.Op.LT);
     }
 
+    // The negation of `a && b` is not `a || b` on the same operands, and `a ^ b` is not its own negation: a logical
+    // operator keeps its operator and the order of its branches (a string switch chose the wrong case otherwise).
     @Test
-    void linearizeAndBecomesOr() {
-        assertInversion(IRInstruction.BinaryOp.Op.AND, IRInstruction.BinaryOp.Op.OR);
+    void linearizeAndKeepsItsOperatorAndBranches() {
+        assertLogicalOperatorUntouched(IRInstruction.BinaryOp.Op.AND);
     }
 
     @Test
-    void linearizeOrBecomesAnd() {
-        assertInversion(IRInstruction.BinaryOp.Op.OR, IRInstruction.BinaryOp.Op.AND);
+    void linearizeOrKeepsItsOperatorAndBranches() {
+        assertLogicalOperatorUntouched(IRInstruction.BinaryOp.Op.OR);
+    }
+
+    @Test
+    void linearizeXorKeepsItsOperatorAndBranches() {
+        assertLogicalOperatorUntouched(IRInstruction.BinaryOp.Op.XOR);
+    }
+
+    private void assertLogicalOperatorUntouched(IRInstruction.BinaryOp.Op op) {
+        final var lhs = new IRValue.Temp("%lhs", IRType.BOOL);
+        final var rhs = new IRValue.Temp("%rhs", IRType.BOOL);
+        final var combined = new IRValue.Temp("%both", IRType.BOOL);
+
+        final var entryBlock = new IRBasicBlock("entry", List.of(
+                new IRInstruction.BinaryOp(combined, op, lhs, rhs, NO_LOC),
+                new IRInstruction.CondBranch(combined, "then", "else", NO_LOC)
+        ));
+        final var thenBlock = new IRBasicBlock("then", List.of(new IRInstruction.Branch("exit", NO_LOC)));
+        final var elseBlock = new IRBasicBlock("else", List.of(new IRInstruction.Branch("exit", NO_LOC)));
+        final var exitBlock = new IRBasicBlock("exit", List.of(new IRInstruction.Return(IRValue.ofI32(0), NO_LOC)));
+
+        final var result = Linearizer.linearize(List.of(entryBlock, thenBlock, elseBlock, exitBlock));
+
+        final var instructions = result.get(0).instructions();
+        assertEquals(op, ((IRInstruction.BinaryOp) instructions.get(0)).op());
+        final var branch = (IRInstruction.CondBranch) instructions.get(1);
+        assertEquals("then", branch.trueLabel());
+        assertEquals("else", branch.falseLabel());
     }
 
     @Test

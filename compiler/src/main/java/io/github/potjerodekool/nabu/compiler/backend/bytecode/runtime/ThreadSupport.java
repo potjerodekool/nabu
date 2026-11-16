@@ -12,6 +12,15 @@ public final class ThreadSupport {
 
     private static final java.util.ArrayList<Thread> live = new java.util.ArrayList<>();
 
+    /** {@code Thread.run()} of a thread class that does not override it (Tomcat's TaskThread): the target's run. The
+     * itable of such a class points here, see ClassLayouts.findInterfaceImplementation. */
+    public static void defaultRun(final Thread thread) {
+        final Object target = ShutdownSupport.targetOf0(thread);
+        if (target instanceof Runnable runnable) {
+            runnable.run();
+        }
+    }
+
     /** Runs the thread: its {@code run} method, or the Runnable it was made with. An exception that escapes is reported. */
     public static void runThread(final Thread thread) {
         synchronized (live) {

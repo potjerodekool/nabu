@@ -14,6 +14,7 @@
 #define _GNU_SOURCE
 #endif
 #include "nabu_runtime.h"
+#include "nabu_gc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +24,16 @@
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
 #include <stdatomic.h>
+#include <signal.h>
+#include <ucontext.h>
+#include <execinfo.h>
 #endif
 
 /* -------------------------------------------------------
@@ -62,20 +69,64 @@ Windows met een GCC/Clang-toolchain en het MinGW/SEH-target \
  * Reflectie-metadata registry (fase 2): velden + annotaties
  * ------------------------------------------------------- */
 
-#define NABU_MAX_REFLECTION 64
-
-static const nabu_reflection_info *nabu_reflection_table[NABU_MAX_REFLECTION];
+/* Grows on demand: a large application (Spring, Hibernate) registers thousands of types. */
+static const nabu_reflection_info **nabu_reflection_table = NULL;
 static int nabu_reflection_count = 0;
+static int nabu_reflection_capacity = 0;
+
+/* Hash index (open addressing, slot = table index + 1) over the type names: with many registered classes a
+ * linear scan per lookup is too slow. The first registration of a name wins, as before. */
+static int *nabu_reflection_slots;
+static unsigned nabu_reflection_slot_count;
+
+static unsigned nabu_reflection_hash(const char *name) {
+    unsigned h = 2166136261u;
+    for (; *name; name++) h = (h ^ (unsigned char)*name) * 16777619u;
+    return h;
+}
+
+static void nabu_reflection_index_add(int at) {
+    if (nabu_reflection_slot_count < (unsigned)nabu_reflection_count * 2 + 16) {
+        unsigned size = nabu_reflection_slot_count == 0 ? 1024 : nabu_reflection_slot_count;
+        while (size < (unsigned)nabu_reflection_capacity * 2) size *= 2;
+        int *slots = (int *) calloc(size, sizeof(int));
+        if (slots == NULL) { fputs("nabu: out of memory for the reflection index", stderr); abort(); }
+        free(nabu_reflection_slots);
+        nabu_reflection_slots = slots;
+        nabu_reflection_slot_count = size;
+        for (int i = 0; i < at; i++) {
+            unsigned h = nabu_reflection_hash(nabu_reflection_table[i]->type_name) & (size - 1);
+            while (slots[h] != 0 && strcmp(nabu_reflection_table[slots[h] - 1]->type_name, nabu_reflection_table[i]->type_name) != 0) h = (h + 1) & (size - 1);
+            if (slots[h] == 0) slots[h] = i + 1;
+        }
+    }
+    unsigned mask = nabu_reflection_slot_count - 1;
+    unsigned h = nabu_reflection_hash(nabu_reflection_table[at]->type_name) & mask;
+    while (nabu_reflection_slots[h] != 0
+            && strcmp(nabu_reflection_table[nabu_reflection_slots[h] - 1]->type_name, nabu_reflection_table[at]->type_name) != 0) {
+        h = (h + 1) & mask;
+    }
+    if (nabu_reflection_slots[h] == 0) nabu_reflection_slots[h] = at + 1;
+}
 
 int nabu_register_reflection(const nabu_reflection_info *info) {
     if (info == NULL || info->type_name == NULL) {
         return 0;
     }
-    if (nabu_reflection_count >= NABU_MAX_REFLECTION) {
-        fprintf(stderr, "nabu: too many reflection metadata entries\n");
-        abort();
+    if (nabu_reflection_count >= nabu_reflection_capacity) {
+        int capacity = nabu_reflection_capacity == 0 ? 256 : nabu_reflection_capacity * 2;
+        const nabu_reflection_info **grown =
+            (const nabu_reflection_info **) realloc((void *) nabu_reflection_table,
+                                                    sizeof(*grown) * (size_t) capacity);
+        if (grown == NULL) {
+            fprintf(stderr, "nabu: out of memory for the reflection metadata\n");
+            abort();
+        }
+        nabu_reflection_table = grown;
+        nabu_reflection_capacity = capacity;
     }
     nabu_reflection_table[nabu_reflection_count++] = info;
+    nabu_reflection_index_add(nabu_reflection_count - 1);
     return 1;
 }
 
@@ -97,9 +148,14 @@ const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name) {
     if (internal_name == NULL) {
         return NULL;
     }
-    for (int i = 0; i < nabu_reflection_count; i++) {
-        if (strcmp(nabu_reflection_table[i]->type_name, internal_name) == 0) {
-            return nabu_reflection_table[i];
+    if (nabu_reflection_slot_count == 0) {
+        return NULL;
+    }
+    unsigned mask = nabu_reflection_slot_count - 1;
+    for (unsigned h = nabu_reflection_hash(internal_name) & mask; nabu_reflection_slots[h] != 0; h = (h + 1) & mask) {
+        const nabu_reflection_info *info = nabu_reflection_table[nabu_reflection_slots[h] - 1];
+        if (strcmp(info->type_name, internal_name) == 0) {
+            return info;
         }
     }
     return NULL;
@@ -331,6 +387,35 @@ static const char *nabu_builtin_super_of(const char *name) {
 static pthread_mutex_t nabu_rt_mutex;
 static pthread_once_t nabu_rt_once = PTHREAD_ONCE_INIT;
 
+#ifndef _WIN32
+static void nabu_sigsegv_handler(int sig, siginfo_t *si, void *ctx) {
+    ucontext_t *uc = (ucontext_t *)ctx;
+    void *fault_addr = si->si_addr;
+    void *rip = (void *)uc->uc_mcontext.gregs[REG_RIP];
+    void *rax = (void *)uc->uc_mcontext.gregs[REG_RAX];
+    void *r13 = (void *)uc->uc_mcontext.gregs[REG_R13];
+    dprintf(2, "[nabu crash] sig=%d fault_addr=%p rip=%p rax(itable?)=%p r13(obj?)=%p\n",
+            sig, fault_addr, rip, rax, r13);
+    void *bt[32];
+    int n = backtrace(bt, 32);
+    backtrace_symbols_fd(bt, n, 2);
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(sig, &sa, NULL);
+    raise(sig);
+}
+static void nabu_install_crash_handler(void) {
+    struct sigaction sa;
+    sa.sa_sigaction = nabu_sigsegv_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+}
+#endif
+
 static void nabu_rt_init(void) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -347,11 +432,34 @@ void nabu_rt_unlock(void) {
     pthread_mutex_unlock(&nabu_rt_mutex);
 }
 
+/* De vtable/itable van het gecompileerde java.lang.Object; NULL zolang het
+ * programma die niet registreert. Hier gedeclareerd zodat nabu_type_info_for
+ * er al naar kan verwijzen. */
+static void *nabu_object_vtable = NULL;
+static void *nabu_object_itable = NULL;
+
+/* Kopieert vtable/itable van de gecompileerde type_info naar een runtime-cache-entry als
+ * de compiled table al geregistreerd is. Lever 1 fase 2: vtable/itable zitten nu in
+ * type_info, niet meer in de object-header; runtime-objecten (jcl_lite) krijgen zo
+ * de juiste vtable. Veilig onder nabu_rt_mutex. */
+/* Jcl_lite-cache-entries gebruiken altijd nabu_object_vtable en
+ * nabu_object_itable, nooit de gecompileerde vtable/itable van de klasse:
+ * voor interfaces zijn die leeg (nul bytes), wat crasht bij dispatch.
+ * De fallbacks in nabu_type_info_for regelen de toewijzing. */
+static void nabu_type_info_backfill_vtable(nabu_type_info *ti) {
+    (void)ti; /* intentional no-op */
+}
+
 static nabu_type_info *nabu_type_info_for(const char *name) {
     nabu_rt_lock();
     for (int i = 0; i < nabu_type_count; i++) {
         if (strcmp(nabu_type_cache[i].name, name) == 0) {
             nabu_type_info *found = &nabu_type_cache[i];
+            /* Jcl_lite-objecten gebruiken altijd de library-tabellen.
+             * Overschrijf ook wanneer de entry al een waarde heeft: een eerdere
+             * aanmaak kan een lege gecompileerde interface-tabel gekopieerd hebben. */
+            if (nabu_object_vtable != NULL) found->vtable = nabu_object_vtable;
+            if (nabu_object_itable != NULL) found->itable = nabu_object_itable;
             nabu_rt_unlock();
             return found;
         }
@@ -373,6 +481,11 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
     if (builtinSuper != NULL) {
         ti->super_type = nabu_type_info_for(builtinSuper);
     }
+    /* Probeer compiled vtable; als die niet beschikbaar is, gebruik Object's vtable
+     * als fallback voor jcl_lite-typen (Class, ClassLoader, …). */
+    nabu_type_info_backfill_vtable(ti);
+    if (ti->vtable  == NULL) ti->vtable  = nabu_object_vtable;
+    if (ti->itable  == NULL) ti->itable  = nabu_object_itable;
     nabu_rt_unlock();
     return ti;
 }
@@ -385,32 +498,42 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
  * De allocatie zelf doet de backend: alleen die weet welke GC-strategie geldt
  * (GC_malloc / malloc / stack). Zie de commentaar in nabu_runtime.h.
  */
-/* De vtable van het gecompileerde java.lang.Object (zie
- * nabu_set_object_vtable); NULL zolang het programma die niet registreert. */
-static void *nabu_object_vtable = NULL;
-
 /**
  * Registreert de vtable van java.lang.Object. De backend roept dit aan vanuit
  * een vroege module-constructor, vóór elke <clinit>.
  *
- * Library-objecten (jcl-lite) hebben geen eigen vtable, maar belanden wél
- * achter een Object-referentie, en een virtuele aanroep daarop (equals,
- * toString) leest de functiepointer uit header->vtable. Met NULL daar sprong
- * zo'n aanroep naar een willekeurig adres; met Object's vtable krijgen ze het
- * Object-gedrag, zoals een Java-klasse zonder eigen override.
+ * Lever 1 fase 2: de vtable zit nu in type_info, niet meer in de object-header.
+ * Voor jcl_lite-beheerde typen (Class, ClassLoader, …) heeft de backend GEEN
+ * gecompileerde type_info, dus nabu_register_type_infos kan hun vtable NIET
+ * backfillen. Als fallback gebruiken zij Object's vtable: de backend compileert
+ * hun vtable-aanroepen op basis van Object's vtable-layout (geen eigen compiled
+ * type_info → geen eigen vtable-layout). Object's vtable is correct want Class
+ * overschrijft geen van die methoden.
  */
 void nabu_set_object_vtable(void *vtable) {
     nabu_object_vtable = vtable;
+    /* Backfill runtime-cache-entries zonder vtable: dit zijn jcl_lite-objecten
+     * (Class, ClassLoader, …) die de compiled-table niet kent. */
+    nabu_rt_lock();
+    for (int i = 0; i < nabu_type_count; i++) {
+        if (nabu_type_cache[i].vtable == NULL) {
+            nabu_type_cache[i].vtable = vtable;
+        }
+    }
+    nabu_rt_unlock();
 }
-
-/* De library-itable van de backend: per interface-slot de functie van de
- * interface zelf (C-implementatie, default-body of abstracte stub). Zelfde
- * reden als de vtable: een interface-aanroep op een library-object las anders
- * zijn functiepointer uit een NULL-itable. */
-static void *nabu_object_itable = NULL;
 
 void nabu_set_object_itable(void *itable) {
     nabu_object_itable = itable;
+    /* Zelfde backfill-logica als nabu_set_object_vtable: jcl_lite-typen die
+     * vóór deze registratie aangemaakt zijn krijgen alsnog de library-itable. */
+    nabu_rt_lock();
+    for (int i = 0; i < nabu_type_count; i++) {
+        if (nabu_type_cache[i].itable == NULL) {
+            nabu_type_cache[i].itable = itable;
+        }
+    }
+    nabu_rt_unlock();
 }
 
 /* De type-info van elke gecompileerde klasse (geen interfaces), geregistreerd
@@ -418,20 +541,247 @@ void nabu_set_object_itable(void *itable) {
 static const nabu_type_info *const *nabu_compiled_types = NULL;
 static int32_t nabu_compiled_type_count = 0;
 
+/* Name index of the table (open addressing, built when the table is registered, before any thread runs):
+ * Class.isAssignableFrom and friends look up types by name all the time, and a scan over the tens of thousands
+ * of compiled types made the start of a Spring application minutes long. */
+static int32_t *nabu_type_index = NULL;
+static uint32_t nabu_type_index_size = 0;
+
+static uint32_t nabu_name_hash(const char *s) {
+    uint32_t h = 2166136261u;
+    for (; *s != 0; s++) h = (h ^ (uint8_t)*s) * 16777619u;
+    return h;
+}
+
 void nabu_register_type_infos(const void *table, int32_t count) {
-    nabu_compiled_types = (const nabu_type_info *const *)table;
-    nabu_compiled_type_count = count;
+    /* A class that the program only extends (never creates itself) has no entry in the table, but its type info exists:
+     * it is the super_type of its subclasses. It must be found by name too (Class.getDeclaredField of java.util.Random,
+     * which SecureRandom extends), so the superclasses of the table's classes are added behind the table. */
+    const nabu_type_info *const *given = (const nabu_type_info *const *)table;
+    int32_t capacity = count + count / 2 + 64;
+    const nabu_type_info **all = (const nabu_type_info **)malloc(sizeof(void *) * (size_t)capacity);
+    if (all == NULL) {
+        nabu_compiled_types = given;
+        nabu_compiled_type_count = count;
+        return;
+    }
+    memcpy(all, given, sizeof(void *) * (size_t)count);
+    uint32_t size = 16;
+    while (size < (uint32_t)capacity * 2u) size <<= 1;
+    int32_t *index = (int32_t *)malloc(sizeof(int32_t) * size);
+    if (index == NULL) {
+        free(all);
+        nabu_compiled_types = given;
+        nabu_compiled_type_count = count;
+        return;
+    }
+    for (uint32_t i = 0; i < size; i++) index[i] = -1;
+    int32_t n = count;
+    for (int32_t i = 0; i < n; i++) {
+        const nabu_type_info *ti = all[i];
+        for (int depth = 0; ti != NULL && depth < 64; depth++, ti = ti->super_type) {
+            if (ti->name == NULL) break;
+            uint32_t h = nabu_name_hash(ti->name) & (size - 1);
+            int found = 0;
+            while (index[h] >= 0) {
+                if (strcmp(all[index[h]]->name, ti->name) == 0) { found = 1; break; } /* the first one wins, as the scan did */
+                h = (h + 1) & (size - 1);
+            }
+            if (found) {
+                if (depth > 0) break;   /* a superclass that is known: its own superclasses were handled with it */
+                continue;
+            }
+            if (depth == 0) { index[h] = i; continue; }
+            if (n >= capacity) break;
+            all[n] = ti;
+            index[h] = n;
+            n++;
+        }
+    }
+    nabu_compiled_types = (const nabu_type_info *const *)all;
+    nabu_compiled_type_count = n;
+    nabu_type_index_size = size;
+    nabu_type_index = index;
 }
 
 int32_t nabu_compiled_type_count_for_trace(void) { return nabu_compiled_type_count; }
 
 const nabu_type_info *nabu_compiled_type_for(const char *internal_name) {
     if (internal_name == NULL) return NULL;
-    for (int32_t i = 0; i < nabu_compiled_type_count; i++) {
-        const nabu_type_info *ti = nabu_compiled_types[i];
-        if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) return ti;
+    if (nabu_type_index != NULL) {
+        uint32_t h = nabu_name_hash(internal_name) & (nabu_type_index_size - 1);
+        while (nabu_type_index[h] >= 0) {
+            const nabu_type_info *ti = nabu_compiled_types[nabu_type_index[h]];
+            if (strcmp(ti->name, internal_name) == 0) return ti;
+            h = (h + 1) & (nabu_type_index_size - 1);
+        }
+    } else {
+        for (int32_t i = 0; i < nabu_compiled_type_count; i++) {
+            const nabu_type_info *ti = nabu_compiled_types[i];
+            if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) return ti;
+        }
     }
+    /* Fallback: interpreted types (runtime-registered, niet in de compiled table). */
+    return nabu_interpreted_type_for(internal_name);
+}
+
+/* -------------------------------------------------------
+ * Interpreted types (runtime-registered, voor de bytecode-interpreter)
+ * ------------------------------------------------------- */
+
+#define NABU_MAX_INTERPRETED_TYPES 4096
+
+static nabu_type_info **nabu_interpreted_types = NULL;
+static int32_t nabu_interpreted_type_count_val = 0;
+static int32_t nabu_interpreted_type_cap = 0;
+
+const nabu_type_info *nabu_interpreted_type_for(const char *internal_name) {
+    if (internal_name == NULL) return NULL;
+    nabu_rt_lock();
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        const nabu_type_info *ti = nabu_interpreted_types[i];
+        if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) {
+            nabu_rt_unlock();
+            return ti;
+        }
+    }
+    nabu_rt_unlock();
     return NULL;
+}
+
+int32_t nabu_interpreted_type_count(void) {
+    return nabu_interpreted_type_count_val;
+}
+
+nabu_type_info *nabu_register_interpreted_type(const char *name,
+                                                const char *super_name,
+                                                size_t size,
+                                                void **vtable,
+                                                void **itable) {
+    if (name == NULL) return NULL;
+    nabu_rt_lock();
+    /* search existing */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        nabu_type_info *ti = nabu_interpreted_types[i];
+        if (ti != NULL && ti->name != NULL && strcmp(ti->name, name) == 0) {
+
+            nabu_rt_unlock();
+            return ti;
+        }
+    }
+
+    /* Bestaande registratie? Return de bestaande (idempotent). */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        nabu_type_info *ti = nabu_interpreted_types[i];
+        if (ti != NULL && ti->name != NULL && strcmp(ti->name, name) == 0) {
+            /* Update vtable/itable/super indien aangeleverd. */
+            if (vtable != NULL) ti->vtable = vtable;
+            if (itable != NULL) ti->itable = itable;
+            if (size != 0) ti->size = size;
+            if (super_name != NULL) {
+                const nabu_type_info *st = nabu_compiled_type_for(super_name);
+                if (st == NULL) st = nabu_interpreted_type_for(super_name);
+                ti->super_type = (nabu_type_info *)st;
+            }
+            nabu_rt_unlock();
+            return ti;
+        }
+    }
+    if (nabu_interpreted_type_count_val >= nabu_interpreted_type_cap) {
+        int32_t newcap = nabu_interpreted_type_cap == 0 ? 64 : nabu_interpreted_type_cap * 2;
+        if (newcap > NABU_MAX_INTERPRETED_TYPES) newcap = NABU_MAX_INTERPRETED_TYPES;
+        nabu_type_info **arr = (nabu_type_info **)realloc(nabu_interpreted_types,
+                                                           sizeof(nabu_type_info *) * newcap);
+        if (arr == NULL) {
+            nabu_rt_unlock();
+            return NULL;
+        }
+        nabu_interpreted_types = arr;
+        nabu_interpreted_type_cap = newcap;
+    }
+    nabu_type_info *ti = (nabu_type_info *)calloc(1, sizeof(nabu_type_info));
+    if (ti == NULL) {
+        nabu_rt_unlock();
+        return NULL;
+    }
+    ti->name = strdup(name);
+    ti->size = size == 0 ? sizeof(nabu_object) : size;
+    ti->field_count = 0;
+    ti->interface_count = 0;
+    ti->interfaces = NULL;
+    ti->instance_fields = NULL;
+    ti->instance_field_count = 0;
+    ti->vtable = vtable;
+    ti->itable = itable;
+    if (super_name == NULL || strcmp(super_name, "java/lang/Object") == 0) {
+        /* Probeer compiled Object; anders NULL. */
+        const nabu_type_info *obj = nabu_compiled_type_for("java/lang/Object");
+        if (obj == NULL) obj = nabu_interpreted_type_for("java/lang/Object");
+        ti->super_type = (nabu_type_info *)obj;
+    } else {
+        const nabu_type_info *st = nabu_compiled_type_for(super_name);
+        if (st == NULL) st = nabu_interpreted_type_for(super_name);
+        ti->super_type = (nabu_type_info *)st;
+    }
+    /* Fallback vtable/itable naar Object's als niet gezet. */
+    if (ti->vtable == NULL) {
+        const nabu_type_info *obj = nabu_compiled_type_for("java/lang/Object");
+        if (obj != NULL) ti->vtable = obj->vtable;
+    }
+    if (ti->itable == NULL) {
+        const nabu_type_info *obj = nabu_compiled_type_for("java/lang/Object");
+        if (obj != NULL) ti->itable = obj->itable;
+    }
+    nabu_interpreted_types[nabu_interpreted_type_count_val++] = ti;
+    nabu_rt_unlock();
+    return ti;
+}
+
+/* -------------------------------------------------------
+ * JIT hook (Fase 4): no-op default in v1
+ * ------------------------------------------------------- */
+
+static nabu_jit_compile_fn nabu_jit_fn = NULL;
+
+void nabu_register_jit(nabu_jit_compile_fn fn) {
+    nabu_jit_fn = fn;
+}
+
+/* Try to load Cranelift JIT from shared library. */
+void nabu_jit_init(void) {
+#ifdef _WIN32
+    return; /* the Cranelift JIT is only available through dlopen (POSIX) */
+#else
+    /* Try dlopen on the Cranelift shared library. */
+    void *handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
+    if (handle == NULL) {
+        /* Try absolute path. */
+        const char *dev = getenv("NABU_DEV_DIR");
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/libcranelift_jit.so", (dev && *dev) ? dev : "/tmp/opencode");
+        handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+    }
+    if (handle == NULL) return;
+    /* Look up cranelift_init and cranelift_compile_to_so (preferred) or cranelift_compile_bytecode (fallback). */
+    typedef int (*init_fn)(void);
+    typedef void *(*compile_fn)(const uint8_t *, size_t, const char *, const char *);
+    init_fn init = (init_fn)dlsym(handle, "cranelift_init");
+    compile_fn compile = (compile_fn)dlsym(handle, "cranelift_compile_to_so");
+    if (compile == NULL) {
+        compile = (compile_fn)dlsym(handle, "cranelift_compile_bytecode");
+    }
+    if (init && compile) {
+        if (init() == 0) {
+            nabu_register_jit((nabu_jit_compile_fn)compile);
+        }
+    }
+#endif
+}
+
+void *nabu_jit_compile(const uint8_t *bytecode, size_t len,
+                        const char *class_name, const char *method_name) {
+    if (nabu_jit_fn == NULL) return NULL;
+    return nabu_jit_fn(bytecode, len, class_name, method_name);
 }
 
 intptr_t nabu_instance_field_offset(const void *obj, const char *name) {
@@ -453,9 +803,8 @@ void *nabu_init_object(void *obj, const char *type_name) {
      * geen eigen struct in hangt — de betekenis van de bytes dáárachter is
      * aan de library-implementatie (runtime/jcl_lite.c), niet aan ons. */
     memset(header, 0, sizeof(nabu_object) + sizeof(void *));
+    /* vtable en itable zitten in type_info (Lever 1 fase 2); alleen type zetten. */
     header->type = nabu_type_info_for(type_name);
-    header->vtable = nabu_object_vtable;
-    header->itable = nabu_object_itable;
     return header;
 }
 
@@ -485,26 +834,34 @@ void *nabu_init_object_ex(void *obj, const char *type_name, const char *super_na
 int nabu_jcl_is_object(const void *p) {
     if (p == NULL) return 0;
     const void *t = ((const void *const *)p)[0];
-    if (t < (const void *)nabu_type_cache
-            || t >= (const void *)(nabu_type_cache + NABU_MAX_TYPES)) {
-        return 0;
+    /* Library types (runtime cache). */
+    if (t >= (const void *)nabu_type_cache
+            && t < (const void *)(nabu_type_cache + NABU_MAX_TYPES)
+            && ((size_t)((const char *)t - (const char *)nabu_type_cache)
+                % sizeof(nabu_type_info)) == 0) {
+        return 1;
     }
-    return ((size_t)((const char *)t - (const char *)nabu_type_cache)
-            % sizeof(nabu_type_info)) == 0;
+    /* Interpreted types (runtime-registered). */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        if (t == (const void *)nabu_interpreted_types[i]) return 1;
+    }
+    return 0;
 }
 
 /* ---------------------------------------------------------------
- * Library-object state-slot (offset 40; zie JCL_STATE_SLOT in de backend)
+ * Library-object state-slot (offset sizeof(nabu_object); zie JCL_STATE_SLOT in de backend)
  * --------------------------------------------------------------- */
+
+#define NABU_JCL_STATE_IDX (sizeof(nabu_object) / sizeof(void *))
 
 void *nabu_jcl_state(void *obj) {
     if (obj == NULL) return NULL;
-    return ((void **)obj)[5];
+    return ((void **)obj)[NABU_JCL_STATE_IDX];
 }
 
 void nabu_jcl_set_state(void *obj, void *state) {
     if (obj == NULL) return;
-    ((void **)obj)[5] = state;
+    ((void **)obj)[NABU_JCL_STATE_IDX] = state;
 }
 
 /**
@@ -524,10 +881,8 @@ static void nabu_exception_cleanup(_Unwind_Reason_Code reason,
                                    struct _Unwind_Exception *exc) {
     (void)reason;
     (void)exc;
-#ifndef NABU_GC_BOEHM
-    free((nabu_unwind_exception *)exc);
-#endif
-    /* With the collector the wrapper is collector memory and is reclaimed there. */
+    /* The wrapper is collector memory: a collector reclaims it by itself, one that does not collect frees it here. */
+    nabu_gc_discard((nabu_unwind_exception *)exc);
 }
 
 /* -------------------------------------------------------
@@ -1345,12 +1700,7 @@ void nabu_throw(void *exception) {
     /* Collector memory, so that the Throwable inside stays reachable while the unwinder holds only
      * this wrapper (malloc memory is not scanned), and so that the wrapper is not leaked: nothing
      * calls the cleanup after a normal catch. */
-#ifdef NABU_GC_BOEHM
-    extern void *GC_malloc(size_t);
-    nabu_unwind_exception *exc = GC_malloc(sizeof(nabu_unwind_exception));
-#else
-    nabu_unwind_exception *exc = malloc(sizeof(nabu_unwind_exception));
-#endif
+    nabu_unwind_exception *exc = nabu_gc_alloc(sizeof(nabu_unwind_exception));
     if (exc == NULL) {
         fprintf(stderr, "nabu: cannot allocate memory for exception\n");
         abort();
@@ -1413,9 +1763,9 @@ void nabu_resume(void *unwind_exc) {
     /* unwind_exc is the Nabu exception object itself, not an _Unwind_Exception: the backend
      * (FunctionEmitter.emitLandingPadChain) already took it out of the wrapper with nabu_catch()
      * before it calls nabu_resume. Handing it to _Unwind_Resume made the unwinder read the
-     * object's fields as unwinder state: private_1 (offset 16, the itable of a class that
-     * implements an interface) is the stop function of a forced unwind, so a rethrown
-     * RuntimeException jumped into read-only data.
+     * object's fields as unwinder state: private_1 (offset 16, into the exception object's
+     * own data) would be misread as the stop function of a forced unwind, so a rethrown
+     * RuntimeException would jump into garbage data.
      *
      * A fresh raise from the landing pad starts a new search above this frame instead. The
      * landing pad lies outside every call-site range of the LSDA (it is not a protected region),
@@ -1688,6 +2038,16 @@ gebruik MinGW/gcc met target x86_64-w64-windows-gnu."
 extern const struct mach_header_64 _mh_execute_header;
 #endif
 const char *nabu_compiled_type_name(const void *p) {
+    if (p == NULL) return NULL;
+    /* A boxed Boolean or Character of the interpreter is a tagged value (see nabu_interpreter.h), not a pointer. */
+    if (((uintptr_t)p >> 48) == 0x5A5A || ((uintptr_t)p >> 48) == 0x5A5B) return NULL;
+    const void *interp_t = ((const void *const *)p)[0];
+    /* Interpreted type? */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        if (interp_t == (const void *)nabu_interpreted_types[i]) {
+            return nabu_interpreted_types[i]->name;
+        }
+    }
 #ifdef _WIN32
     static const char *image_lo = NULL, *image_hi = NULL;
     if (p == NULL) return NULL;
@@ -1759,18 +2119,21 @@ const char *nabu_compiled_type_name(const void *p) {
 #endif
 }
 
+extern int nabu_class_is_annotation(const char *internal) __attribute__((weak));
+
 int nabu_instanceof(void *obj, const char *type_name) {
     if (obj == NULL) {
         return 0;
     }
-#ifdef _WIN32
     /* Geen object met een header (een kale C-string uit de C-runtime, bv. een
-     * klassenaam die als Class dient): dan is het van geen enkel type een
-     * instantie, in plaats van de tekst als type-info uit te lezen. */
+     * klassenaam die als Class dient, of een object waarvan het eerste woord geen
+     * geldig type-adres is): dan is het van geen enkel type een instantie.
+     * Was #ifdef _WIN32: op Windows returnt nabu_compiled_type_name altijd NULL
+     * en zijn valide objecten herkenbaar via nabu_jcl_is_object. Op Linux werkt
+     * nabu_compiled_type_name via /proc/self/maps — de guard moet ook daar gelden. */
     if (!nabu_jcl_is_object(obj) && nabu_compiled_type_name(obj) == NULL) {
         return 0;
     }
-#endif
 
     nabu_object *header = (nabu_object *)obj;
     nabu_type_info *current = header->type;
@@ -1787,7 +2150,32 @@ int nabu_instanceof(void *obj, const char *type_name) {
         current = current->super_type;
     }
 
+    /* An annotation object (made by the runtime for an annotation type) is an Annotation. */
+    if (nabu_class_is_annotation != NULL && header->type != NULL
+            && strcmp(type_name, "java/lang/annotation/Annotation") == 0
+            && nabu_class_is_annotation(((nabu_type_info *)header->type)->name)) {
+        return 1;
+    }
     return 0;
+}
+
+/* nabu_instanceof with a cache of the call site: *cache holds the class (a type info, so its low bit is free) of the
+ * last object seen there with the answer in the low bit. The answer for a compiled object depends on its class alone. */
+int nabu_instanceof_cached(void *obj, const char *type_name, uintptr_t *cache) {
+    if (obj == NULL) {
+        return 0;
+    }
+    const uintptr_t type = ((const uintptr_t *) obj)[0];
+    const uintptr_t seen = __atomic_load_n(cache, __ATOMIC_RELAXED);
+    if (type != 0 && (seen & ~(uintptr_t) 1) == type) {
+        return (int) (seen & 1);
+    }
+    const int answer = nabu_instanceof(obj, type_name);
+    /* only a class the program made is remembered (an array or an object of the C runtime is not a type info) */
+    if (nabu_compiled_type_name(obj) != NULL) {
+        __atomic_store_n(cache, type | (uintptr_t) (answer != 0), __ATOMIC_RELAXED);
+    }
+    return answer;
 }
 
 /* Whether the internal class name `actual` is `wanted` or a subtype of it (compiled classes only). */
@@ -1824,6 +2212,8 @@ static void nabu_throw_cce(const char *actual, const char *wanted) {
  * object of a compiled class can fail: an object the C runtime made, or a class the program does not know, passes. */
 void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
     if (obj == NULL || wanted == NULL) return obj;
+    /* the usual case, without any lookups: the object is of exactly the class that is asked */
+    if (((const nabu_type_info *const *) obj)[0] == wanted) return obj;
     const char *actual = nabu_compiled_type_name(obj);
     if (actual == NULL) return obj;
     for (const nabu_type_info *t = ((nabu_object *) obj)->type; t != NULL; t = t->super_type) {
@@ -1835,8 +2225,18 @@ void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
 
 /* A checked cast to an interface or an array type, by name ("java/lang/Runnable", "[Ljava/lang/String;"). It
  * only fails for what the runtime can judge: an object of a compiled class, or an array of a known type. */
+/* Answers of checkcast_name per (class, wanted name), direct mapped. A class and the name pointer decide the answer
+ * for a compiled object, so a hit skips the type lookups and the strcmp chains. Threads run under the GIL. */
+typedef struct { uintptr_t type; const char *wanted; } nabu_cast_entry;
+static nabu_cast_entry nabu_cast_cache[1024];
+
 void *nabu_checkcast_name(void *obj, const char *wanted) {
     if (obj == NULL || wanted == NULL) return obj;
+    if (wanted[0] != '[') {
+        const uintptr_t type = ((const uintptr_t *) obj)[0];
+        const nabu_cast_entry *e = &nabu_cast_cache[((type >> 4) ^ ((uintptr_t) wanted >> 3)) & 1023];
+        if (type != 0 && e->type == type && e->wanted == wanted) return obj;
+    }
     const char *actual = nabu_compiled_type_name(obj);
     if (wanted[0] == '[') {
         if (actual != NULL) nabu_throw_cce(actual, wanted);
@@ -1847,7 +2247,14 @@ void *nabu_checkcast_name(void *obj, const char *wanted) {
         if (array == NULL || nabu_instanceof_array(obj, wanted)) return obj;
         nabu_throw_cce(array, wanted);
     }
-    if (actual == NULL || nabu_instanceof(obj, wanted)) return obj;
+    if (actual == NULL) return obj;
+    if (nabu_instanceof(obj, wanted)) {
+        const uintptr_t type = ((const uintptr_t *) obj)[0];
+        nabu_cast_entry *e = &nabu_cast_cache[((type >> 4) ^ ((uintptr_t) wanted >> 3)) & 1023];
+        e->type = type;
+        e->wanted = wanted;
+        return obj;
+    }
     nabu_throw_cce(actual, wanted);
     return obj;
 }
@@ -1882,23 +2289,12 @@ int nabu_instanceof_array(void *obj, const char *wanted) {
  * String-concat
  * ------------------------------------------------------- */
 
-#ifdef NABU_GC_BOEHM
-#include <gc.h>
-#define NABU_STR_MEM(n) GC_malloc(n)
-#else
-#define NABU_STR_MEM(n) calloc(1, (n))
-#endif
+#define NABU_STR_MEM(n) nabu_gc_alloc(n)
+/* Text and bytes hold no pointers: the collector does not scan them. The memory is not cleared. */
+#define NABU_STR_DATA(n) nabu_gc_alloc_atomic(n)
 
 /* Spiegel van de layout die de backend voor java.lang.String emitteert:
  * header + de instantievelden in classfile-volgorde. */
-typedef struct nabu_jstring {
-    nabu_object header;
-    void   *value;        /* byte[]: int32 lengte op 0, data op 8 */
-    int8_t  coder;        /* 0 = LATIN1, 1 = UTF16 (little endian) */
-    int32_t hash;
-    int8_t  hash_is_zero;
-} nabu_jstring;
-
 /* Array classes: the upper 24 bits of the element-size word index
  * nabu_array_type_names (emitted by the backend, the types the program
  * allocates) and, from nabu_array_type_count on, the types the runtime met
@@ -1973,6 +2369,16 @@ static void *nabu_str_mem(size_t n) {
     return p;
 }
 
+/* As nabu_str_mem for data without pointers (not cleared, not scanned). */
+static void *nabu_str_data(size_t n) {
+    void *p = NABU_STR_DATA(n);
+    if (p == NULL) {
+        fprintf(stderr, "nabu: cannot allocate memory for a string\n");
+        abort();
+    }
+    return p;
+}
+
 /* Een virtuele/interface-aanroep op null (zie InstructionEmitter.
  * emitReceiverNullCheck): gooit java.lang.NullPointerException. `site`
  * ("callee in functie") wordt gemeld als NABU_TRACE_NPE gezet is. */
@@ -1981,7 +2387,7 @@ static void *nabu_str_mem(size_t n) {
  * (LLVMModuleEmitter.emitExceptionTable). A header-only shell made compiled
  * code that called getMessage() on a caught exception read past its end. */
 typedef struct nabu_exception_entry {
-    const char *name; void *type; void *vtable; void *itable; int64_t size; void (*init)(void *, void *);
+    const char *name; void *type; int64_t size; void (*init)(void *, void *);
 } nabu_exception_entry;
 extern const nabu_exception_entry nabu_exception_table[];
 extern const int32_t nabu_exception_count;
@@ -1992,8 +2398,7 @@ void *nabu_new_exception(const char *internal_name, const char *message) {
         if (strcmp(e->name, internal_name) == 0) {
             nabu_object *obj = (nabu_object *) nabu_str_mem((size_t) e->size);
             obj->type = e->type;
-            obj->vtable = e->vtable;
-            obj->itable = e->itable;
+            /* vtable/itable are now in type_info, not the object header */
             e->init(obj, message != NULL ? nabu_jstring_new(message) : NULL);
             return obj;
         }
@@ -2047,7 +2452,8 @@ int nabu_is_jstring(const void *p) {
 }
 
 static size_t nabu_utf8_put(char *out, uint32_t cp) {
-    if (cp < 0x80) { out[0] = (char) cp; return 1; }
+    /* NUL is written as the two bytes C0 80 (modified UTF-8): a C string cannot hold it, and the decoder reads it back. */
+    if (cp < 0x80 && cp != 0) { out[0] = (char) cp; return 1; }
     if (cp < 0x800) {
         out[0] = (char) (0xC0 | (cp >> 6));
         out[1] = (char) (0x80 | (cp & 0x3F));
@@ -2077,7 +2483,20 @@ const char *nabu_cstr(const void *p) {
     if (byte_len < 0) byte_len = 0;
 
     /* Ruimste geval: elk LATIN1-byte wordt 2 bytes, elke UTF16-unit 3. */
-    char *out = (char *) nabu_str_mem((size_t) byte_len * 2 + 1);
+    if (js->coder == 0) {
+        /* all ASCII (the usual case): the bytes are the C string */
+        int ascii = 1;
+        for (int32_t i = 0; i < byte_len; i++) {
+            if (data[i] == 0 || data[i] >= 0x80) { ascii = 0; break; }
+        }
+        if (ascii) {
+            char *plain = (char *) nabu_str_data((size_t) byte_len + 1);
+            memcpy(plain, data, (size_t) byte_len);
+            plain[byte_len] = 0;
+            return plain;
+        }
+    }
+    char *out = (char *) nabu_str_data((size_t) byte_len * 2 + 1);
     size_t n = 0;
     if (js->coder == 0) {
         for (int32_t i = 0; i < byte_len; i++) n += nabu_utf8_put(out + n, data[i]);
@@ -2099,6 +2518,37 @@ const char *nabu_cstr(const void *p) {
     return out;
 }
 
+/* The next code point of modified UTF-8 at in[*i]; advances *i. */
+static uint32_t nabu_utf8_next(const unsigned char *in, size_t in_len, size_t *i) {
+    uint32_t cp = in[*i];
+    size_t extra = 0;
+    if (cp >= 0xF0 && cp < 0xF8) { cp &= 0x07; extra = 3; }
+    else if (cp >= 0xE0) { cp &= 0x0F; extra = 2; }
+    else if (cp >= 0xC0) { cp &= 0x1F; extra = 1; }
+    (*i)++;
+    for (; extra > 0 && *i < in_len && (in[*i] & 0xC0) == 0x80; extra--, (*i)++) {
+        cp = (cp << 6) | (in[*i] & 0x3F);
+    }
+    return cp;
+}
+
+static void *nabu_jstring_from_array(unsigned char *arr, int latin1) {
+    nabu_jstring *js = (nabu_jstring *) nabu_str_mem(sizeof(nabu_jstring));
+    js->header.type = nabu_string_meta.type;
+    /* vtable/itable zitten in type_info, niet in de object-header */
+    js->value = arr;
+    js->coder = latin1 ? 0 : 1;
+    return js;
+}
+
+static unsigned char *nabu_new_byte_array(size_t byte_len) {
+    unsigned char *arr = (unsigned char *) nabu_str_data(8 + byte_len);
+    ((int32_t *) arr)[0] = (int32_t) byte_len;
+    if (nabu_byte_array_id < 0) nabu_byte_array_id = nabu_array_type_id("[B");
+    ((int32_t *) arr)[1] = 1 | (nabu_byte_array_id << 8); /* byte[] */
+    return arr;
+}
+
 void *nabu_jstring_new(const char *utf8) {
     if (utf8 == NULL) utf8 = "";
     size_t in_len = strlen(utf8);
@@ -2107,62 +2557,82 @@ void *nabu_jstring_new(const char *utf8) {
         memcpy(copy, utf8, in_len + 1);
         return copy;
     }
+    const unsigned char *in = (const unsigned char *) utf8;
 
-    /* UTF-8 decoderen naar code points; LATIN1 als alles < 256 is. */
-    uint32_t *cps = (uint32_t *) nabu_str_mem((in_len + 1) * sizeof(uint32_t));
+    /* all ASCII (and no NUL): the bytes are the LATIN1 value */
+    size_t k = 0;
+    while (k < in_len && in[k] < 0x80) k++;
+    if (k == in_len) {
+        unsigned char *arr = nabu_new_byte_array(in_len);
+        memcpy(arr + 8, in, in_len);
+        return nabu_jstring_from_array(arr, 1);
+    }
+
+    /* pass 1: the number of code points and UTF-16 units, and whether everything fits LATIN1 */
     size_t count = 0;
     int latin1 = 1;
     size_t utf16_units = 0;
-    const unsigned char *in = (const unsigned char *) utf8;
     for (size_t i = 0; i < in_len;) {
-        uint32_t cp = in[i];
-        size_t extra = 0;
-        if (cp >= 0xF0 && cp < 0xF8) { cp &= 0x07; extra = 3; }
-        else if (cp >= 0xE0) { cp &= 0x0F; extra = 2; }
-        else if (cp >= 0xC0) { cp &= 0x1F; extra = 1; }
-        i++;
-        for (; extra > 0 && i < in_len && (in[i] & 0xC0) == 0x80; extra--, i++) {
-            cp = (cp << 6) | (in[i] & 0x3F);
-        }
+        uint32_t cp = nabu_utf8_next(in, in_len, &i);
         if (cp > 0xFF) latin1 = 0;
         utf16_units += cp >= 0x10000 ? 2 : 1;
-        cps[count++] = cp;
+        count++;
     }
-
     size_t byte_len = latin1 ? count : utf16_units * 2;
-    unsigned char *arr = (unsigned char *) nabu_str_mem(8 + byte_len);
-    ((int32_t *) arr)[0] = (int32_t) byte_len;
-    if (nabu_byte_array_id < 0) nabu_byte_array_id = nabu_array_type_id("[B");
-    ((int32_t *) arr)[1] = 1 | (nabu_byte_array_id << 8); /* byte[] */
+    unsigned char *arr = nabu_new_byte_array(byte_len);
     unsigned char *data = arr + 8;
-    if (latin1) {
-        for (size_t i = 0; i < count; i++) data[i] = (unsigned char) cps[i];
-    } else {
-        size_t o = 0;
-        for (size_t i = 0; i < count; i++) {
-            uint32_t cp = cps[i];
-            if (cp >= 0x10000) {
-                cp -= 0x10000;
-                uint32_t hi = 0xD800 + (cp >> 10);
-                uint32_t lo = 0xDC00 + (cp & 0x3FF);
-                data[o++] = (unsigned char) (hi & 0xFF); data[o++] = (unsigned char) (hi >> 8);
-                data[o++] = (unsigned char) (lo & 0xFF); data[o++] = (unsigned char) (lo >> 8);
-            } else {
-                data[o++] = (unsigned char) (cp & 0xFF); data[o++] = (unsigned char) (cp >> 8);
-            }
+    /* pass 2 */
+    size_t o = 0;
+    for (size_t i = 0; i < in_len;) {
+        uint32_t cp = nabu_utf8_next(in, in_len, &i);
+        if (latin1) {
+            data[o++] = (unsigned char) cp;
+        } else if (cp >= 0x10000) {
+            cp -= 0x10000;
+            uint32_t hi = 0xD800 + (cp >> 10);
+            uint32_t lo = 0xDC00 + (cp & 0x3FF);
+            data[o++] = (unsigned char) (hi & 0xFF); data[o++] = (unsigned char) (hi >> 8);
+            data[o++] = (unsigned char) (lo & 0xFF); data[o++] = (unsigned char) (lo >> 8);
+        } else {
+            data[o++] = (unsigned char) (cp & 0xFF); data[o++] = (unsigned char) (cp >> 8);
         }
     }
-
-    nabu_jstring *js = (nabu_jstring *) nabu_str_mem(sizeof(nabu_jstring));
-    js->header.type = nabu_string_meta.type;
-    js->header.vtable = nabu_string_meta.vtable;
-    js->header.itable = nabu_string_meta.itable;
-    js->value = arr;
-    js->coder = latin1 ? 0 : 1;
-    return js;
+    return nabu_jstring_from_array(arr, latin1);
 }
 
 char *nabu_concat(const char *a, const char *b) {
+    /* Two String objects with LATIN1 or UTF16 contents (or null): join the arrays, no conversion in between. */
+    if (nabu_string_meta.type != NULL && (a == NULL || nabu_is_jstring(a)) && (b == NULL || nabu_is_jstring(b))) {
+        static const unsigned char null_bytes[4] = {'n', 'u', 'l', 'l'};
+        const nabu_jstring *ja = (const nabu_jstring *) a;
+        const nabu_jstring *jb = (const nabu_jstring *) b;
+        const unsigned char *da = null_bytes, *db = null_bytes;
+        size_t la = 4, lb = 4;
+        int ca = 0, cb = 0;
+        if (ja != NULL && ja->value != NULL) {
+            la = (size_t) *(const int32_t *) ja->value; da = (const unsigned char *) ja->value + 8; ca = ja->coder;
+        } else if (ja != NULL) { la = 0; }
+        if (jb != NULL && jb->value != NULL) {
+            lb = (size_t) *(const int32_t *) jb->value; db = (const unsigned char *) jb->value + 8; cb = jb->coder;
+        } else if (jb != NULL) { lb = 0; }
+        const int latin1 = ca == 0 && cb == 0;
+        unsigned char *arr;
+        if (latin1) {
+            arr = nabu_new_byte_array(la + lb);
+            memcpy(arr + 8, da, la);
+            memcpy(arr + 8 + la, db, lb);
+        } else {
+            const size_t ua = ca == 0 ? la : la / 2, ub = cb == 0 ? lb : lb / 2;
+            arr = nabu_new_byte_array((ua + ub) * 2);
+            unsigned char *out = arr + 8;
+            if (ca == 0) { for (size_t i = 0; i < ua; i++) { out[2 * i] = da[i]; out[2 * i + 1] = 0; } }
+            else memcpy(out, da, ua * 2);
+            out += ua * 2;
+            if (cb == 0) { for (size_t i = 0; i < ub; i++) { out[2 * i] = db[i]; out[2 * i + 1] = 0; } }
+            else memcpy(out, db, ub * 2);
+        }
+        return (char *) nabu_jstring_from_array(arr, latin1);
+    }
     /* Java: een null-operand in een string-concat wordt "null". */
     a = a == NULL ? "null" : nabu_cstr(a);
     b = b == NULL ? "null" : nabu_cstr(b);
@@ -2337,7 +2807,9 @@ char *nabu_object_to_string(void *obj) {
     if (nabu_is_jstring(obj) || nabu_tostring_slot < 0) {
         return (char *) obj;
     }
-    void **vtable = (void **) ((nabu_object *) obj)->vtable;
+    const nabu_type_info *ti = (const nabu_type_info *) ((nabu_object *) obj)->type;
+    if (ti == NULL) return (char *) obj;
+    void **vtable = ti->vtable;
     if (vtable == NULL || vtable[nabu_tostring_slot] == NULL) {
         return (char *) obj;
     }
@@ -2542,14 +3014,8 @@ void nabu_waiter_wake(nabu_waiter *waiter) {
 
 /* collector memory that is a root: an entry holds the monitor and the virtual thread that waits for it, which nothing else
  * may refer to */
-#ifdef NABU_GC_BOEHM
-extern void *GC_malloc_uncollectable(size_t);
-extern void GC_free(void *);
-#else
-/* without the collector nothing is collected: plain memory is as good as a root */
-#define GC_malloc_uncollectable(n) calloc(1, (n))
-#define GC_free(p) free(p)
-#endif
+#define NABU_KEYQ_ALLOC(n) nabu_gc_alloc_pinned(n)
+#define NABU_KEYQ_FREE(p) nabu_gc_free(p)
 
 typedef struct nabu_keyq_entry {
     const void *key;
@@ -2574,7 +3040,7 @@ static unsigned nabu_keyq_bucket(const void *key) {
 static void nabu_keyq_add_entry(const void *key, nabu_waiter *waiter, void *vthread) {
     if (!nabu_parallel) return;
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
-    nabu_keyq_entry *entry = (nabu_keyq_entry *) GC_malloc_uncollectable(sizeof *entry);
+    nabu_keyq_entry *entry = (nabu_keyq_entry *) NABU_KEYQ_ALLOC(sizeof *entry);
     entry->key = key;
     entry->waiter = waiter;
     entry->vthread = vthread;
@@ -2599,7 +3065,7 @@ static void nabu_keyq_remove_entry(const void *key, nabu_waiter *waiter, void *v
         if (entry->key == key && entry->waiter == waiter && entry->vthread == vthread) {
             if (previous != NULL) previous->next = entry->next; else nabu_keyq_heads[bucket] = entry->next;
             if (nabu_keyq_tails[bucket] == entry) nabu_keyq_tails[bucket] = previous;
-            GC_free(entry);
+            NABU_KEYQ_FREE(entry);
             break;
         }
     }
@@ -2770,11 +3236,11 @@ void nabu_monitor_acquire_n(void *obj, int depth) {
 }
 
 void nabu_monitorenter(void *obj) {
-    nabu_held_monitor_count++;
     if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized on null object\n");
-        abort();
+        /* synchronized (null) throws a NullPointerException; nothing was entered. */
+        nabu_throw_npe("monitorenter");
     }
+    nabu_held_monitor_count++;
     nabu_object *header = (nabu_object *)obj;
     const int me = nabu_thread_id;
     if (nabu_parallel) {
@@ -2796,21 +3262,21 @@ void nabu_monitorenter(void *obj) {
                     __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
                     nabu_keyq_remove_entry(obj, NULL, vthread);
                 } else {
-                nabu_wait_mark(3);
-                nabu_waiter *waiter = nabu_waiter_self();
-                nabu_keyq_add(obj, waiter);
-                __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
-                for (;;) {
-                    const unsigned long ticket = nabu_waiter_ticket(waiter);
-                    free_word = 0;
-                    if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
-                        break;
+                    nabu_wait_mark(3);
+                    nabu_waiter *waiter = nabu_waiter_self();
+                    nabu_keyq_add(obj, waiter);
+                    __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+                    for (;;) {
+                        const unsigned long ticket = nabu_waiter_ticket(waiter);
+                        free_word = 0;
+                        if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                            break;
+                        }
+                        nabu_waiter_wait(waiter, ticket, -1);
                     }
-                    nabu_waiter_wait(waiter, ticket, -1);
-                }
-                __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
-                nabu_keyq_remove(obj, waiter);
-                nabu_wait_mark(0);
+                    __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+                    nabu_keyq_remove(obj, waiter);
+                    nabu_wait_mark(0);
                 }
             }
             header->monitor_count = 1;
@@ -2853,9 +3319,113 @@ void nabu_monitorexit(void *obj) {
     }
 }
 
+/* -Dnabu.trace=<names>: the functions whose name contains one of them call this at their entry. Every thread keeps its
+ * last events in a ring; when org.h2.message.DbException.get(90007) is called ("the object is already closed") the events
+ * of all threads, in order, are written to stderr. For hunting a race between threads. */
+#define NABU_TRACE_RING 2048
+#define NABU_TRACE_THREADS 64
+typedef struct { unsigned long seq; const char *name; int64_t a, b; int tid; } nabu_trace_event;
+typedef struct { nabu_trace_event events[NABU_TRACE_RING]; unsigned long count; } nabu_trace_ring;
+static nabu_trace_ring *nabu_trace_rings[NABU_TRACE_THREADS];
+static volatile int nabu_trace_ring_count = 0;
+static volatile unsigned long nabu_trace_seq = 0;
+static volatile int nabu_trace_dumps = 0;
+static __thread nabu_trace_ring *nabu_trace_mine = NULL;
+typedef struct { uint64_t object; int tid; } nabu_trace_owner;
+static nabu_trace_owner nabu_trace_owners[4096];
+
+static int nabu_trace_cmp(const void *x, const void *y) {
+    const unsigned long a = ((const nabu_trace_event *)x)->seq, b = ((const nabu_trace_event *)y)->seq;
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
+static void nabu_trace_dump(void) {
+    if (__atomic_add_fetch(&nabu_trace_dumps, 1, __ATOMIC_SEQ_CST) > 3) return;
+    const int rings = nabu_trace_ring_count;
+    nabu_trace_event *all = (nabu_trace_event *)malloc(sizeof(nabu_trace_event) * NABU_TRACE_RING * (size_t)(rings > 0 ? rings : 1));
+    size_t n = 0;
+    for (int r = 0; r < rings; r++) {
+        const nabu_trace_ring *ring = nabu_trace_rings[r];
+        if (ring == NULL) continue;
+        for (int i = 0; i < NABU_TRACE_RING; i++) {
+            if (ring->events[i].name != NULL) all[n++] = ring->events[i];
+        }
+    }
+    qsort(all, n, sizeof *all, nabu_trace_cmp);
+    const size_t from = n > 2500 ? n - 2500 : 0;
+    fprintf(stderr, "[nabu/trace] ---- 90007 on thread %d: the last %zu events of all threads\n", nabu_thread_id, n - from);
+    for (size_t i = from; i < n; i++) {
+        fprintf(stderr, "[nabu/trace] #%lu t%d %s %llx %llx\n", all[i].seq, all[i].tid, all[i].name,
+                (unsigned long long)all[i].a, (unsigned long long)all[i].b);
+    }
+    fflush(stderr);
+    free(all);
+}
+
+void nabu_diag_trace(const char *name, int64_t a, int64_t b) {
+    nabu_trace_ring *ring = nabu_trace_mine;
+    if (ring == NULL) {
+        ring = (nabu_trace_ring *)calloc(1, sizeof *ring);
+        const int slot = __atomic_fetch_add(&nabu_trace_ring_count, 1, __ATOMIC_SEQ_CST);
+        if (slot >= NABU_TRACE_THREADS) { __atomic_fetch_sub(&nabu_trace_ring_count, 1, __ATOMIC_SEQ_CST); return; }
+        nabu_trace_rings[slot] = ring;
+        nabu_trace_mine = ring;
+    }
+    nabu_trace_event *e = &ring->events[ring->count % NABU_TRACE_RING];
+    ring->count++;
+    e->seq = __atomic_add_fetch(&nabu_trace_seq, 1, __ATOMIC_SEQ_CST);
+    e->name = name;
+    e->a = a;
+    e->b = b;
+    e->tid = nabu_thread_id;
+    if (a == 90007 && strstr(name, "DbException_get") != NULL) nabu_trace_dump();
+    /* A JdbcResultSet closed by another thread than the one that made it (the anomaly behind the 90007 errors): show the
+     * events that led to it. */
+    if (strstr(name, "JdbcResultSet_init") != NULL) {
+        nabu_trace_owner *o = &nabu_trace_owners[((uint64_t)a >> 4) & 4095];
+        o->object = (uint64_t)a;
+        o->tid = nabu_thread_id;
+    } else if (strstr(name, "JdbcResultSet_closeInternal") != NULL) {
+        const nabu_trace_owner *o = &nabu_trace_owners[((uint64_t)a >> 4) & 4095];
+        if (o->object == (uint64_t)a && o->tid != nabu_thread_id) {
+            fprintf(stderr, "[nabu/trace] ResultSet %llx made by thread %d is closed by thread %d\n", (unsigned long long)a, o->tid, nabu_thread_id);
+            nabu_trace_dump();
+        }
+    }
+}
+
+/* The process must end when a missing function is called, whatever the trace below runs into (a lock held by
+ * another thread, a slow symbol lookup): a watchdog ends it after a few seconds. */
+static void *nabu_unresolved_watchdog(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 50; i++) {
+#ifdef _WIN32
+        Sleep(100);
+#else
+        usleep(100000);
+#endif
+    }
+    fflush(stderr);
+    _exit(127);
+    return NULL;
+}
+
 void nabu_unresolved(const char *symbol) {
+    static volatile int entered = 0;
+    if (entered) {
+        for (;;) {
+#ifdef _WIN32
+            Sleep(1000);
+#else
+            sleep(1);
+#endif
+        }
+    }
+    entered = 1;
     fprintf(stderr, "nabu: call to a JDK function without an implementation: %s\n",
             symbol != NULL ? symbol : "?");
+    pthread_t watchdog;
+    if (pthread_create(&watchdog, NULL, nabu_unresolved_watchdog, NULL) == 0) pthread_detach(watchdog);
     /* Where it was called from, so the missing function can be traced to the Java code that needs it. */
     uintptr_t frames[64];
     int n = nabu_capture_frames(frames, 64);
@@ -2869,5 +3439,12 @@ void nabu_unresolved(const char *symbol) {
         fprintf(stderr, "    at %s\n", text);
     }
     fflush(stderr);
-    exit(127);
+    _exit(127);
+}
+
+/* Scanning the class tables (Class.getNestMembers, Class.getDeclaredClasses). */
+int nabu_reflection_table_size(void) { return nabu_reflection_count; }
+const char *nabu_reflection_table_name(int i) { return nabu_reflection_table[i]->type_name; }
+const char *nabu_compiled_type_name_at(int32_t i) {
+    return nabu_compiled_types != NULL && nabu_compiled_types[i] != NULL ? nabu_compiled_types[i]->name : NULL;
 }

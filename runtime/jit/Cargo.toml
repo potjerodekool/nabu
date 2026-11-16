@@ -1,0 +1,15 @@
+[package]
+name = "nabu_jit"
+version = "0.1.0"
+edition = "2021"
+description = "A method JIT for the bytecode interpreter of Nabu: JVM bytecode of numeric static methods to machine code with Cranelift"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cranelift-codegen = "0.137.1"
+cranelift-frontend = "0.137.1"
+cranelift-jit = "0.137.1"
+cranelift-module = "0.137.1"
+cranelift-native = "0.137.1"

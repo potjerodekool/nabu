@@ -239,6 +239,23 @@ public final class ProxyClassGenerator {
         isProxyClass.maxStack = 2;
         isProxyClass.maxLocals = 1;
         node.methods.add(isProxyClass);
+
+        // keys(): the interface lists of the configured proxies, for a request that names more interfaces (the
+        // super interfaces of the ones configured) than the configuration does.
+        final MethodNode keysMethod = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "keys",
+                "()[Ljava/lang/String;", null, null);
+        keysMethod.instructions.add(new org.objectweb.asm.tree.LdcInsnNode(keys.size()));
+        keysMethod.instructions.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/String"));
+        for (int i = 0; i < keys.size(); i++) {
+            keysMethod.instructions.add(new InsnNode(Opcodes.DUP));
+            keysMethod.instructions.add(new org.objectweb.asm.tree.LdcInsnNode(i));
+            keysMethod.instructions.add(new org.objectweb.asm.tree.LdcInsnNode(keys.get(i)));
+            keysMethod.instructions.add(new InsnNode(Opcodes.AASTORE));
+        }
+        keysMethod.instructions.add(new InsnNode(Opcodes.ARETURN));
+        keysMethod.maxStack = 4;
+        keysMethod.maxLocals = 0;
+        node.methods.add(keysMethod);
         return node;
     }
 

@@ -30,6 +30,7 @@ final class AccessFlags {
         if (has(asmAccess, Opcodes.ACC_BRIDGE)) flags |= Flags.BRIDGE;
         if (has(asmAccess, Opcodes.ACC_STRICT)) flags |= Flags.STRICT;
         if (has(asmAccess, Opcodes.ACC_INTERFACE)) flags |= Flags.INTERFACE;
+        if (has(asmAccess, Opcodes.ACC_ANNOTATION)) flags |= Flags.ANNOTATION;
         if (has(asmAccess, Opcodes.ACC_ENUM)) flags |= Flags.ENUM;
         if (has(asmAccess, Opcodes.ACC_DEPRECATED)) flags |= Flags.DEPRECATED;
         return flags;

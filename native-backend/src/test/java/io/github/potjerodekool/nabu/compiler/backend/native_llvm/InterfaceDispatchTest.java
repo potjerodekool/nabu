@@ -7,6 +7,8 @@ import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.lang.Flags;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,6 +37,17 @@ class InterfaceDispatchTest {
 
     @TempDir
     Path tempDir;
+
+    /** These tests are about the itable: a call with a single implementer would be a direct call. */
+    @BeforeEach
+    void devirtualizationOff() {
+        System.setProperty("nabu.devirt", "false");
+    }
+
+    @AfterEach
+    void devirtualizationOn() {
+        System.clearProperty("nabu.devirt");
+    }
 
     /** {@code pkg.Outer$IHelp} — interface met één methode {@code value()}. */
     private static final String HELP = "Lpkg/Outer$IHelp;";
@@ -246,14 +259,15 @@ class InterfaceDispatchTest {
     /** De initialiserende constanten van de global met de gegeven naam. */
     private static String globalInitializer(String ll, String name) {
         // LLVM quoteert een symboolnaam alleen als dat nodig is (bv. bij een '$').
-        int at = ll.indexOf("@\"" + name + "\"");
-        int quoted = at < 0 ? at : at + 1;
-        if (quoted < 0) at = ll.indexOf("@" + name);
-        if (at < 0) return "";
-        int start = ll.indexOf(" = ", at);
-        if (start < 0) return "";
-        int end = ll.indexOf('\n', start);
-        return ll.substring(start, end < 0 ? ll.length() : end);
+        for (String line : ll.split("\\n")) {
+            String trimmed = line.trim();
+            if ((trimmed.startsWith("@" + name + " =")
+                    || trimmed.startsWith("@\"" + name + "\" ="))
+                    && trimmed.contains(" = ")) {
+                return trimmed.substring(trimmed.indexOf(" = "));
+            }
+        }
+        return "";
     }
 
     /**

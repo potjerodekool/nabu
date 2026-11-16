@@ -81,11 +81,9 @@ class BoehmBackendTest {
         // De header moet in IR gezet worden; de runtime doet dat niet, want die
         // kent de layout niet.
         assertTrue(ll.contains(".type.slot"), "geen type-info in de header:\n" + ll);
-        assertTrue(ll.contains(".vtable.slot"), "geen vtable in de header:\n" + ll);
-        assertTrue(ll.contains(".itable.slot"), "geen itable in de header:\n" + ll);
-        // Ook de teller begint op 0, ook al gebruikt BOEHM 'm niet: een header
-        // met ongeïnitialiseerd geheugen erin is een debugging-valkuil.
-        assertTrue(ll.contains("store i32 0, ptr %.refcount.slot"), ll);
+        // vtable and itable now live in the type_info, not in the object header (Lever 1 phase 2);
+        // the header is { type, monitor_count, thread_id } and monitor_count/thread_id start at 0
+        // through zeroed GC_malloc memory, so no explicit store is emitted.
 
         // En nergens een malloc: dat zou een object opleveren dat de collector
         // nooit ziet en dus nooit vrijgeeft.
@@ -104,9 +102,37 @@ class BoehmBackendTest {
 
         final var ll = emit(b.build(), "boehm_array", boehm());
 
-        assertTrue(ll.contains("call ptr @GC_malloc("),
-                "array moet via GC_malloc worden toegewezen:\n" + ll);
+        // an array of numbers holds no pointers: the collector's allocation for memory that it does not scan
+        assertTrue(ll.contains("call ptr @GC_malloc_atomic("),
+                "array moet via GC_malloc_atomic worden toegewezen:\n" + ll);
         assertFalse(ll.contains("call ptr @malloc("), ll);
+    }
+
+    @Test
+    void anArrayOfReferencesIsScannedByTheCollector() throws Exception {
+        final var b = new IRBuilder("test/Box");
+        b.beginFunction("main", IRType.I32, List.of(), false);
+        b.emitReturn(b.emitArrayLength(b.emitAllocaArray(4, BOX)));
+        b.endFunction();
+
+        final var ll = emit(b.build(), "boehm_ref_array", boehm());
+
+        assertTrue(ll.contains("call ptr @GC_malloc("), "an array of references is scanned:\n" + ll);
+        assertFalse(ll.contains("call ptr @GC_malloc_atomic("), ll);
+    }
+
+    @Test
+    void theHeaderOfAnArrayCarriesTypeBasedAliasInformation() throws Exception {
+        final var b = new IRBuilder("test/Box");
+        b.beginFunction("main", IRType.I32, List.of(), false);
+        b.emitReturn(b.emitArrayLength(b.emitAllocaArray(4, BOX)));
+        b.endFunction();
+
+        final var ll = emit(b.build(), "boehm_tbaa", boehm());
+
+        // the length of an array is memory of its own for the optimizer: no store to a field changes it
+        assertTrue(ll.contains("!tbaa"), "stores of the array header need an access tag:\n" + ll);
+        assertTrue(ll.contains("noalias ptr @GC_malloc("), "an allocation returns memory no other pointer reaches:\n" + ll);
     }
 
     // -------------------------------------------------------
@@ -126,8 +152,9 @@ class BoehmBackendTest {
         // de module in een ander programma gelinkt wordt.
         assertTrue(ll.contains("define void @nabu_gc_init_thunk()"),
                 "geen GC_init-constructor:\n" + ll);
-        assertTrue(ll.contains("call void @GC_init()"),
-                "GC_init wordt niet aangeroepen:\n" + ll);
+        // the same call for every collector; the collector's C file implements it
+        assertTrue(ll.contains("call void @nabu_gc_init()"),
+                "nabu_gc_init wordt niet aangeroepen:\n" + ll);
         assertTrue(ll.contains("llvm.global_ctors"),
                 "geen @llvm.global_ctors:\n" + ll);
         // Appending, zodat de linker dit array samenvoegt met die uit de
@@ -241,7 +268,7 @@ class BoehmBackendTest {
     // -------------------------------------------------------
 
     @Test
-    void noneAllocatesOnTheStackAndNotWithTheCollector() throws Exception {
+    void noneAllocatesFromTheCHeapAndNotWithBoehm() throws Exception {
         final var b = new IRBuilder("test/Box");
         b.beginFunction("main", IRType.I32, List.of(), false);
         b.emitHeapAlloc("obj", BOX);
@@ -256,15 +283,13 @@ class BoehmBackendTest {
 
         assertFalse(ll.contains("@GC_malloc"), ll);
         assertFalse(ll.contains("@GC_init"), ll);
-        assertFalse(ll.contains("llvm.global_ctors"), ll);
-        // Een onbekende klasse mag geen alloca van één byte worden: het
-        // gemapte type is i8, dus een kale `alloca i8` zou de header
-        // over de stack heen schrijven. De 48 = sizeof(nabu_object) (40,
-        // zie de layout in runtime/nabu_runtime.h) plus het runtime-
-        // state-slot van 8 bytes (JCL_STATE_SLOT); groeit de header,
-        // dan moet dit getal mee.
-        assertTrue(ll.contains("alloca i8, i64 48"),
+        // no collection: the objects come from the allocator of gc_none.c (nothing lives on the stack: an object can
+        // outlive the function that made it). 24 = sizeof(nabu_object) (16, see runtime/nabu_runtime.h) plus the
+        // runtime state slot of 8 bytes (JCL_STATE_SLOT) for a class the program does not know; when the header
+        // grows, this number must too.
+        assertTrue(ll.contains("call ptr @nabu_none_alloc(i64 24)"),
                 "onbekende klasse alloceert te weinig:\n" + ll);
+        assertFalse(ll.contains("alloca i8, i64 48"), ll);
         assertTrue(ll.contains("call ptr @nabu_init_object("), ll);
     }
 

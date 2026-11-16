@@ -21,6 +21,70 @@ public final class ReflectSupport {
     private ReflectSupport() {
     }
 
+    /** {@code Type.getTypeName()} through the interface: the default is {@code toString()}, which for a Class is
+     * "class java.util.List". (Not redirected again here: this package is left out.) */
+    public static String typeName(final java.lang.reflect.Type type) {
+        return type instanceof Class<?> c ? c.getTypeName() : type.getTypeName();
+    }
+
+    /** {@code Lookup.lookupClass()}: {@code MethodHandles.lookup()} is null in a native program (see
+     * JbossLoggingSupport); hibernate-validator asks it for the class name of its logger category. */
+    public static Class<?> lookupClass(final java.lang.invoke.MethodHandles.Lookup lookup) {
+        return lookup == null ? Object.class : lookup.lookupClass();
+    }
+
+    /** {@code Executable.getAnnotatedReturnType()}: the generic return type, without type annotations. */
+    public static java.lang.reflect.AnnotatedType annotatedReturnType(final java.lang.reflect.Executable executable) {
+        return new SimpleAnnotatedType(executable instanceof Method method
+                ? method.getGenericReturnType() : executable.getDeclaringClass());
+    }
+
+    /** {@code Executable.getAnnotatedParameterTypes()}. */
+    public static java.lang.reflect.AnnotatedType[] annotatedParameterTypes(
+            final java.lang.reflect.Executable executable) {
+        final java.lang.reflect.Type[] types = executable.getGenericParameterTypes();
+        final java.lang.annotation.Annotation[][] annotations = executable.getParameterAnnotations();
+        final java.lang.reflect.AnnotatedType[] result = new java.lang.reflect.AnnotatedType[types.length];
+        for (int i = 0; i < types.length; i++) {
+            // The annotations are those of the last parameters when the executable has synthetic leading ones.
+            final int offset = annotations.length - types.length;
+            result[i] = new SimpleAnnotatedType(types[i],
+                    i + offset >= 0 && i + offset < annotations.length ? annotations[i + offset] : null);
+        }
+        return result;
+    }
+
+    /** {@code Field.getAnnotatedType()}. */
+    public static java.lang.reflect.AnnotatedType annotatedFieldType(final java.lang.reflect.Field field) {
+        return new SimpleAnnotatedType(field.getGenericType());
+    }
+
+    /** {@code Class.getModule()} is null in a native program (there are no modules): everything is exported and open
+     * to everybody, and the module is unnamed. These take the null receiver. */
+    public static boolean moduleIsExported(final Module module, final String packageName, final Module other) {
+        return true;
+    }
+
+    public static boolean moduleIsExported(final Module module, final String packageName) {
+        return true;
+    }
+
+    public static boolean moduleIsOpen(final Module module, final String packageName, final Module other) {
+        return true;
+    }
+
+    public static boolean moduleIsOpen(final Module module, final String packageName) {
+        return true;
+    }
+
+    public static boolean moduleIsNamed(final Module module) {
+        return false;
+    }
+
+    public static String moduleName(final Module module) {
+        return null;
+    }
+
     public static Method[] getMethods(final Class<?> type) {
         return copy(ReflectionData.methods(type.getName(), true));
     }

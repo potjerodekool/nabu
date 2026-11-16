@@ -98,14 +98,15 @@ public class FunctionEmitter {
                            InstructionEmitter instructions,
                            Map<String, LLVMValueRef> globalValueMap,
                            Map<String, LLVMBasicBlockRef> blockMap,
-                           ClassLayouts classLayouts) {
+                           ClassLayouts classLayouts,
+                           boolean debugInfo) {
         this.ctx            = ctx;
         this.mod            = mod;
         this.builder        = builder;
         this.types          = types;
         this.constants      = constants;
         this.instructions   = instructions;
-        this.debugLines     = new DebugLines(ctx, mod, builder);
+        this.debugLines     = new DebugLines(ctx, mod, builder, debugInfo);
         this.globalValueMap = globalValueMap;
         this.blockMap       = blockMap;
         this.classLayouts   = classLayouts;
@@ -339,14 +340,50 @@ public class FunctionEmitter {
         }
     }
 
+    /** Functions already compiled in a chunk (see {@link ChunkedCodegen}): a second body for the symbol is dropped. */
+    private java.util.Set<String> compiledNames;
+
+    public void setCompiledNames(final java.util.Set<String> compiledNames) {
+        this.compiledNames = compiledNames;
+    }
+
     /** Completes the line tables; call after all bodies. */
     public void finishDebugInfo() {
         debugLines.finish();
     }
 
+    private static final long INTERVAL_COST_LIMIT = Long.getLong("nabu.intervalCost", 1_000_000L);
+
+    private static long intervalCost(final IRFunction fn) {
+        long instructions = 0;
+        for (final var block : fn.blocks()) {
+            instructions += block.instructions().size();
+        }
+        return (long) fn.blocks().size() * instructions;
+    }
+
     private void emitBodyInner(IRFunction fn) {
         if (fn.isExternal()) return;
         currentFnNameForDiagnostics = fn.name;
+
+        // Dataflow-analyses voor null/bounds-check eliminatie.
+        try {
+            final var nullnessAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis();
+            final var intervalAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis();
+            final var nullnessResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
+                    fn, nullnessAnalysis);
+            // The intervals only remove bounds checks. Every block holds a map with an interval per variable, so the
+            // cost grows with blocks x variables: on a huge function (a generated initializer, a parser table) it
+            // takes minutes for nothing. -Dnabu.intervalCost=<n> sets the limit.
+            final var intervalResult = intervalCost(fn) > INTERVAL_COST_LIMIT ? null
+                    : io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(fn, intervalAnalysis);
+            instructions.setNullnessResult(nullnessResult);
+            instructions.setIntervalResult(intervalResult);
+        } catch (Throwable t) {
+            // Conservatief: bij falen geen optimalisatie, checks blijven.
+            instructions.setNullnessResult(null);
+            instructions.setIntervalResult(null);
+        }
 
         // Per beschermd blok de binnenste handler-keten (zie de pre-scan).
         Map<String, HandlerChain> chainByProtected = new HashMap<>();
@@ -397,6 +434,12 @@ public class FunctionEmitter {
             return;
         }
 
+        // A second IR function with the symbol of one that was compiled in a chunk: without chunks its body ended up
+        // as an unreachable block of the first, so it is dropped here.
+        if (compiledNames != null && compiledNames.contains(LLVMGetValueName(llvmFn).getString())) {
+            return;
+        }
+
         debugLines.begin(fn, llvmFn, LLVMGetValueName(llvmFn).getString());
 
         // Schone lokale staat per functie
@@ -441,6 +484,7 @@ public class FunctionEmitter {
                     new BytePointer(block.label()));
             blockMap.put(block.label(), bb);
         }
+        instructions.blockMapChanged();
 
         // Pre-scan: TryCatchRegion-metadata → per try-range de handler-keten.
         // Elke range krijgt één landingspad met daarachter een keten van
@@ -607,7 +651,7 @@ public class FunctionEmitter {
             // geketend achter elkaar en vallen door naar @nabu_resume.
             HandlerChain chain = chainByLanding.get(block.label());
             if (chain != null) {
-                emitLandingPadChain(chain);
+                emitLandingPadChain(chain, outerChains(chain, chains));
             }
 
             if (block == fn.blocks().get(0) && classLayouts != null && fn.name != null
@@ -620,9 +664,19 @@ public class FunctionEmitter {
                 instructions.emitClassInit(classLayouts.ownerInternalName(fn.name));
             }
 
-            if (block == fn.blocks().get(0) && callsOthers(fn)) {
+            if (block == fn.blocks().get(0) && callsOthers(fn)
+                    && (entryPolls == null || entryPolls.contains(fn.name))) {
                 // Safepoint: een thread zonder lus of wachtpunt geeft zijn stack ook bij het binnengaan van een functie.
                 instructions.emitSafepointPoll();
+            }
+
+            if (block == fn.blocks().get(0) && TRACE != null && fn.name != null) {
+                for (final String pattern : TRACE) {
+                    if (fn.name.contains(pattern)) {
+                        instructions.emitDiagTrace(llvmFn, fn.name);
+                        break;
+                    }
+                }
             }
 
             if (handlerBody != null) {
@@ -637,6 +691,7 @@ public class FunctionEmitter {
                 instructions.getLocalValueMap().put(exnName, exn);
             }
 
+            instructions.setCurrentIrBlock(block.label());
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion) continue;
                 if (preEmitted.contains(instr)) continue;
@@ -661,6 +716,17 @@ public class FunctionEmitter {
      * over normale sprongen en exception-randen (beschermd blok → handlers).
      * Onbereikbare blokken volgen daarna in IR-volgorde.
      */
+    /** The functions that poll at their entry (see {@link SafepointPlan}); null: every function that calls. */
+    /** {@code -Dnabu.trace=a,b}: the functions whose name contains one of these call nabu_diag_trace at their entry. */
+    private static final String[] TRACE = System.getProperty("nabu.trace") == null ? null
+            : System.getProperty("nabu.trace").split(",");
+
+    private java.util.Set<String> entryPolls;
+
+    void setEntryPolls(final java.util.Set<String> entryPolls) {
+        this.entryPolls = entryPolls;
+    }
+
     /** True when the function contains a call: only those can run long without a loop or a wait. */
     private static boolean callsOthers(final IRFunction fn) {
         for (final IRBasicBlock block : fn.blocks()) {
@@ -742,6 +808,20 @@ public class FunctionEmitter {
             List<String> exceptionTypes,
             int startIdx,
             int endIdx) {
+    }
+
+    /** The ranges that enclose {@code chain} in the same function, the nearest (smallest) first. */
+    private static List<HandlerChain> outerChains(final HandlerChain chain, final List<HandlerChain> all) {
+        final List<HandlerChain> outers = new ArrayList<>();
+        for (final HandlerChain other : all) {
+            if (other != chain
+                    && other.startIdx() <= chain.startIdx() && other.endIdx() >= chain.endIdx()
+                    && (other.startIdx() != chain.startIdx() || other.endIdx() != chain.endIdx())) {
+                outers.add(other);
+            }
+        }
+        outers.sort(java.util.Comparator.comparingInt(c -> c.endIdx() - c.startIdx()));
+        return outers;
     }
 
     /** Sleutel voor een try-range: beide grensblokken bepalen de range. */
@@ -836,7 +916,7 @@ public class FunctionEmitter {
      * {@code @nabu_throw}: de exception wordt niet opnieuw gegooid maar de
      * unwind vervolgd, zodat een buitenliggende handler hem nog kan afvangen.
      */
-    private void emitLandingPadChain(final HandlerChain chain) {
+    private void emitLandingPadChain(final HandlerChain chain, final List<HandlerChain> outers) {
         final String landingLabel = chain.landingLabel();
         final List<String> handlerLabels = chain.handlerLabels();
         final List<String> exceptionTypes = chain.exceptionTypes();
@@ -970,9 +1050,42 @@ public class FunctionEmitter {
             LLVMPositionBuilderAtEnd(builder, next);
         }
 
-        // Resume-pad: de exception is door geen enkele clause afgevangen, dus
-        // de unwind vervolgen (een buitenliggende handler kan hem nog pakken).
+        // Resume-pad: de exception is door geen enkele clause afgevangen. Eerst de handlers van de omvattende
+        // try-ranges in deze functie (nabu_resume zet de unwind voort in de aanroeper en slaat die over: Hibernate's
+        // Environment.<clinit> heeft catch IOException [13,102) binnen catch HibernateException [13,115)); daarna
+        // pas de unwind vervolgen.
         LLVMPositionBuilderAtEnd(builder, resumeBlock);
+        for (final HandlerChain outer : outers) {
+            for (int j = 0; j < outer.handlerLabels().size(); j++) {
+                final String outerLabel = outer.handlerLabels().get(j);
+                final String outerType = outer.exceptionTypes().get(j);
+                LLVMBuildStore(builder, exPtr, handlerExceptionSlots.get(outerLabel));
+                final LLVMBasicBlockRef outerBody = handlerBodyBlocks.get(outerLabel);
+                if (outerType == null) {
+                    LLVMBuildBr(builder, outerBody);
+                    return;
+                }
+                final LLVMValueRef typeStr = constants.resolveString(normalizeCatchType(outerType),
+                        io.github.potjerodekool.nabu.backend.ir.IRGlobal.Linkage.PRIVATE);
+                final PointerPointer<Pointer> ccParams = new PointerPointer<>(2);
+                ccParams.put(0, exPtr);
+                ccParams.put(1, typeStr);
+                final PointerPointer<Pointer> ccParamTypes = new PointerPointer<>(2);
+                ccParamTypes.put(0, LLVMTypeOf(exPtr));
+                ccParamTypes.put(1, LLVMTypeOf(typeStr));
+                final LLVMTypeRef canCatchFnType = LLVMFunctionType(i32, ccParamTypes, 2, 0);
+                final LLVMValueRef match = LLVMBuildCall2(builder, canCatchFnType, canCatchFn, ccParams, 2,
+                        "%outer.match");
+                final LLVMValueRef ok = LLVMBuildICmp(builder, LLVMIntNE, match, LLVMConstInt(i32, 0, 0),
+                        "%outer.ok");
+                Reference.reachabilityFence(ccParams);
+                Reference.reachabilityFence(ccParamTypes);
+                final LLVMBasicBlockRef next = LLVMAppendBasicBlockInContext(ctx, currentFn,
+                        new BytePointer("handler." + landingLabel + ".outer." + outerLabel + "." + j));
+                LLVMBuildCondBr(builder, ok, outerBody, next);
+                LLVMPositionBuilderAtEnd(builder, next);
+            }
+        }
         LLVMValueRef resumeFn = globalValueMap.get("@nabu_resume");
         if (resumeFn == null) {
             throw new IllegalStateException("Runtime helper @nabu_resume not defined");

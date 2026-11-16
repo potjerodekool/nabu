@@ -358,7 +358,24 @@ public final class BytecodeMethodLowering {
                 continue;
             }
 
+            // The analyzer gives no frame to unreachable code. A library can contain it: ASM replaces dead code with
+            // nop...athrow, and CGLIB's generated static hooks end with such an athrow after the return.
+            // Emitting it would pop from an empty stack. The block of a label in dead code still needs a
+            // terminator.
+            if (frames[i] == null) {
+                if (!builder.currentBlockTerminated()) {
+                    builder.emitUnreachable();
+                }
+                continue;
+            }
+
             emitOne(insn, frames[i]);
+        }
+
+        // A label after the last instruction (the end of a local variable range) gets a block of its own
+        // that nothing reaches: control cannot fall off the end of a method.
+        if (!builder.currentBlockTerminated()) {
+            builder.emitUnreachable();
         }
     }
 
@@ -830,9 +847,14 @@ public final class BytecodeMethodLowering {
     private void negOp() {
         final var v = stack.pop();
         final IRInstruction.BinaryOp.Op op = IRInstruction.BinaryOp.Op.SUB;
+        // The zero has the type of the operand (LLVM wants equal operand types): a float negated with a double
+        // zero turned the whole expression into a double. -0.0 - x is the negation of every x, also of 0.0 and
+        // NaN (0.0 - 0.0 would give +0.0).
         final IRValue zero = v.type() instanceof IRType.Float
-                ? IRValue.ofFloat(0.0)
-                : IRValue.ofI32(0);
+                ? new IRValue.ConstFloat(-0.0, v.type())
+                : v.type() instanceof IRType.Int integer
+                        ? IRValue.ofInt(0, integer.bits())
+                        : IRValue.ofI32(0);
         stack.push(builder.emitBinaryOp(op, zero, v));
     }
 
@@ -1026,7 +1048,14 @@ public final class BytecodeMethodLowering {
             case Float f -> IRValue.ofF32(f);
             case Double d -> IRValue.ofFloat(d);
             case String s -> IRValue.ofString(s);
-            case Type t -> new IRValue.ConstClass(new IRType.Ptr(IRType.I8, t.getDescriptor()));
+            case Type t -> {
+                // X.class names the class: it is part of the program (its interfaces and generic signature are what
+                // Class.getGenericInterfaces reports; hibernate-validator reads them of classes it only names).
+                if (t.getSort() == Type.OBJECT) {
+                    noteReference(t.getInternalName());
+                }
+                yield new IRValue.ConstClass(new IRType.Ptr(IRType.I8, t.getDescriptor()));
+            }
             default -> throw new UnsupportedOperationException(
                     "LDC of " + (cst == null ? "null" : cst.getClass())
                             + " not implemented yet (Handle/ConstantDynamic -> invokedynamic related)");
@@ -1421,6 +1450,15 @@ public final class BytecodeMethodLowering {
         while (!tmp.isEmpty()) {
             args.add(tmp.pop());
         }
+        // The operand stack holds a boolean or a char as an int: the concatenation has to print it as the type the
+        // descriptor of the call site names ("true", not "1").
+        for (int i = 0; i < argTypes.length; i++) {
+            if (argTypes[i].getSort() == Type.BOOLEAN) {
+                args.set(i, builder.emitCast(args.get(i), IRType.BOOL));
+            } else if (argTypes[i].getSort() == Type.CHAR) {
+                args.set(i, builder.emitCast(args.get(i), IRType.CHAR));
+            }
+        }
 
         final String recipe;
         if ("makeConcatWithConstants".equals(insn.bsm.getName())) {
@@ -1726,9 +1764,27 @@ public final class BytecodeMethodLowering {
             // override van de runtime-waarde uitkomt, of die nu String,
             // List, een ander JCL-type of een Nabu-klasse is - dus geen
             // per-type speciale afhandeling nodig.
+            // A null field counts 0 (Objects.hashCode), as in the record the compiler would have made.
+            final var nullBlk = new IRBasicBlock(uniqueBlockName());
+            final var notNullBlk = new IRBasicBlock(uniqueBlockName());
+            final var mergeBlk = new IRBasicBlock(uniqueBlockName());
+            for (final var blk : List.of(nullBlk, notNullBlk, mergeBlk)) {
+                builder.currentFunction().addBlock(blk);
+            }
+            final var cell = builder.emitAlloca("rechash." + uniqueBlockName(), IRType.I32);
+            final var isNull = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, value,
+                    IRValue.nullPtr(ptr.pointee()));
+            builder.emitCondBranch(isNull, nullBlk, notNullBlk);
+            builder.setCurrentBlock(nullBlk);
+            builder.emitStore(cell, IRValue.ofI32(0));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(notNullBlk);
             noteMethodReference(internalOwnerFromPtr(ptr), "hashCode", "()I", true);
-            return builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_hashCode", IRType.I32,
-                    List.of(), List.of(value));
+            builder.emitStore(cell, builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_hashCode", IRType.I32,
+                    List.of(), List.of(value)));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(mergeBlk);
+            return builder.emitLoad(cell);
         }
         if (type == IRType.BOOL) {
             return selectI32(value, IRValue.ofI32(1231), IRValue.ofI32(1237));
@@ -1818,9 +1874,28 @@ public final class BytecodeMethodLowering {
             }
             // Zelfde generieke redenering als fieldHashCode(): de statische
             // eigenaar levert de call-naam, virtuele dispatch doet de rest.
+            // Objects.equals: two null fields are equal, one null field is not.
+            final var nullBlk = new IRBasicBlock(uniqueBlockName());
+            final var notNullBlk = new IRBasicBlock(uniqueBlockName());
+            final var mergeBlk = new IRBasicBlock(uniqueBlockName());
+            for (final var blk : List.of(nullBlk, notNullBlk, mergeBlk)) {
+                builder.currentFunction().addBlock(blk);
+            }
+            final var cell = builder.emitAlloca("receq." + uniqueBlockName(), IRType.BOOL);
+            final var aIsNull = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, a,
+                    IRValue.nullPtr(ptr.pointee()));
+            builder.emitCondBranch(aIsNull, nullBlk, notNullBlk);
+            builder.setCurrentBlock(nullBlk);
+            builder.emitStore(cell, builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, b,
+                    IRValue.nullPtr(ptr.pointee())));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(notNullBlk);
             noteMethodReference(internalOwnerFromPtr(ptr), "equals", "(Ljava/lang/Object;)Z", true);
-            return builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_equals", IRType.BOOL,
-                    List.of(OBJECT_PARAM), List.of(a, b));
+            builder.emitStore(cell, builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_equals", IRType.BOOL,
+                    List.of(OBJECT_PARAM), List.of(a, b)));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(mergeBlk);
+            return builder.emitLoad(cell);
         }
         return builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, a, b);
     }

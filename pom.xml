@@ -24,7 +24,8 @@
         <surefire.version>2.22.2</surefire.version>
         <failsafe.version>2.22.2</failsafe.version>
         <asm.version>9.8</asm.version>
-        <!-- The platform of the native backend (its LLVM libraries and the name of the release file): windows-x86_64, linux-x86_64, linux-arm64, macosx-x86_64 or macosx-arm64. -->
+        <!-- The platform of the native backend (its LLVM libraries and the name of the release file): windows-x86_64, linux-x86_64, linux-arm64, macosx-x86_64 or macosx-arm64.
+             Default is windows-x86_64; the OS-activation profiles below override it on Linux and macOS. -->
         <javacpp.platform>windows-x86_64</javacpp.platform>
         <maven.gpg.plugin.version>3.2.4</maven.gpg.plugin.version>
         <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
@@ -261,6 +262,55 @@
     </build>
 
     <profiles>
+        <!-- OS-based platform detection: override javacpp.platform on Linux and macOS. -->
+        <profile>
+            <id>linux-x86_64</id>
+            <activation>
+                <os>
+                    <name>Linux</name>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <javacpp.platform>linux-x86_64</javacpp.platform>
+            </properties>
+        </profile>
+        <profile>
+            <id>linux-arm64</id>
+            <activation>
+                <os>
+                    <name>Linux</name>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <properties>
+                <javacpp.platform>linux-arm64</javacpp.platform>
+            </properties>
+        </profile>
+        <profile>
+            <id>macosx-x86_64</id>
+            <activation>
+                <os>
+                    <name>Mac OS X</name>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <properties>
+                <javacpp.platform>macosx-x86_64</javacpp.platform>
+            </properties>
+        </profile>
+        <profile>
+            <id>macosx-arm64</id>
+            <activation>
+                <os>
+                    <name>Mac OS X</name>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <properties>
+                <javacpp.platform>macosx-arm64</javacpp.platform>
+            </properties>
+        </profile>
         <profile>
             <id>release</id>
             <build>

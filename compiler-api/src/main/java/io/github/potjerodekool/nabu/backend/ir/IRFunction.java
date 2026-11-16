@@ -74,6 +74,14 @@ public class IRFunction {
         newFunction.annotationDefault = this.annotationDefault;
         newFunction.localVariables.addAll(this.localVariables);
         newFunction.allocaVersions = this.allocaVersions;
+        // what a function compiled from bytecode carries besides its blocks
+        newFunction.jvmName = this.jvmName;
+        newFunction.jvmDescriptor = this.jvmDescriptor;
+        newFunction.bytecodeAnnotations = this.bytecodeAnnotations;
+        newFunction.bytecodeParameterAnnotations = this.bytecodeParameterAnnotations;
+        if (this.external) {
+            newFunction.markExternal();
+        }
         return newFunction;
     }
 

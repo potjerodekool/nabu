@@ -92,7 +92,10 @@ public final class Linearizer {
      */
     private static boolean isInvertible(final IRInstruction.BinaryOp.Op op) {
         return switch (op) {
-            case LT, LTE, EQ, GTE, GT, NEQ, AND, OR, XOR -> true;
+            // Only the comparisons: the negation of `a && b` is not `a || b` on the same operands (and `a ^ b` is
+            // not its own negation), so a logical operator keeps the order of its branches. A string switch
+            // (`hashCode() == h && equals(..)`) chose the wrong case when AND was turned into OR here.
+            case LT, LTE, EQ, GTE, GT, NEQ -> true;
             default -> false;
         };
     }
@@ -105,9 +108,6 @@ public final class Linearizer {
             case GTE -> IRInstruction.BinaryOp.Op.LT;
             case GT -> IRInstruction.BinaryOp.Op.LTE;
             case NEQ -> IRInstruction.BinaryOp.Op.EQ;
-            case AND -> IRInstruction.BinaryOp.Op.OR;
-            case OR -> IRInstruction.BinaryOp.Op.AND;
-            case XOR -> IRInstruction.BinaryOp.Op.XOR;
             default -> throw new IllegalStateException("Not invertible: " + binaryOp.op());
         };
 

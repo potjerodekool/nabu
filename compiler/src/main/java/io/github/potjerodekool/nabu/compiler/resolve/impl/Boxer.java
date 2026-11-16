@@ -2,6 +2,12 @@ package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.box.BooleanBoxer;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.box.ByteBoxer;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.box.CharBoxer;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.box.DoubleBoxer;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.box.FloatBoxer;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.box.IntBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.LongBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.ShortBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
@@ -29,6 +35,12 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
     private final ClassElementLoader loader;
     private final Types types;
     private final MethodResolver methodResolver;
+    private final BooleanBoxer booleanBoxer;
+    private final ByteBoxer byteBoxer;
+    private final CharBoxer charBoxer;
+    private final DoubleBoxer doubleBoxer;
+    private final FloatBoxer floatBoxer;
+    private final IntBoxer intBoxer;
     private final LongBoxer longBoxer;
     private final ShortBoxer shortBoxer;
 
@@ -39,6 +51,12 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
         this.loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getTypes();
         this.methodResolver = compilerContext.getMethodResolver();
+        this.booleanBoxer = new BooleanBoxer(methodResolver);
+        this.byteBoxer = new ByteBoxer(methodResolver);
+        this.charBoxer = new CharBoxer(methodResolver);
+        this.doubleBoxer = new DoubleBoxer(methodResolver);
+        this.floatBoxer = new FloatBoxer(methodResolver);
+        this.intBoxer = new IntBoxer(methodResolver);
         this.longBoxer = new LongBoxer(methodResolver);
         this.shortBoxer = new ShortBoxer(methodResolver);
 
@@ -133,7 +151,19 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
         final var clazz = (TypeElement) declaredType.asElement();
         final var className = clazz.getQualifiedName();
 
-        if (Constants.LONG.equals(className)) {
+        if (Constants.BOOLEAN.equals(className)) {
+            return booleanBoxer.boxer(expressionTree, otherType);
+        } else if (Constants.BYTE.equals(className)) {
+            return byteBoxer.boxer(expressionTree, otherType);
+        } else if (Constants.CHARACTER.equals(className)) {
+            return charBoxer.boxer(expressionTree, otherType);
+        } else if (Constants.DOUBLE.equals(className)) {
+            return doubleBoxer.boxer(expressionTree, otherType);
+        } else if (Constants.FLOAT.equals(className)) {
+            return floatBoxer.boxer(expressionTree, otherType);
+        } else if (Constants.INTEGER.equals(className)) {
+            return intBoxer.boxer(expressionTree, otherType);
+        } else if (Constants.LONG.equals(className)) {
             return longBoxer.boxer(expressionTree, otherType);
         } else if (Constants.SHORT.equals(className)) {
             return shortBoxer.boxer(expressionTree, otherType);

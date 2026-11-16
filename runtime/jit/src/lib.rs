@@ -1,0 +1,1097 @@
+//! A method JIT for the bytecode interpreter of Nabu (runtime/nabu_interpreter.c): the JVM bytecode of a hot static
+//! method that only computes with int, long, float and double (loops, branches, calls of other such methods) becomes
+//! machine code with Cranelift. The interpreter loads this library with dlopen and calls `nabu_jit_init` once, then
+//! `nabu_jit_compile` for each method that has been called often enough; a method this library does not understand gets
+//! NULL and stays interpreted.
+//!
+//! A compiled method is an `extern "C" fn(args: *const i64) -> i64`: the arguments come one per value (an int sign
+//! extended, a float as its 32 bits, a double as its 64 bits) and the result goes back the same way.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{c_void, CStr};
+use std::os::raw::{c_char, c_int};
+use std::sync::Mutex;
+
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+use cranelift_codegen::ir::{types, AbiParam, BlockArg, InstBuilder, MemFlagsData, Signature, StackSlotData, StackSlotKind, Type, Value};
+use cranelift_codegen::isa::CallConv;
+use cranelift_codegen::settings::{self, Configurable};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
+use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::{default_libcall_names, Module};
+
+/// What the interpreter offers to the compiler and to the compiled code (a C struct, filled in by the interpreter).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Host {
+    pub cp_int: extern "C" fn(cp: *mut c_void, idx: c_int, out: *mut i32) -> c_int,
+    pub cp_long: extern "C" fn(cp: *mut c_void, idx: c_int, out: *mut i64) -> c_int,
+    pub cp_float: extern "C" fn(cp: *mut c_void, idx: c_int, out: *mut f32) -> c_int,
+    pub cp_double: extern "C" fn(cp: *mut c_void, idx: c_int, out: *mut f64) -> c_int,
+    /// The method that an invokestatic names (an opaque pointer of the interpreter) and its descriptor.
+    pub resolve_static: extern "C" fn(cp: *mut c_void, idx: c_int, method: *mut *mut c_void, desc: *mut c_char, cap: c_int) -> c_int,
+    /// Calls a method from compiled code; non-zero when it left an exception pending.
+    pub call: extern "C" fn(method: *mut c_void, args: *const i64, nargs: c_int, result: *mut i64) -> c_int,
+    /// Makes an ArithmeticException pending (division by zero).
+    pub throw_arith: extern "C" fn(),
+    /// The address of the interpreter's pending exception (non-null after a call that threw).
+    pub pending: *const *mut c_void,
+}
+
+struct Jit {
+    module: JITModule,
+    host: Host,
+}
+
+// The module holds raw pointers to the generated code; it is only used under the lock.
+unsafe impl Send for Jit {}
+
+static JIT: Mutex<Option<Jit>> = Mutex::new(None);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
+enum Ty {
+    I,
+    J,
+    F,
+    D,
+}
+
+fn clty(t: Ty) -> Type {
+    match t {
+        Ty::I => types::I32,
+        Ty::J => types::I64,
+        Ty::F => types::F32,
+        Ty::D => types::F64,
+    }
+}
+
+fn ty_of(t: Type) -> Ty {
+    if t == types::I64 {
+        Ty::J
+    } else if t == types::F32 {
+        Ty::F
+    } else if t == types::F64 {
+        Ty::D
+    } else {
+        Ty::I
+    }
+}
+
+fn wide(t: Ty) -> bool {
+    matches!(t, Ty::J | Ty::D)
+}
+
+/// (parameters, return type) of a descriptor that only has primitive types; None when it has others.
+fn parse_desc(desc: &str) -> Option<(Vec<Ty>, Option<Ty>)> {
+    let rest = desc.strip_prefix('(')?;
+    let close = rest.find(')')?;
+    let mut params = Vec::new();
+    for c in rest[..close].chars() {
+        params.push(prim(c)?);
+    }
+    let ret = match rest[close + 1..].chars().next()? {
+        'V' => None,
+        c => Some(prim(c)?),
+    };
+    Some((params, ret))
+}
+
+fn prim(c: char) -> Option<Ty> {
+    match c {
+        'I' | 'Z' | 'B' | 'S' | 'C' => Some(Ty::I),
+        'J' => Some(Ty::J),
+        'F' => Some(Ty::F),
+        'D' => Some(Ty::D),
+        _ => None,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nabu_jit_init(host: *const Host) -> c_int {
+    if host.is_null() {
+        return -1;
+    }
+    let mut flags = settings::builder();
+    let _ = flags.set("use_colocated_libcalls", "false");
+    let _ = flags.set("is_pic", "false");
+    let _ = flags.set("opt_level", "speed");
+    let isa = match cranelift_native::builder() {
+        Ok(b) => match b.finish(settings::Flags::new(flags)) {
+            Ok(isa) => isa,
+            Err(_) => return -2,
+        },
+        Err(_) => return -3,
+    };
+    let module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
+    *JIT.lock().unwrap() = Some(Jit { module, host: *host });
+    0
+}
+
+extern "C" fn jit_drem(a: f64, b: f64) -> f64 {
+    a % b
+}
+
+/// One decoded instruction: where it is, its opcode and its operands (as far as they are needed).
+#[derive(Clone, Copy, Debug)]
+struct Insn {
+    pc: usize,
+    op: u8,
+    a: i32,
+    next: usize,
+}
+
+fn decode(code: &[u8]) -> Option<Vec<Insn>> {
+    let mut out = Vec::new();
+    let mut pc = 0usize;
+    let u2 = |p: usize| -> Option<i32> { Some((((*code.get(p)? as u16) << 8) | *code.get(p + 1)? as u16) as i32) };
+    let s2 = |p: usize| -> Option<i32> { Some(u2(p)? as u16 as i16 as i32) };
+    while pc < code.len() {
+        let op = code[pc];
+        let (a, len) = match op {
+            0x00 | 0x02..=0x0f | 0x1a..=0x2d | 0x3b..=0x4e | 0x57..=0x5f | 0x60..=0x83 | 0x85..=0x98 => (0, 1),
+            0xac..=0xaf | 0xb1 => (0, 1),
+            0x10 => (*code.get(pc + 1)? as i8 as i32, 2),
+            0x11 => (s2(pc + 1)?, 3),
+            0x12 => (*code.get(pc + 1)? as i32, 2),
+            0x13 | 0x14 => (u2(pc + 1)?, 3),
+            0x15..=0x18 | 0x36..=0x39 => (*code.get(pc + 1)? as i32, 2),
+            0x84 => ((*code.get(pc + 1)? as i32) | ((*code.get(pc + 2)? as i8 as i32) << 8), 3),
+            0x99..=0xa4 | 0xa7 => (pc as i32 + s2(pc + 1)?, 3),
+            0xb8 => (u2(pc + 1)?, 3),
+            _ => return None,
+        };
+        out.push(Insn { pc, op, a, next: pc + len });
+        pc += len;
+    }
+    Some(out)
+}
+
+fn is_branch(op: u8) -> bool {
+    matches!(op, 0x99..=0xa4 | 0xa7)
+}
+
+fn ends_block(op: u8) -> bool {
+    matches!(op, 0xa7 | 0xac..=0xaf | 0xb1)
+}
+
+/// The types of the operand stack at the start of every block, found by running over the code once; None when the code is
+/// something this compiler does not handle (a stack that differs between two ways to a block, a pop of an empty stack).
+fn stack_types(
+    insns: &[Insn],
+    index: &BTreeMap<usize, usize>,
+    leaders: &BTreeSet<usize>,
+    host: &Host,
+    cp: *mut c_void,
+) -> Option<BTreeMap<usize, Vec<Ty>>> {
+    let mut entry: BTreeMap<usize, Vec<Ty>> = BTreeMap::new();
+    let mut work = vec![0usize];
+    entry.insert(0, Vec::new());
+    let mut done: BTreeSet<usize> = BTreeSet::new();
+    let mut note = |entry: &mut BTreeMap<usize, Vec<Ty>>, work: &mut Vec<usize>, pc: usize, st: &Vec<Ty>| -> Option<()> {
+        match entry.get(&pc) {
+            Some(existing) if existing != st => return None,
+            Some(_) => {}
+            None => {
+                entry.insert(pc, st.clone());
+            }
+        }
+        work.push(pc);
+        Some(())
+    };
+    while let Some(start) = work.pop() {
+        if !done.insert(start) {
+            continue;
+        }
+        let mut stack = entry.get(&start)?.clone();
+        let mut i = *index.get(&start)?;
+        loop {
+            let insn = insns[i];
+            apply_types(&insn, &mut stack, host, cp)?;
+            if is_branch(insn.op) {
+                note(&mut entry, &mut work, insn.a as usize, &stack)?;
+            }
+            if is_branch(insn.op) || ends_block(insn.op) {
+                if is_branch(insn.op) && insn.op != 0xa7 {
+                    note(&mut entry, &mut work, insn.next, &stack)?;
+                }
+                break;
+            }
+            if leaders.contains(&insn.next) {
+                note(&mut entry, &mut work, insn.next, &stack)?;
+                break;
+            }
+            i = *index.get(&insn.next)?;
+        }
+    }
+    Some(entry)
+}
+
+fn pop_ty(stack: &mut Vec<Ty>) -> Option<Ty> {
+    stack.pop()
+}
+
+/// The effect of one instruction on the types of the stack.
+fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> Option<()> {
+    use Ty::*;
+    match insn.op {
+        0x00 => {}
+        0x02..=0x08 | 0x10 | 0x11 => st.push(I),
+        0x09 | 0x0a => st.push(J),
+        0x0b..=0x0d => st.push(F),
+        0x0e | 0x0f => st.push(D),
+        0x12 | 0x13 => {
+            let mut i = 0i32;
+            let mut f = 0f32;
+            if (host.cp_int)(cp, insn.a, &mut i) != 0 {
+                st.push(I)
+            } else if (host.cp_float)(cp, insn.a, &mut f) != 0 {
+                st.push(F)
+            } else {
+                return None;
+            }
+        }
+        0x14 => {
+            let mut l = 0i64;
+            let mut d = 0f64;
+            if (host.cp_long)(cp, insn.a, &mut l) != 0 {
+                st.push(J)
+            } else if (host.cp_double)(cp, insn.a, &mut d) != 0 {
+                st.push(D)
+            } else {
+                return None;
+            }
+        }
+        0x15 | 0x1a..=0x1d => st.push(I),
+        0x16 | 0x1e..=0x21 => st.push(J),
+        0x17 | 0x22..=0x25 => st.push(F),
+        0x18 | 0x26..=0x29 => st.push(D),
+        0x36 | 0x3b..=0x3e | 0x37 | 0x3f..=0x42 | 0x38 | 0x43..=0x46 | 0x39 | 0x47..=0x4a => {
+            pop_ty(st)?;
+        }
+        0x57 => {
+            pop_ty(st)?;
+        }
+        0x58 => {
+            let t = pop_ty(st)?;
+            if !wide(t) {
+                pop_ty(st)?;
+            }
+        }
+        0x59 => {
+            let t = *st.last()?;
+            st.push(t);
+        }
+        0x5a => {
+            let a = pop_ty(st)?;
+            let b = pop_ty(st)?;
+            st.push(a);
+            st.push(b);
+            st.push(a);
+        }
+        0x5b => {
+            let a = pop_ty(st)?;
+            let b = pop_ty(st)?;
+            if wide(b) {
+                st.push(a);
+                st.push(b);
+                st.push(a);
+            } else {
+                let c = pop_ty(st)?;
+                st.push(a);
+                st.push(c);
+                st.push(b);
+                st.push(a);
+            }
+        }
+        0x5c => {
+            let a = *st.last()?;
+            if wide(a) {
+                st.push(a);
+            } else {
+                let b = *st.get(st.len().checked_sub(2)?)?;
+                st.push(b);
+                st.push(a);
+            }
+        }
+        0x5d => {
+            let a = pop_ty(st)?;
+            if wide(a) {
+                let b = pop_ty(st)?;
+                st.push(a);
+                st.push(b);
+                st.push(a);
+            } else {
+                let b = pop_ty(st)?;
+                let c = pop_ty(st)?;
+                st.push(b);
+                st.push(a);
+                st.push(c);
+                st.push(b);
+                st.push(a);
+            }
+        }
+        0x5e => {
+            let a = pop_ty(st)?;
+            if wide(a) {
+                let b = pop_ty(st)?;
+                if wide(b) {
+                    st.push(a);
+                    st.push(b);
+                    st.push(a);
+                } else {
+                    let c = pop_ty(st)?;
+                    st.push(a);
+                    st.push(c);
+                    st.push(b);
+                    st.push(a);
+                }
+            } else {
+                let b = pop_ty(st)?;
+                let c = pop_ty(st)?;
+                if wide(c) {
+                    st.push(b);
+                    st.push(a);
+                    st.push(c);
+                    st.push(b);
+                    st.push(a);
+                } else {
+                    let d = pop_ty(st)?;
+                    st.push(b);
+                    st.push(a);
+                    st.push(d);
+                    st.push(c);
+                    st.push(b);
+                    st.push(a);
+                }
+            }
+        }
+        0x5f => {
+            let a = pop_ty(st)?;
+            let b = pop_ty(st)?;
+            st.push(a);
+            st.push(b);
+        }
+        0x60..=0x73 => {
+            // binary arithmetic: the result has the type of the operands
+            let t = pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(t);
+        }
+        0x74..=0x77 => {}
+        0x78 | 0x7a | 0x7c => {
+            pop_ty(st)?;
+        }
+        0x79 | 0x7b | 0x7d => {
+            pop_ty(st)?;
+        }
+        0x7e..=0x83 => {
+            let t = pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(t);
+        }
+        0x84 => {}
+        0x85 | 0x8c | 0x8f => {
+            pop_ty(st)?;
+            st.push(J);
+        }
+        0x86 | 0x89 | 0x90 => {
+            pop_ty(st)?;
+            st.push(F);
+        }
+        0x87 | 0x8a | 0x8d => {
+            pop_ty(st)?;
+            st.push(D);
+        }
+        0x88 | 0x8b | 0x8e | 0x91..=0x93 => {
+            pop_ty(st)?;
+            st.push(I);
+        }
+        0x94..=0x98 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(I);
+        }
+        0x99..=0x9e => {
+            pop_ty(st)?;
+        }
+        0x9f..=0xa4 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+        }
+        0xa7 => {}
+        0xac..=0xaf => {
+            pop_ty(st)?;
+        }
+        0xb1 => {}
+        0xb8 => {
+            let mut method: *mut c_void = std::ptr::null_mut();
+            let mut buf = [0 as c_char; 256];
+            if (host.resolve_static)(cp, insn.a, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
+                return None;
+            }
+            let desc = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
+            let (params, ret) = parse_desc(desc)?;
+            for _ in 0..params.len() {
+                pop_ty(st)?;
+            }
+            if let Some(r) = ret {
+                st.push(r);
+            }
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
+/// Compiles a method; returns the code (extern "C" fn(*const i64) -> i64) or NULL.
+///
+/// # Safety
+/// `code` must point at `len` bytes, `desc` at a C string, `cp` is handed to the host callbacks.
+#[no_mangle]
+pub unsafe extern "C" fn nabu_jit_compile(
+    code: *const u8,
+    len: usize,
+    desc: *const c_char,
+    is_static: c_int,
+    max_locals: c_int,
+    cp: *mut c_void,
+    self_method: *mut c_void,
+) -> *mut c_void {
+    if code.is_null() || desc.is_null() || is_static == 0 || len == 0 || len > 16384 {
+        return std::ptr::null_mut();
+    }
+    let desc = match CStr::from_ptr(desc).to_str() {
+        Ok(d) => d,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let code = std::slice::from_raw_parts(code, len);
+    let mut guard = match JIT.lock() {
+        Ok(g) => g,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let jit = match guard.as_mut() {
+        Some(j) => j,
+        None => return std::ptr::null_mut(),
+    };
+    match compile(jit, code, desc, max_locals.max(0) as usize, cp, self_method) {
+        Some(p) => p as *mut c_void,
+        None => std::ptr::null_mut(),
+    }
+}
+
+fn compile(jit: &mut Jit, code: &[u8], desc: &str, max_locals: usize, cp: *mut c_void, self_method: *mut c_void) -> Option<*const u8> {
+    let (params, ret) = parse_desc(desc)?;
+    let host = jit.host;
+    let insns = decode(code)?;
+    let index: BTreeMap<usize, usize> = insns.iter().enumerate().map(|(i, x)| (x.pc, i)).collect();
+    // leaders: the start, the targets of branches and what follows a branch or a return
+    let mut leaders: BTreeSet<usize> = BTreeSet::new();
+    leaders.insert(0);
+    for insn in &insns {
+        if is_branch(insn.op) {
+            if !index.contains_key(&(insn.a as usize)) {
+                return None;
+            }
+            leaders.insert(insn.a as usize);
+        }
+        if is_branch(insn.op) || ends_block(insn.op) {
+            leaders.insert(insn.next);
+        }
+    }
+    let entry_types = stack_types(&insns, &index, &leaders, &host, cp)?;
+
+    let ptr = jit.module.target_config().pointer_type();
+    let cc = jit.module.target_config().default_call_conv;
+    let mut sig = jit.module.make_signature();
+    sig.params.push(AbiParam::new(ptr));
+    sig.returns.push(AbiParam::new(types::I64));
+    let id = jit.module.declare_anonymous_function(&sig).ok()?;
+    let mut ctx = jit.module.make_context();
+    ctx.func.signature = sig;
+    let mut fctx = FunctionBuilderContext::new();
+    {
+        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fctx);
+        let self_ref = jit.module.declare_func_in_func(id, b.func);
+        let pending_addr = host.pending as usize as i64;
+        let entry = b.create_block();
+        b.append_block_params_for_function_params(entry);
+        // one Cranelift block per reachable JVM block, with the stack as block parameters
+        let mut blocks = BTreeMap::new();
+        for (&pc, tys) in &entry_types {
+            if !leaders.contains(&pc) && pc != 0 {
+                continue;
+            }
+            let blk = b.create_block();
+            for t in tys {
+                b.append_block_param(blk, clty(*t));
+            }
+            blocks.insert(pc, blk);
+        }
+        let mut vars: BTreeMap<(usize, Ty), Variable> = BTreeMap::new();
+        let mut var = |b: &mut FunctionBuilder, slot: usize, t: Ty| -> Variable {
+            *vars.entry((slot, t)).or_insert_with(|| b.declare_var(clty(t)))
+        };
+
+        b.switch_to_block(entry);
+        let args = b.block_params(entry)[0];
+        let mut slot = 0usize;
+        for (i, t) in params.iter().enumerate() {
+            let raw = b.ins().load(types::I64, MemFlagsData::trusted(), args, (i * 8) as i32);
+            let v = from_slot(&mut b, raw, *t);
+            let x = var(&mut b, slot, *t);
+            b.def_var(x, v);
+            slot += if wide(*t) { 2 } else { 1 };
+        }
+        let _ = max_locals;
+        b.ins().jump(blocks[&0], &[]);
+
+        let throw_fn = host.throw_arith as usize as i64;
+        let call_fn = host.call as usize as i64;
+        let drem_fn = jit_drem as usize as i64;
+
+        for (&start, &blk) in &blocks {
+            b.switch_to_block(blk);
+            let mut stack: Vec<Value> = b.block_params(blk).to_vec();
+            let mut i = index[&start];
+            loop {
+                let insn = insns[i];
+                let done = emit(
+                    &mut b, &insn, &mut stack, &mut var, &blocks, &host, cp, ret, throw_fn, call_fn, drem_fn, ptr, cc, self_method, self_ref, pending_addr,
+                )?;
+                if done {
+                    break;
+                }
+                // not a block end: the next instruction may start a block
+                if blocks.contains_key(&insn.next) {
+                    let args: Vec<BlockArg> = stack.iter().map(|v| (*v).into()).collect();
+                    b.ins().jump(blocks[&insn.next], &args);
+                    break;
+                }
+                i = *index.get(&insn.next)?;
+            }
+        }
+        b.seal_all_blocks();
+        b.finalize(jit.module.target_config());
+    }
+    jit.module.define_function(id, &mut ctx).ok()?;
+    jit.module.clear_context(&mut ctx);
+    jit.module.finalize_definitions().ok()?;
+    Some(jit.module.get_finalized_function(id))
+}
+
+fn to_slot(b: &mut FunctionBuilder, v: Value, t: Ty) -> Value {
+    match t {
+        Ty::I => b.ins().sextend(types::I64, v),
+        Ty::J => v,
+        Ty::F => {
+            let bits = b.ins().bitcast(types::I32, MemFlagsData::new(), v);
+            b.ins().uextend(types::I64, bits)
+        }
+        Ty::D => b.ins().bitcast(types::I64, MemFlagsData::new(), v),
+    }
+}
+
+fn from_slot(b: &mut FunctionBuilder, raw: Value, t: Ty) -> Value {
+    match t {
+        Ty::I => b.ins().ireduce(types::I32, raw),
+        Ty::J => raw,
+        Ty::F => {
+            let bits = b.ins().ireduce(types::I32, raw);
+            b.ins().bitcast(types::F32, MemFlagsData::new(), bits)
+        }
+        Ty::D => b.ins().bitcast(types::F64, MemFlagsData::new(), raw),
+    }
+}
+
+fn zero_of(b: &mut FunctionBuilder, ret: Option<Ty>) -> Value {
+    let _ = ret;
+    b.ins().iconst(types::I64, 0)
+}
+
+/// Emits one instruction; Some(true) when the block is finished by it.
+#[allow(clippy::too_many_arguments)]
+fn emit(
+    b: &mut FunctionBuilder,
+    insn: &Insn,
+    st: &mut Vec<Value>,
+    var: &mut impl FnMut(&mut FunctionBuilder, usize, Ty) -> Variable,
+    blocks: &BTreeMap<usize, cranelift_codegen::ir::Block>,
+    host: &Host,
+    cp: *mut c_void,
+    ret: Option<Ty>,
+    throw_fn: i64,
+    call_fn: i64,
+    drem_fn: i64,
+    ptr: Type,
+    cc: CallConv,
+    self_method: *mut c_void,
+    self_ref: cranelift_codegen::ir::FuncRef,
+    pending_addr: i64,
+) -> Option<bool> {
+    let op = insn.op;
+    let ty_of_v = |b: &FunctionBuilder, v: Value| ty_of(b.func.dfg.value_type(v));
+    match op {
+        0x00 => {}
+        0x02..=0x08 => {
+            let v = b.ins().iconst(types::I32, (op as i64) - 3);
+            st.push(v);
+        }
+        0x09 | 0x0a => {
+            let v = b.ins().iconst(types::I64, (op - 0x09) as i64);
+            st.push(v);
+        }
+        0x0b..=0x0d => {
+            let v = b.ins().f32const((op - 0x0b) as f32);
+            st.push(v);
+        }
+        0x0e | 0x0f => {
+            let v = b.ins().f64const((op - 0x0e) as f64);
+            st.push(v);
+        }
+        0x10 | 0x11 => {
+            let v = b.ins().iconst(types::I32, insn.a as i64);
+            st.push(v);
+        }
+        0x12 | 0x13 => {
+            let mut i = 0i32;
+            let mut f = 0f32;
+            let v = if (host.cp_int)(cp, insn.a, &mut i) != 0 {
+                b.ins().iconst(types::I32, i as i64)
+            } else if (host.cp_float)(cp, insn.a, &mut f) != 0 {
+                b.ins().f32const(f)
+            } else {
+                return None;
+            };
+            st.push(v);
+        }
+        0x14 => {
+            let mut l = 0i64;
+            let mut d = 0f64;
+            let v = if (host.cp_long)(cp, insn.a, &mut l) != 0 {
+                b.ins().iconst(types::I64, l)
+            } else if (host.cp_double)(cp, insn.a, &mut d) != 0 {
+                b.ins().f64const(d)
+            } else {
+                return None;
+            };
+            st.push(v);
+        }
+        0x15..=0x18 | 0x1a..=0x29 => {
+            let (t, slot) = match op {
+                0x15 => (Ty::I, insn.a as usize),
+                0x16 => (Ty::J, insn.a as usize),
+                0x17 => (Ty::F, insn.a as usize),
+                0x18 => (Ty::D, insn.a as usize),
+                _ => {
+                    let n = (op - 0x1a) as usize;
+                    ([Ty::I, Ty::J, Ty::F, Ty::D][n / 4], n % 4)
+                }
+            };
+            let x = var(b, slot, t);
+            let v = b.use_var(x);
+            st.push(v);
+        }
+        0x36..=0x39 | 0x3b..=0x4a => {
+            let (t, slot) = match op {
+                0x36 => (Ty::I, insn.a as usize),
+                0x37 => (Ty::J, insn.a as usize),
+                0x38 => (Ty::F, insn.a as usize),
+                0x39 => (Ty::D, insn.a as usize),
+                _ => {
+                    let n = (op - 0x3b) as usize;
+                    ([Ty::I, Ty::J, Ty::F, Ty::D][n / 4], n % 4)
+                }
+            };
+            let v = st.pop()?;
+            let x = var(b, slot, t);
+            b.def_var(x, v);
+        }
+        0x57 => {
+            st.pop()?;
+        }
+        0x58 => {
+            let v = st.pop()?;
+            if !wide(ty_of_v(b, v)) {
+                st.pop()?;
+            }
+        }
+        0x59 => {
+            let v = *st.last()?;
+            st.push(v);
+        }
+        0x5a => {
+            let a = st.pop()?;
+            let c = st.pop()?;
+            st.extend([a, c, a]);
+        }
+        0x5b => {
+            let a = st.pop()?;
+            let c = st.pop()?;
+            if wide(ty_of_v(b, c)) {
+                st.extend([a, c, a]);
+            } else {
+                let d = st.pop()?;
+                st.extend([a, d, c, a]);
+            }
+        }
+        0x5c => {
+            let a = *st.last()?;
+            if wide(ty_of_v(b, a)) {
+                st.push(a);
+            } else {
+                let c = *st.get(st.len().checked_sub(2)?)?;
+                st.extend([c, a]);
+            }
+        }
+        0x5d => {
+            let a = st.pop()?;
+            if wide(ty_of_v(b, a)) {
+                let c = st.pop()?;
+                st.extend([a, c, a]);
+            } else {
+                let c = st.pop()?;
+                let d = st.pop()?;
+                st.extend([c, a, d, c, a]);
+            }
+        }
+        0x5e => {
+            let a = st.pop()?;
+            if wide(ty_of_v(b, a)) {
+                let c = st.pop()?;
+                if wide(ty_of_v(b, c)) {
+                    st.extend([a, c, a]);
+                } else {
+                    let d = st.pop()?;
+                    st.extend([a, d, c, a]);
+                }
+            } else {
+                let c = st.pop()?;
+                let d = st.pop()?;
+                if wide(ty_of_v(b, d)) {
+                    st.extend([c, a, d, c, a]);
+                } else {
+                    let e = st.pop()?;
+                    st.extend([c, a, e, d, c, a]);
+                }
+            }
+        }
+        0x5f => {
+            let a = st.pop()?;
+            let c = st.pop()?;
+            st.extend([a, c]);
+        }
+        0x60 | 0x61 | 0x64 | 0x65 | 0x68 | 0x69 | 0x7e..=0x83 => {
+            let r = st.pop()?;
+            let l = st.pop()?;
+            let v = match op {
+                0x60 | 0x61 => b.ins().iadd(l, r),
+                0x64 | 0x65 => b.ins().isub(l, r),
+                0x68 | 0x69 => b.ins().imul(l, r),
+                0x7e | 0x7f => b.ins().band(l, r),
+                0x80 | 0x81 => b.ins().bor(l, r),
+                _ => b.ins().bxor(l, r),
+            };
+            st.push(v);
+        }
+        0x62 | 0x63 | 0x66 | 0x67 | 0x6a | 0x6b | 0x6e | 0x6f => {
+            let r = st.pop()?;
+            let l = st.pop()?;
+            let v = match op {
+                0x62 | 0x63 => b.ins().fadd(l, r),
+                0x66 | 0x67 => b.ins().fsub(l, r),
+                0x6a | 0x6b => b.ins().fmul(l, r),
+                _ => b.ins().fdiv(l, r),
+            };
+            st.push(v);
+        }
+        0x6c | 0x6d | 0x70 | 0x71 => {
+            let d = st.pop()?;
+            let a = st.pop()?;
+            let t = b.func.dfg.value_type(a);
+            let div = op == 0x6c || op == 0x6d;
+            let throw_blk = b.create_block();
+            let ok_blk = b.create_block();
+            let neg_blk = b.create_block();
+            let norm_blk = b.create_block();
+            let merge = b.create_block();
+            b.append_block_param(merge, t);
+            let is_zero = b.ins().icmp_imm_s(IntCC::Equal, d, 0);
+            b.ins().brif(is_zero, throw_blk, &[], ok_blk, &[]);
+            b.switch_to_block(throw_blk);
+            let sig = {
+                let mut s = Signature::new(cc);
+                s
+            };
+            let sigref = b.import_signature(sig);
+            let f = b.ins().iconst(ptr, throw_fn);
+            b.ins().call_indirect(sigref, f, &[]);
+            let z = b.ins().iconst(types::I64, 0);
+            b.ins().return_(&[z]);
+            b.switch_to_block(ok_blk);
+            let m1 = b.ins().icmp_imm_s(IntCC::Equal, d, -1);
+            b.ins().brif(m1, neg_blk, &[], norm_blk, &[]);
+            b.switch_to_block(neg_blk);
+            let n = if div { b.ins().ineg(a) } else { b.ins().iconst(t, 0) };
+            b.ins().jump(merge, &[n.into()]);
+            b.switch_to_block(norm_blk);
+            let q = if div { b.ins().sdiv(a, d) } else { b.ins().srem(a, d) };
+            b.ins().jump(merge, &[q.into()]);
+            b.switch_to_block(merge);
+            let r = b.block_params(merge)[0];
+            st.push(r);
+        }
+        0x72 | 0x73 => {
+            // frem, drem: through fmod of Rust (the semantics of the JVM)
+            let r = st.pop()?;
+            let l = st.pop()?;
+            let float = op == 0x72;
+            let (l64, r64) = if float {
+                (b.ins().fpromote(types::F64, l), b.ins().fpromote(types::F64, r))
+            } else {
+                (l, r)
+            };
+            let mut s = Signature::new(cc);
+            s.params.push(AbiParam::new(types::F64));
+            s.params.push(AbiParam::new(types::F64));
+            s.returns.push(AbiParam::new(types::F64));
+            let sigref = b.import_signature(s);
+            let f = b.ins().iconst(ptr, drem_fn);
+            let call = b.ins().call_indirect(sigref, f, &[l64, r64]);
+            let res = b.inst_results(call)[0];
+            let res = if float { b.ins().fdemote(types::F32, res) } else { res };
+            st.push(res);
+        }
+        0x74 | 0x75 => {
+            let v = st.pop()?;
+            let n = b.ins().ineg(v);
+            st.push(n);
+        }
+        0x76 | 0x77 => {
+            let v = st.pop()?;
+            let n = b.ins().fneg(v);
+            st.push(n);
+        }
+        0x78..=0x7d => {
+            let count = st.pop()?;
+            let v = st.pop()?;
+            let r = match op {
+                0x78 | 0x79 => b.ins().ishl(v, count),
+                0x7a | 0x7b => b.ins().sshr(v, count),
+                _ => b.ins().ushr(v, count),
+            };
+            st.push(r);
+        }
+        0x84 => {
+            let slot = (insn.a & 0xff) as usize;
+            let delta = (insn.a >> 8) as i64;
+            let x = var(b, slot, Ty::I);
+            let v = b.use_var(x);
+            let n = b.ins().iadd_imm_s(v, delta);
+            b.def_var(x, n);
+        }
+        0x85 => {
+            let v = st.pop()?;
+            let r = b.ins().sextend(types::I64, v);
+            st.push(r);
+        }
+        0x86 => {
+            let v = st.pop()?;
+            let r = b.ins().fcvt_from_sint(types::F32, v);
+            st.push(r);
+        }
+        0x87 => {
+            let v = st.pop()?;
+            let r = b.ins().fcvt_from_sint(types::F64, v);
+            st.push(r);
+        }
+        0x88 => {
+            let v = st.pop()?;
+            let r = b.ins().ireduce(types::I32, v);
+            st.push(r);
+        }
+        0x89 => {
+            let v = st.pop()?;
+            let r = b.ins().fcvt_from_sint(types::F32, v);
+            st.push(r);
+        }
+        0x8a => {
+            let v = st.pop()?;
+            let r = b.ins().fcvt_from_sint(types::F64, v);
+            st.push(r);
+        }
+        0x8b | 0x8e => {
+            let v = st.pop()?;
+            let r = b.ins().fcvt_to_sint_sat(types::I32, v);
+            st.push(r);
+        }
+        0x8c | 0x8f => {
+            let v = st.pop()?;
+            let r = b.ins().fcvt_to_sint_sat(types::I64, v);
+            st.push(r);
+        }
+        0x8d => {
+            let v = st.pop()?;
+            let r = b.ins().fpromote(types::F64, v);
+            st.push(r);
+        }
+        0x90 => {
+            let v = st.pop()?;
+            let r = b.ins().fdemote(types::F32, v);
+            st.push(r);
+        }
+        0x91 => {
+            let v = st.pop()?;
+            let n = b.ins().ireduce(types::I8, v);
+            let r = b.ins().sextend(types::I32, n);
+            st.push(r);
+        }
+        0x92 => {
+            let v = st.pop()?;
+            let n = b.ins().ireduce(types::I16, v);
+            let r = b.ins().uextend(types::I32, n);
+            st.push(r);
+        }
+        0x93 => {
+            let v = st.pop()?;
+            let n = b.ins().ireduce(types::I16, v);
+            let r = b.ins().sextend(types::I32, n);
+            st.push(r);
+        }
+        0x94 => {
+            let r = st.pop()?;
+            let l = st.pop()?;
+            let gt = b.ins().icmp(IntCC::SignedGreaterThan, l, r);
+            let lt = b.ins().icmp(IntCC::SignedLessThan, l, r);
+            let g = b.ins().uextend(types::I32, gt);
+            let s = b.ins().uextend(types::I32, lt);
+            let v = b.ins().isub(g, s);
+            st.push(v);
+        }
+        0x95..=0x98 => {
+            // fcmpl/fcmpg/dcmpl/dcmpg: a NaN gives -1 (l) or 1 (g)
+            let r = st.pop()?;
+            let l = st.pop()?;
+            let nan_result = if op == 0x95 || op == 0x97 { -1 } else { 1 };
+            let gt = b.ins().fcmp(FloatCC::GreaterThan, l, r);
+            let lt = b.ins().fcmp(FloatCC::LessThan, l, r);
+            let eq = b.ins().fcmp(FloatCC::Equal, l, r);
+            let one = b.ins().iconst(types::I32, 1);
+            let m1 = b.ins().iconst(types::I32, -1);
+            let zero = b.ins().iconst(types::I32, 0);
+            let nan = b.ins().iconst(types::I32, nan_result);
+            let a = b.ins().select(gt, one, nan);
+            let c = b.ins().select(lt, m1, a);
+            let v = b.ins().select(eq, zero, c);
+            st.push(v);
+        }
+        0x99..=0xa4 => {
+            let cond = if op <= 0x9e {
+                let v = st.pop()?;
+                let z = b.ins().iconst(types::I32, 0);
+                (v, z, op - 0x99)
+            } else {
+                let r = st.pop()?;
+                let l = st.pop()?;
+                (l, r, op - 0x9f)
+            };
+            let cc = [IntCC::Equal, IntCC::NotEqual, IntCC::SignedLessThan, IntCC::SignedGreaterThanOrEqual,
+                      IntCC::SignedGreaterThan, IntCC::SignedLessThanOrEqual][cond.2 as usize];
+            let c = b.ins().icmp(cc, cond.0, cond.1);
+            let target = blocks[&(insn.a as usize)];
+            let next = *blocks.get(&insn.next)?;
+            let args: Vec<BlockArg> = st.iter().map(|v| (*v).into()).collect();
+            b.ins().brif(c, target, &args, next, &args);
+            return Some(true);
+        }
+        0xa7 => {
+            let target = blocks[&(insn.a as usize)];
+            let args: Vec<BlockArg> = st.iter().map(|v| (*v).into()).collect();
+            b.ins().jump(target, &args);
+            return Some(true);
+        }
+        0xac..=0xaf => {
+            let v = st.pop()?;
+            let t = ty_of_v(b, v);
+            if Some(t) != ret {
+                return None;
+            }
+            let raw = to_slot(b, v, t);
+            b.ins().return_(&[raw]);
+            return Some(true);
+        }
+        0xb1 => {
+            let z = zero_of(b, ret);
+            b.ins().return_(&[z]);
+            return Some(true);
+        }
+        0xb8 => {
+            let mut method: *mut c_void = std::ptr::null_mut();
+            let mut buf = [0 as c_char; 256];
+            if (host.resolve_static)(cp, insn.a, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
+                return None;
+            }
+            let desc = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
+            let (params, cret) = parse_desc(desc)?;
+            let n = params.len();
+            let args_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (n.max(1) * 8) as u32, 3));
+            let res_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let mut vals: Vec<Value> = Vec::with_capacity(n);
+            for _ in 0..n {
+                vals.push(st.pop()?);
+            }
+            vals.reverse();
+            for (i, v) in vals.iter().enumerate() {
+                let t = ty_of_v(b, *v);
+                let raw = to_slot(b, *v, t);
+                b.ins().stack_store(ptr, raw, args_slot, (i * 8) as i32);
+            }
+            let a = b.ins().stack_addr(ptr, args_slot, 0);
+            if method == self_method {
+                // a call of this very method: straight to the machine code, then look whether it left an exception
+                let call = b.ins().call(self_ref, &[a]);
+                let raw = b.inst_results(call)[0];
+                let pa = b.ins().iconst(ptr, pending_addr);
+                let pend = b.ins().load(ptr, MemFlagsData::trusted(), pa, 0);
+                let fail_blk = b.create_block();
+                let cont_blk = b.create_block();
+                b.ins().brif(pend, fail_blk, &[], cont_blk, &[]);
+                b.switch_to_block(fail_blk);
+                let z = b.ins().iconst(types::I64, 0);
+                b.ins().return_(&[z]);
+                b.switch_to_block(cont_blk);
+                if let Some(rt) = cret {
+                    let v = from_slot(b, raw, rt);
+                    st.push(v);
+                }
+                return Some(false);
+            }
+            let m = b.ins().iconst(ptr, method as usize as i64);
+            let count = b.ins().iconst(types::I32, n as i64);
+            let r = b.ins().stack_addr(ptr, res_slot, 0);
+            let mut s = Signature::new(cc);
+            s.params.push(AbiParam::new(ptr));
+            s.params.push(AbiParam::new(ptr));
+            s.params.push(AbiParam::new(types::I32));
+            s.params.push(AbiParam::new(ptr));
+            s.returns.push(AbiParam::new(types::I32));
+            let sigref = b.import_signature(s);
+            let f = b.ins().iconst(ptr, call_fn);
+            let call = b.ins().call_indirect(sigref, f, &[m, a, count, r]);
+            let status = b.inst_results(call)[0];
+            let fail_blk = b.create_block();
+            let cont_blk = b.create_block();
+            b.ins().brif(status, fail_blk, &[], cont_blk, &[]);
+            b.switch_to_block(fail_blk);
+            let z = b.ins().iconst(types::I64, 0);
+            b.ins().return_(&[z]);
+            b.switch_to_block(cont_blk);
+            if let Some(rt) = cret {
+                let raw = b.ins().stack_load(ptr, types::I64, res_slot, 0);
+                let v = from_slot(b, raw, rt);
+                st.push(v);
+            }
+        }
+        _ => return None,
+    }
+    Some(false)
+}

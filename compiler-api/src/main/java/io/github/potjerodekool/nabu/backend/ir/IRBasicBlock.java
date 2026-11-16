@@ -48,7 +48,8 @@ public class IRBasicBlock {
         return last instanceof IRInstruction.Branch
             || last instanceof IRInstruction.CondBranch
             || last instanceof IRInstruction.Return
-            || last instanceof IRInstruction.Throw;
+            || last instanceof IRInstruction.Throw
+            || last instanceof IRInstruction.Unreachable;
     }
 
     public void setSuccessors(String trueLabel, String falseLabel) {

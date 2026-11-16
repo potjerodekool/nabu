@@ -63,3 +63,24 @@ repeated to a fixpoint (max 10 iterations).
 - **`TypeInference`** — fixpoint type propagation.
 
 A `TypeChecker` validates IR types and returns a list of errors.
+
+## Dataflow engine
+
+Located in `backend/ir/dataflow/`:
+
+- **`DataFlowEngine`** — iterative worklist solver (forward/backward, fixpoint) with caching via `DataFlowCache`.
+- **`Dominance`** / **`PostDominators`** — dominator and post-dominator trees, frontiers, preorder.
+- **`Lattice`** / **`DataFlowAnalysis`** / **`DataFlowResult`** — generic framework.
+
+Analyses in `backend/ir/dataflow/analysis/`:
+
+- **`NullnessAnalysis`** — null / non-null / unknown per reference value (phi non-null iff all incoming non-null).
+- **`IntervalAnalysis`** — interval [lo,hi] per integer value for bounds reasoning.
+- **`ReachingDefinitions`**, **`LiveVariables`**, **`AvailableExpressions`**, **`VeryBusyExpressions`** — classic dataflow analyses.
+- **`ConstantPropagation`** — dense constant propagation.
+- **`SparseConditionalConstantPropagation`** — sparse, branch-tracking (marks unreachable blocks/edges).
+- **`DefUseChains`** — def-use / use-def chains.
+
+The native LLVM backend uses `NullnessAnalysis` and `IntervalAnalysis` to eliminate redundant null and bounds checks in `InstructionEmitter`.
+
+The dataflow engine supports **path-sensitivity** via `refine`: when a basic block ends in a `CondBranch` whose condition is a comparison (`==`/`!=` against `null`, or `<`/`<=`/`>`/`>=`/`==` against a constant), the successor values are refined (nullness becomes NULL/NON_NULL; intervals are intersected with the comparison range). This is applied per edge in `DataFlowEngine`.

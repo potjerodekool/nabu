@@ -78,7 +78,8 @@ class NativeExceptionRuntimeE2eTest {
 
         final Path exe = tempDir.resolve("exception-e2e.exe");
         final List<String> cmd = new ArrayList<>(List.of(
-                gcc, obj.toString(), runtimeSource().toString(), "-o", exe.toString()));
+                gcc, "-DNABU_GC_NONE", obj.toString(), runtimeSource().toString(),
+                runtimeSource().resolveSibling("gc_none.c").toString(), "-o", exe.toString()));
         final Process link = new ProcessBuilder(cmd).redirectErrorStream(true).start();
         final String linkOut = new String(link.getInputStream().readAllBytes());
         assertEquals(0, link.waitFor(),
@@ -111,7 +112,8 @@ class NativeExceptionRuntimeE2eTest {
 
         final Path exe = tempDir.resolve("exception-fallthrough.exe");
         final List<String> cmd = new ArrayList<>(List.of(
-                gcc, obj.toString(), runtimeSource().toString(), "-o", exe.toString()));
+                gcc, "-DNABU_GC_NONE", obj.toString(), runtimeSource().toString(),
+                runtimeSource().resolveSibling("gc_none.c").toString(), "-o", exe.toString()));
         final Process link = new ProcessBuilder(cmd).redirectErrorStream(true).start();
         final String linkOut = new String(link.getInputStream().readAllBytes());
         assertEquals(0, link.waitFor(),

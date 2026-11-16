@@ -118,6 +118,13 @@
                     <include>nabu_runtime.c</include>
                     <include>nabu_runtime.h</include>
                     <include>jcl_lite.c</include>
+                    <include>nabu_gc.h</include>
+                    <include>gc_boehm.c</include>
+                    <include>gc_none.c</include>
+                    <include>nabu_profile_rt.c</include>
+                    <include>nabu_interpreter.c</include>
+                    <include>nabu_interpreter.h</include>
+                    <include>nabu_classfile.c</include>
                 </includes>
             </resource>
         </resources>

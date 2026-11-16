@@ -20,6 +20,7 @@ import org.objectweb.asm.tree.MethodNode;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -110,7 +111,6 @@ public final class BytecodeReachabilityCompiler {
             "java/lang/reflect/Method",
             "java/lang/reflect/Field",
             "java/lang/reflect/Constructor",
-            "java/lang/reflect/Parameter",
             "java/lang/reflect/Proxy");
 
     /**
@@ -134,7 +134,10 @@ public final class BytecodeReachabilityCompiler {
             new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
                     "unparkVirtual", "(Ljava/lang/Object;)V", false),
             new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
-                    "backoffVirtual", "(I)V", false));
+                    "backoffVirtual", "(I)V", false),
+            // The run of a Thread subclass that does not override it.
+            new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
+                    "defaultRun", "(Ljava/lang/Thread;)V", false));
 
     /**
      * Klassen die de JDK alleen reflectief instantieert
@@ -251,6 +254,73 @@ public final class BytecodeReachabilityCompiler {
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
         FieldVarHandleRewriter.rewrite(classNode, loader);
+        MethodHandleRewriter.rewrite(classNode);
+        FieldUpdaterRewriter.rewrite(classNode, loader);
+        if ("org/springframework/boot/system/JavaVersion".equals(classNode.name)) {
+            // Spring Boot finds out the Java version by looking for methods of JDK classes through reflection
+            // (Console.isTerminal, ...); a native program has no reflection data for the JDK. The classes it runs are
+            // those of the JDK the program was compiled with, which is 25.
+            for (final MethodNode m : classNode.methods) {
+                if ("getJavaVersion".equals(m.name) && "()Lorg/springframework/boot/system/JavaVersion;".equals(m.desc)
+                        && (m.access & Opcodes.ACC_STATIC) != 0) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC,
+                                "org/springframework/boot/system/JavaVersion", "TWENTY_FIVE",
+                                "Lorg/springframework/boot/system/JavaVersion;"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
+        if ("java/util/logging/Logger".equals(classNode.name)) {
+            // java.util.logging without a LogManager (its initialization reads configuration files and starts the
+            // reference queue machinery): a logger is a plain object without a manager, that logs to no handler.
+            // Logback's LevelChangePropagator mirrors every level change of Spring Boot's logging to it.
+            for (final MethodNode m : classNode.methods) {
+                if ("demandLogger".equals(m.name)
+                        && "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Class;)Ljava/util/logging/Logger;"
+                        .equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "java/util/logging/Logger"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.DUP));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL,
+                                "java/util/logging/Logger", "<init>",
+                                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Class;Ljava/util/logging/LogManager;Z)V",
+                                false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                    m.maxStack = 8;
+                } else if ("checkPermission".equals(m.name) && "()V".equals(m.desc)) {
+                    replaceBody(m, insns -> insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN)));
+                }
+            }
+        }
+        if ("java/lang/reflect/Parameter".equals(classNode.name)) {
+            // isNamePresent asks the Executable for its real parameter data, a package-private method that the
+            // Method and Constructor objects of the C runtime do not have. The names are there when ParameterSupport
+            // gave the parameter one (from the MethodParameters of the class file): isNamePresent is name != null.
+            for (final MethodNode m : classNode.methods) {
+                if ("isNamePresent".equals(m.name) && "()Z".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        final org.objectweb.asm.tree.LabelNode none = new org.objectweb.asm.tree.LabelNode();
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETFIELD,
+                                "java/lang/reflect/Parameter", "name", "Ljava/lang/String;"));
+                        insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFNULL, none));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_1));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                        insns.add(none);
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                    });
+                }
+            }
+        }
         if ("java/util/ServiceLoader".equals(classNode.name)) {
             for (final MethodNode m : classNode.methods) {
                 if ("newLookupIterator".equals(m.name) && "()Ljava/util/Iterator;".equals(m.desc)) {
@@ -367,6 +437,92 @@ public final class BytecodeReachabilityCompiler {
                         insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
                                 "java/util/Optional", "empty", "()Ljava/util/Optional;", false));
                         insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
+        if ("java/lang/Package".equals(classNode.name)) {
+            // The annotations of a package are those of its package-info class, found by name through a class loader
+            // the Package objects of a native executable do not have: no package has annotations (Spring Data asks
+            // for @NonNullApi).
+            for (final MethodNode m : classNode.methods) {
+                if ("getPackageInfo".equals(m.name) && "()Ljava/lang/Class;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.LdcInsnNode(
+                                org.objectweb.asm.Type.getObjectType("java/lang/Package$PackageInfoProxy")));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
+        if ("sun/net/ext/ExtendedSocketOptions".equals(classNode.name)) {
+            // The platform options of the jdk.net module register themselves when that class is loaded by name, which
+            // a native program cannot do: there are none, the instance that says so is used.
+            for (final MethodNode m : classNode.methods) {
+                if ("getInstance".equals(m.name) && "()Lsun/net/ext/ExtendedSocketOptions;".equals(m.desc)) {
+                    final String none = "sun/net/ext/ExtendedSocketOptions$NoExtendedSocketOptions";
+                    replaceBody(m, insns -> {
+                        final var present = new org.objectweb.asm.tree.LabelNode();
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, classNode.name, "instance",
+                                "Lsun/net/ext/ExtendedSocketOptions;"));
+                        insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFNONNULL, present));
+                        insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, none));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.DUP));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL, none, "<init>", "()V",
+                                false));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, "instance",
+                                "Lsun/net/ext/ExtendedSocketOptions;"));
+                        insns.add(present);
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, classNode.name, "instance",
+                                "Lsun/net/ext/ExtendedSocketOptions;"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
+        if ("java/lang/ClassValue".equals(classNode.name)) {
+            // The values live in a field of java.lang.Class, which the Class objects of a native executable do not
+            // have (the JDK code read garbage): they are kept by ClassValueSupport.
+            final String support = RuntimeCalls.RUNTIME_PACKAGE + "ClassValueSupport";
+            for (final MethodNode m : classNode.methods) {
+                if ("get".equals(m.name) && "(Ljava/lang/Class;)Ljava/lang/Object;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        final var present = new org.objectweb.asm.tree.LabelNode();
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support, "lookup",
+                                "(Ljava/lang/ClassValue;Ljava/lang/Class;)Ljava/lang/Object;", false));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ASTORE, 2));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, support, "ABSENT",
+                                "Ljava/lang/Object;"));
+                        insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IF_ACMPNE, present));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                                "java/lang/ClassValue", "computeValue",
+                                "(Ljava/lang/Class;)Ljava/lang/Object;", false));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ASTORE, 2));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support, "store",
+                                "(Ljava/lang/ClassValue;Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/Object;",
+                                false));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ASTORE, 2));
+                        insns.add(present);
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                    m.maxLocals = Math.max(m.maxLocals, 3);
+                    m.maxStack = Math.max(m.maxStack, 4);
+                } else if ("remove".equals(m.name) && "(Ljava/lang/Class;)V".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support, "remove",
+                                "(Ljava/lang/ClassValue;Ljava/lang/Class;)V", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
                     });
                 }
             }
@@ -662,8 +818,25 @@ public final class BytecodeReachabilityCompiler {
         final var code = init.instructions;
         code.add(new org.objectweb.asm.tree.TypeInsnNode(org.objectweb.asm.Opcodes.NEW, "java/lang/System$1"));
         code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.DUP));
+        // JDK 21: System$1(SecurityManager); JDK 25+: System$1(). Kies op basis van de
+        // draaiende JDK, zodat de bootstrap op beide werkt.
+        String systemOneCtorDesc = "()V";
+        try {
+            final Class<?> c = Class.forName("java.lang.System$1", false, Object.class.getClassLoader());
+            try {
+                c.getDeclaredConstructor();
+                systemOneCtorDesc = "()V";
+            } catch (NoSuchMethodException e) {
+                systemOneCtorDesc = "(Ljava/lang/SecurityManager;)V";
+            }
+        } catch (ClassNotFoundException e) {
+            systemOneCtorDesc = "()V";
+        }
+        if ("(Ljava/lang/SecurityManager;)V".equals(systemOneCtorDesc)) {
+            code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.ACONST_NULL));
+        }
         code.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESPECIAL,
-                "java/lang/System$1", "<init>", "()V", false));
+                "java/lang/System$1", "<init>", systemOneCtorDesc, false));
         code.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESTATIC,
                 "jdk/internal/access/SharedSecrets", "setJavaLangAccess",
                 "(Ljdk/internal/access/JavaLangAccess;)V", false));
@@ -785,6 +958,43 @@ public final class BytecodeReachabilityCompiler {
         return owner + "." + name + (desc != null ? desc : "");
     }
 
+    /**
+     * {@code -Dnabu.reachability.stats=<depth>}: print the lowered methods and the shaped classes per package prefix of
+     * {@code depth} segments (for example 3: org/hibernate/query), the largest first. For finding what makes the
+     * closure big.
+     */
+    private void printStats() {
+        final String configured = System.getProperty("nabu.reachability.stats");
+        if (configured == null) {
+            return;
+        }
+        final int depth = Math.max(1, Integer.parseInt(configured.trim()));
+        final Map<String, int[]> perPackage = new HashMap<>();
+        for (final String key : loweredMethods) {
+            perPackage.computeIfAbsent(packagePrefix(key.substring(0, key.indexOf('#')), depth), k -> new int[2])[0]++;
+        }
+        for (final String shaped : shapedClasses) {
+            perPackage.computeIfAbsent(packagePrefix(shaped, depth), k -> new int[2])[1]++;
+        }
+        System.err.println("[BytecodeReachability] stats (methods / classes per package prefix):");
+        perPackage.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue()[0], a.getValue()[0]))
+                .limit(60)
+                .forEach(e -> System.err.println("[BytecodeReachability]   " + e.getValue()[0] + " / "
+                        + e.getValue()[1] + "  " + e.getKey()));
+    }
+
+    private static String packagePrefix(final String internalName, final int depth) {
+        int end = -1;
+        for (int i = 0; i < depth; i++) {
+            end = internalName.indexOf('/', end + 1);
+            if (end < 0) {
+                return internalName.contains("/") ? internalName.substring(0, internalName.lastIndexOf('/')) : "(default)";
+            }
+        }
+        return internalName.substring(0, end);
+    }
+
     private void printWhy() {
         if (WHY == null) {
             return;
@@ -845,6 +1055,8 @@ public final class BytecodeReachabilityCompiler {
             final List<ProxyClassGenerator.ProxySpec> proxies,
             final Map<String, ReflectionDataGenerator.ClassMethods> reflectionMethods) {
         final Map<String, ClassNode> classes = new java.util.LinkedHashMap<>(ProxyClassGenerator.generate(proxies));
+        classes.put(ParameterSupportGenerator.PARAMETER_SUPPORT, ParameterSupportGenerator.generate());
+        classes.put(JbossLoggingSupportGenerator.SUPPORT, JbossLoggingSupportGenerator.generate());
         classes.put(ReflectionDataGenerator.REFLECTION_DATA, ReflectionDataGenerator.generate(reflectionMethods,
                 ProxyClassGenerator.dispatchedMethods(proxies)));
         return classes;
@@ -880,7 +1092,8 @@ public final class BytecodeReachabilityCompiler {
         // interfaces, which the closure does not follow.
         for (final String generated : generatedClasses.keySet()) {
             if (!ProxyClassGenerator.PROXY_CLASSES.equals(generated)
-                    && !ReflectionDataGenerator.REFLECTION_DATA.equals(generated)) {
+                    && !ReflectionDataGenerator.REFLECTION_DATA.equals(generated)
+                    && !JbossLoggingSupportGenerator.SUPPORT.equals(generated)) {
                 queueReflectionRoot(new ReflectEntry(generated, true, true, true, true, List.of(), List.of()));
             }
         }
@@ -984,6 +1197,7 @@ public final class BytecodeReachabilityCompiler {
                 + " classes shaped, " + methodsLowered + " methods lowered, "
                 + notFound.size() + " not found/skipped, total " + totalMs + " ms");
         printWhy();
+        printStats();
 
         return resultModules;
     }
@@ -1022,6 +1236,7 @@ public final class BytecodeReachabilityCompiler {
         if (!shapedClasses.contains(internal)) {
             return;
         }
+        initializeStringConstants(classNode);
         queueInit(internal);
         if (root.allDeclaredConstructors() || root.allPublicConstructors()
                 || root.methods().stream().anyMatch(m -> "<init>".equals(m.name()))) {
@@ -1044,6 +1259,40 @@ public final class BytecodeReachabilityCompiler {
         for (final var method : root.methods()) {
             queueMethod(new MethodRef(internal, method.name(), null, false));
         }
+    }
+
+    /**
+     * A static final String with a {@code ConstantValue} is not set by {@code <clinit>} (javac inlines its uses) and
+     * its global stays null, a String object cannot be a static initializer here. A class that reflection can read it
+     * of (SpEL's {@code T(Constants).DEFAULT_API_DOCS_URL}) gets the assignments at the start of its {@code <clinit>}.
+     */
+    private static void initializeStringConstants(final ClassNode classNode) {
+        final org.objectweb.asm.tree.InsnList assignments = new org.objectweb.asm.tree.InsnList();
+        for (final org.objectweb.asm.tree.FieldNode field : classNode.fields) {
+            if ((field.access & Opcodes.ACC_STATIC) != 0 && field.value instanceof String text) {
+                assignments.add(new org.objectweb.asm.tree.LdcInsnNode(text));
+                assignments.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC, classNode.name,
+                        field.name, field.desc));
+            }
+        }
+        if (assignments.size() == 0) {
+            return;
+        }
+        MethodNode clinit = null;
+        for (final MethodNode m : classNode.methods) {
+            if ("<clinit>".equals(m.name)) {
+                clinit = m;
+                break;
+            }
+        }
+        if (clinit == null) {
+            clinit = new MethodNode(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null);
+            clinit.instructions.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+            clinit.maxLocals = 0;
+            classNode.methods.add(clinit);
+        }
+        clinit.instructions.insert(assignments);
+        clinit.maxStack = Math.max(clinit.maxStack, 1);
     }
 
     /** Alle aanroepdoelen uit de Nabu-source-modules, met of de aanroep virtueel dispatcht. */
@@ -1324,7 +1573,18 @@ public final class BytecodeReachabilityCompiler {
                     + " shapes + " + methodWorklist.size() + " methods remaining, last: " + qualifiedName);
         }
 
-        final long classFlags = AccessFlags.toNabuFlags(classNode.access);
+        // "static" of a nested class is only in the InnerClasses attribute, not in the access flags of the class file;
+        // Class.getModifiers() (Spring's ClassUtils.isInnerClass) needs it.
+        int effectiveAccess = classNode.access;
+        if (classNode.innerClasses != null) {
+            for (final org.objectweb.asm.tree.InnerClassNode inner : classNode.innerClasses) {
+                if (inner.name.equals(classNode.name)) {
+                    effectiveAccess |= inner.access & Opcodes.ACC_STATIC;
+                    break;
+                }
+            }
+        }
+        final long classFlags = AccessFlags.toNabuFlags(effectiveAccess);
         final var builder = new IRBuilder(classFlags, qualifiedName);
         shapeBuilders.put(internalName, builder);
         // build() geeft steeds hetzelfde (muterende) IRModule-object terug.
@@ -1447,8 +1707,27 @@ public final class BytecodeReachabilityCompiler {
                 if (m.name.equals(name) && m.desc.equals(desc)) {
                     if (node == classNode || (m.access & org.objectweb.asm.Opcodes.ACC_ABSTRACT) == 0) {
                         queueMethod(new MethodRef(internalName, name, desc, true));
+                        if ((m.access & org.objectweb.asm.Opcodes.ACC_ABSTRACT) == 0) {
+                            return;
+                        }
                     }
-                    return;
+                    break;
+                }
+            }
+        }
+        // No implementation in the class chain: a default method of an interface the class implements. A call on
+        // ServiceRegistry.close() (abstract) is answered by ServiceRegistryImplementor.close(), a default method of
+        // a sub-interface; without lowering that one the itable slot pointed at the body-less abstract method.
+        for (final String ancestor : transitiveAncestors(classNode)) {
+            final ClassNode itf = loadClassNode(ancestor);
+            if (itf == null || (itf.access & org.objectweb.asm.Opcodes.ACC_INTERFACE) == 0) {
+                continue;
+            }
+            for (final MethodNode m : itf.methods) {
+                if (m.name.equals(name) && m.desc.equals(desc)
+                        && (m.access & (org.objectweb.asm.Opcodes.ACC_ABSTRACT | org.objectweb.asm.Opcodes.ACC_STATIC
+                        | org.objectweb.asm.Opcodes.ACC_PRIVATE)) == 0) {
+                    queueMethod(new MethodRef(ancestor, name, desc, true));
                 }
             }
         }
@@ -1534,7 +1813,12 @@ public final class BytecodeReachabilityCompiler {
                 if (node.interfaces != null) pending.addAll(node.interfaces);
                 current = node.superName;
             }
-            while (!pending.isEmpty() && matches.isEmpty()) {
+            // Every super-interface that declares the method. JVMS 5.4.3.3: the method is the maximally specific one,
+            // and a default method wins from an abstract declaration (a sub-interface can implement what its
+            // super-interface leaves abstract, reached by another path of the hierarchy).
+            final Map<String, ClassNode> declaring = new java.util.LinkedHashMap<>();
+            final Map<String, List<MethodNode>> declared = new HashMap<>();
+            while (!pending.isEmpty()) {
                 final String itf = pending.poll();
                 if (!seen.add(itf)
                         || alreadyCompiledQualifiedNames.contains(itf.replace('/', '.'))) {
@@ -1542,18 +1826,48 @@ public final class BytecodeReachabilityCompiler {
                 }
                 final ClassNode node = loadClassNode(itf);
                 if (node == null) continue;
+                final List<MethodNode> found = new ArrayList<>();
                 for (final MethodNode m : node.methods) {
                     if (m.name.equals(ref.name())
                             && (ref.desc() == null || m.desc.equals(ref.desc()))) {
-                        matches.add(m);
+                        found.add(m);
                     }
                 }
-                if (!matches.isEmpty()) {
-                    declaringInternal = itf;
-                    declaringNode = node;
-                } else if (node.interfaces != null) {
+                if (!found.isEmpty()) {
+                    declaring.put(itf, node);
+                    declared.put(itf, found);
+                }
+                if (node.interfaces != null) {
                     pending.addAll(node.interfaces);
                 }
+            }
+            String chosen = null;
+            for (final String itf : declaring.keySet()) {
+                final boolean hasBody = declared.get(itf).stream().anyMatch(m -> (m.access & Opcodes.ACC_ABSTRACT) == 0);
+                if (!hasBody) {
+                    continue;
+                }
+                boolean overridden = false;
+                for (final String other : declaring.keySet()) {
+                    if (!other.equals(itf)
+                            && declared.get(other).stream().anyMatch(m -> (m.access & Opcodes.ACC_ABSTRACT) == 0)
+                            && interfaceExtends(other, itf)) {
+                        overridden = true;
+                        break;
+                    }
+                }
+                if (!overridden) {
+                    chosen = itf;
+                    break;
+                }
+            }
+            if (chosen == null && !declaring.isEmpty()) {
+                chosen = declaring.keySet().iterator().next();
+            }
+            if (chosen != null) {
+                matches.addAll(declared.get(chosen));
+                declaringInternal = chosen;
+                declaringNode = declaring.get(chosen);
             }
         }
 
@@ -1617,6 +1931,23 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+    }
+
+    /** Whether interface {@code sub} is {@code sup} or extends it, through any path. */
+    private boolean interfaceExtends(final String sub, final String sup) {
+        if (sub.equals(sup)) {
+            return true;
+        }
+        final ClassNode node = loadClassNode(sub);
+        if (node == null || node.interfaces == null) {
+            return false;
+        }
+        for (final String parent : node.interfaces) {
+            if (interfaceExtends(parent, sup)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** key ("owner#name#desc") -> the body-less declaration lowered by {@link #lowerDeclaration}. */
@@ -1690,12 +2021,38 @@ public final class BytecodeReachabilityCompiler {
                 name -> SynchronizedMethods.apply(loadClassNodeUnlocked(name)));
     }
 
+    /**
+     * {@code -Dnabu.reachability.exclude=<prefix>[,<prefix>...]} (the {@code --exclude} option of nabu-native-image):
+     * classes whose name starts with one of the prefixes (dots or slashes) are treated as if they are not on the class
+     * path. Calls into them become unresolved stubs. For code that the program cannot reach in practice but that the
+     * closure cannot rule out, such as the dialects of Hibernate that are not used.
+     */
+    private final List<String> excludedPrefixes = Arrays.stream(
+                    System.getProperty("nabu.reachability.exclude", "").split(","))
+            .map(String::trim)
+            .filter(prefix -> !prefix.isEmpty())
+            .map(prefix -> prefix.replace('.', '/'))
+            .toList();
+
+    private boolean isExcluded(final String internalName) {
+        for (final String prefix : excludedPrefixes) {
+            if (internalName.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private ClassNode loadClassNodeUnlocked(final String name) {
+        if (!excludedPrefixes.isEmpty() && isExcluded(name)) {
+            return null;
+        }
         return (BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
                         : ThreadBridge.CLASS.equals(name) ? ThreadBridge.build()
                         : ContinuationBridge.CLASS.equals(name) ? ContinuationBridge.build()
                         : InterruptBridge.CLASS.equals(name) ? InterruptBridge.build()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
+                        : FieldUpdaterRewriter.generated(name) != null ? FieldUpdaterRewriter.generated(name)
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
                         : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? patchRuntimeClass(EmbeddedResources.runtimeClass(name))
                         : AnnotationAccessors.CLASS.equals(name) ? AnnotationAccessors.build()
@@ -1842,7 +2199,28 @@ public final class BytecodeReachabilityCompiler {
         // metadata of the method.
         final List<IRFunction> functions = builder.build().functions();
         final List<List<IRAnnotation>> parameterAnnotations = new ArrayList<>();
-        if (methodNode.visibleParameterAnnotations != null) {
+        if (methodNode.visibleTypeAnnotations != null && !methodNode.visibleTypeAnnotations.isEmpty()) {
+            // A type-use annotation on a parameter type (jspecify's @Nullable) is reported as an annotation of the
+            // parameter: Parameter.getAnnotatedType() of a native executable gets them from there.
+            final int count = Type.getArgumentTypes(methodNode.desc).length;
+            final List<List<AnnotationNode>> merged = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                final List<AnnotationNode> declared = methodNode.visibleParameterAnnotations != null
+                        && i < methodNode.visibleParameterAnnotations.length
+                        ? methodNode.visibleParameterAnnotations[i] : null;
+                merged.add(declared != null ? new ArrayList<>(declared) : new ArrayList<>());
+            }
+            for (final org.objectweb.asm.tree.TypeAnnotationNode annotation : methodNode.visibleTypeAnnotations) {
+                final org.objectweb.asm.TypeReference reference = new org.objectweb.asm.TypeReference(annotation.typeRef);
+                if (reference.getSort() == org.objectweb.asm.TypeReference.METHOD_FORMAL_PARAMETER
+                        && annotation.typePath == null && reference.getFormalParameterIndex() < count) {
+                    merged.get(reference.getFormalParameterIndex()).add(annotation);
+                }
+            }
+            for (final List<AnnotationNode> annotations : merged) {
+                parameterAnnotations.add(irAnnotations(annotations));
+            }
+        } else if (methodNode.visibleParameterAnnotations != null) {
             for (final List<AnnotationNode> annotations : methodNode.visibleParameterAnnotations) {
                 parameterAnnotations.add(irAnnotations(annotations));
             }
@@ -1887,9 +2265,15 @@ public final class BytecodeReachabilityCompiler {
 
     /** Instantiations and initializations (JLS 12.4.1) in a lowered method. */
     private void queueActiveUses(final MethodNode methodNode) {
+        // A constructor call without a NEW of its own in this method is a super(..) or this(..) call: the object
+        // being built is an instance of the subclass, which is queued where it is created, not of the superclass.
+        int pendingNew = 0;
         for (final var insn : methodNode.instructions) {
             switch (insn.getOpcode()) {
-                case Opcodes.NEW -> queueInstantiate(((org.objectweb.asm.tree.TypeInsnNode) insn).desc);
+                case Opcodes.NEW -> {
+                    pendingNew++;
+                    queueInstantiate(((org.objectweb.asm.tree.TypeInsnNode) insn).desc);
+                }
                 case Opcodes.GETSTATIC, Opcodes.PUTSTATIC -> {
                     final var field = (org.objectweb.asm.tree.FieldInsnNode) insn;
                     queueInit(field.owner);
@@ -1902,6 +2286,29 @@ public final class BytecodeReachabilityCompiler {
                     final String owner = ((org.objectweb.asm.tree.MethodInsnNode) insn).owner;
                     if (!owner.startsWith("[")) {
                         queueInit(owner);
+                    }
+                }
+                case Opcodes.INVOKESPECIAL -> {
+                    final var mi = (org.objectweb.asm.tree.MethodInsnNode) insn;
+                    if (!mi.owner.startsWith("[")) {
+                        queueMethod(new MethodRef(mi.owner, mi.name, mi.desc, false));
+                        if ("<init>".equals(mi.name)) {
+                            if (pendingNew > 0) {
+                                pendingNew--;
+                                queueInstantiate(mi.owner);
+                            }
+                        }
+                    }
+                }
+                case Opcodes.INVOKEDYNAMIC -> {
+                    // A constructor reference (FindSink.OfRef::new) creates its class in the synthesized lambda,
+                    // which has no NEW instruction of its own to scan: without this the class has no instance as
+                    // far as the closure knows, and the methods it inherits (FindSink.accept) are never lowered.
+                    for (final Object arg : ((org.objectweb.asm.tree.InvokeDynamicInsnNode) insn).bsmArgs) {
+                        if (arg instanceof org.objectweb.asm.Handle handle
+                                && handle.getTag() == Opcodes.H_NEWINVOKESPECIAL) {
+                            queueInstantiate(handle.getOwner());
+                        }
                     }
                 }
                 default -> {

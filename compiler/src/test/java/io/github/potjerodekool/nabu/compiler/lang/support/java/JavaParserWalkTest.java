@@ -36,7 +36,37 @@ class JavaParserWalkTest {
         if (!Files.isDirectory(root)) {
             return List.of();
         }
-        try (Stream<Path> paths = Files.walk(root)) {
+        // `lib` holds (a link to) the JDK's lib directory that the compiler tests need as their system path; it is no
+        // test source, and a Windows junction in it cannot be walked.
+        final List<Path> files = new java.util.ArrayList<>();
+        Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public java.nio.file.FileVisitResult preVisitDirectory(final Path dir,
+                    final java.nio.file.attribute.BasicFileAttributes attrs) {
+                return dir.getParent() != null && dir.getParent().equals(root)
+                        && "lib".equals(dir.getFileName().toString())
+                        ? java.nio.file.FileVisitResult.SKIP_SUBTREE : java.nio.file.FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult visitFileFailed(final Path file, final IOException exception)
+                    throws IOException {
+                // the junction `lib` cannot even be read as a file; anything else that fails is a real problem
+                if (file.getParent() != null && file.getParent().equals(root)
+                        && "lib".equals(file.getFileName().toString())) {
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+                throw exception;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult visitFile(final Path file,
+                    final java.nio.file.attribute.BasicFileAttributes attrs) {
+                files.add(file);
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+        try (Stream<Path> paths = files.stream()) {
             return paths
                     .filter(path -> path.toString().endsWith(".java"))
                     .map(this::readSource)

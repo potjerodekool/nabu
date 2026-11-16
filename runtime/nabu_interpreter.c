@@ -7,12 +7,22 @@
 #include <setjmp.h>
 #ifndef _WIN32
 #include <dlfcn.h>
+#include <math.h>
 #endif
 
 /* Exception state. */
 static jmp_buf interp_jmp_buf;
 static int interp_jmp_active = 0;
 static void *interp_pending_exception = NULL;
+/* Floats and doubles in a slot (the 32 or 64 bits), and the conversions of the JVM (a NaN gives 0, the range saturates). */
+static inline void *F2S(float v) { int b; memcpy(&b, &v, sizeof b); return (void *)(intptr_t)b; }
+static inline void *D2S(double v) { long b; memcpy(&b, &v, sizeof b); return (void *)(intptr_t)b; }
+static inline float S2F(void *s) { int b = (int)(intptr_t)s; float v; memcpy(&v, &b, sizeof v); return v; }
+static inline double S2D(void *s) { long b = (long)(intptr_t)s; double v; memcpy(&v, &b, sizeof v); return v; }
+static inline int J_D2I(double v) { return v != v ? 0 : v >= 2147483647.0 ? 2147483647 : v <= -2147483648.0 ? (-2147483647 - 1) : (int)v; }
+static inline long J_D2L(double v) { return v != v ? 0 : v >= 9223372036854775807.0 ? 9223372036854775807L : v <= -9223372036854775808.0 ? (-9223372036854775807L - 1) : (long)v; }
+
+static void jit_host_throw_arith_i(void);
 
 /* ---- Known strings set (for safe string concat) ---- */
 #define NABU_MAX_STRINGS 65536
@@ -285,7 +295,15 @@ static int is_void_return(const char *desc) {
 
 /* ---- Invocation ---- */
 
-#define NABU_JIT_THRESHOLD 100
+#define NABU_JIT_THRESHOLD_DEFAULT 100
+static int jit_threshold(void) {
+    static int value = 0;
+    if (value == 0) {
+        const char *e = getenv("NABU_JIT_THRESHOLD");
+        value = (e != NULL && atoi(e) > 0) ? atoi(e) : NABU_JIT_THRESHOLD_DEFAULT;
+    }
+    return value;
+}
 
 /* Deoptimize a method: clear compiled_fn and reset state. */
 void nabu_interp_deoptimize(nabu_interp_method_t *m) {
@@ -389,41 +407,181 @@ void nabu_interp_deoptimize_all(void) {
     }
 }
 
-/* Try to JIT-compile a method via Cranelift, passing const_pool and method pointer. */
-void *nabu_jit_try_compile(nabu_interp_method_t *m) {
-    if (m == NULL || m->code == NULL || m->code_len == 0) return NULL;
-#ifdef _WIN32
-    void *handle = NULL; /* the Cranelift JIT is not available on Windows */
-    if (0) {
-        handle = NULL;
-    }
-#else
-    static void *handle = NULL;
-    if (handle == NULL) {
-        handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
-        if (handle == NULL) {
-            const char *dev = getenv("NABU_DEV_DIR");
-            char path[1024];
-            snprintf(path, sizeof(path), "%s/libcranelift_jit.so", (dev && *dev) ? dev : "/tmp/opencode");
-            handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
-        }
-    }
-#endif
-    if (handle != NULL) {
+/* ---- The method JIT (runtime/jit, libnabu_jit): numeric static methods become machine code ----
+ *
+ * A method that has been called NABU_JIT_THRESHOLD times and only computes with int, long, float and double (loops,
+ * branches, calls of such methods) is handed to libnabu_jit, a Cranelift compiler that is loaded with dlopen when it is
+ * there (NABU_JIT_LIB, or the library path). What it does not understand stays interpreted.
+ * A compiled method has the type int64_t f(const int64_t *args): one argument per value, an int sign extended, a float as
+ * its 32 bits and a double as its 64 bits; the result goes back the same way. */
+
 #ifndef _WIN32
-        typedef void* (*compile_method_fn)(const uint8_t*, size_t, const char*, const char*, void*, void*);
-        static compile_method_fn fn = NULL;
-        if (fn == NULL) fn = (compile_method_fn)dlsym(handle, "cranelift_compile_method");
-        if (fn != NULL) {
-            void *result = fn(m->code, m->code_len, m->class_name, m->name, m->const_pool, m);
-            if (result != NULL) return result;
-        }
-#endif
-    }
-    /* Fallback to standard nabu_jit_compile. */
-    return nabu_jit_compile(m->code, m->code_len, m->class_name, m->name);
-    return NULL;
+typedef struct {
+    int (*cp_int)(void *cp, int idx, int32_t *out);
+    int (*cp_long)(void *cp, int idx, int64_t *out);
+    int (*cp_float)(void *cp, int idx, float *out);
+    int (*cp_double)(void *cp, int idx, double *out);
+    int (*resolve_static)(void *cp, int idx, void **method, char *desc, int cap);
+    int (*call)(void *method, const int64_t *args, int nargs, int64_t *result);
+    void (*throw_arith)(void);
+    void **pending;
+} nabu_jit_host_t;
+
+static int jit_cp_int(void *cpv, int idx, int32_t *out) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (cp == NULL || idx <= 0 || idx >= cp->count || cp->entries[idx].tag != 3) return 0;
+    *out = cp->entries[idx].int_val;
+    return 1;
 }
+static int jit_cp_float(void *cpv, int idx, float *out) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (cp == NULL || idx <= 0 || idx >= cp->count || cp->entries[idx].tag != 4) return 0;
+    int bits = cp->entries[idx].int_val;
+    memcpy(out, &bits, sizeof bits);
+    return 1;
+}
+static int jit_cp_long(void *cpv, int idx, int64_t *out) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (cp == NULL || idx <= 0 || idx >= cp->count || cp->entries[idx].tag != 5) return 0;
+    *out = (int64_t)cp->entries[idx].long_val;
+    return 1;
+}
+static int jit_cp_double(void *cpv, int idx, double *out) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (cp == NULL || idx <= 0 || idx >= cp->count || cp->entries[idx].tag != 6) return 0;
+    int64_t bits = (int64_t)cp->entries[idx].long_val;
+    memcpy(out, &bits, sizeof bits);
+    return 1;
+}
+
+/* The method that an invokestatic names: the interpreter's method and its descriptor. */
+static int jit_resolve_static(void *cpv, int idx, void **method, char *desc, int cap) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (cp == NULL || idx <= 0 || idx >= cp->count) return 0;
+    nabu_cp_entry *e = &cp->entries[idx];
+    if ((e->tag != 10 && e->tag != 11) || e->ref_nat <= 0 || e->ref_class <= 0) return 0;
+    const char *cname = nabu_cp_class_name(cp, e->ref_class);
+    const char *mname = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_name);
+    const char *mdesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
+    if (cname == NULL || mname == NULL || mdesc == NULL) return 0;
+    nabu_interp_method_t *t = nabu_interp_find_method(cname, mname, mdesc);
+    if (t == NULL) {
+        nabu_classfile_load_class(cname);
+        t = nabu_interp_find_method(cname, mname, mdesc);
+    }
+    if (t == NULL || (int)strlen(mdesc) >= cap) return 0;
+    *method = t;
+    strcpy(desc, mdesc);
+    return 1;
+}
+
+/* One value of a descriptor type, between the slot of the interpreter and the 64 bits of the compiled code. */
+static int64_t jit_pack(char type, void *slot) {
+    switch (type) {
+        case 'F': return (int64_t)(uint32_t)(int32_t)(intptr_t)slot;
+        case 'J': case 'D': return (int64_t)(intptr_t)slot;
+        default: return (int64_t)(int32_t)(intptr_t)slot;
+    }
+}
+static void *jit_unpack(char type, int64_t raw) {
+    switch (type) {
+        case 'V': return NULL;
+        case 'J': case 'D': return (void *)(intptr_t)raw;
+        default: return (void *)(intptr_t)(int32_t)(uint32_t)raw;   /* an int, or the 32 bits of a float, sign extended */
+    }
+}
+/* The next type of a descriptor of primitive types: its letter, and p moved behind it; 0 at the end of the parameters. */
+static char jit_next_type(const char **p) {
+    char c = **p;
+    if (c == 0 || c == ')') return 0;
+    if (c == 'L') {
+        while (**p != 0 && **p != ';') (*p)++;
+        if (**p == ';') (*p)++;
+        return 'L';
+    }
+    if (c == '[') {
+        while (**p == '[') (*p)++;
+        if (**p == 'L') { while (**p != 0 && **p != ';') (*p)++; if (**p == ';') (*p)++; }
+        else if (**p != 0) (*p)++;
+        return '[';
+    }
+    (*p)++;
+    return c;
+}
+
+/* Calls from compiled code: args one per value, the result in *result; non-zero when an exception is pending. */
+static int jit_host_call(void *method, const int64_t *args, int nargs, int64_t *result) {
+    nabu_interp_method_t *t = (nabu_interp_method_t *)method;
+    void *slots[64];
+    const char *p = strchr(t->desc, '(');
+    p = p != NULL ? p + 1 : t->desc;
+    int n = 0;
+    for (char c; n < nargs && n < 64 && (c = jit_next_type(&p)) != 0; n++) slots[n] = jit_unpack(c, args[n]);
+    void *r = nabu_interp_invoke(t, slots, n);
+    const char *rd = strchr(t->desc, ')');
+    *result = rd != NULL ? jit_pack(rd[1], r) : 0;
+    return interp_pending_exception != NULL;
+}
+
+static void jit_host_throw_arith(void) { jit_host_throw_arith_i(); }
+#endif
+static void jit_host_throw_arith_i(void) {
+    void *exc = calloc(1, sizeof(nabu_object) + 2 * sizeof(void *));
+    nabu_init_object_ex(exc, "java/lang/ArithmeticException", "java/lang/RuntimeException");
+    interp_pending_exception = exc;
+}
+#ifndef _WIN32
+
+static int jit_state = 0;   /* 0 not tried, 1 loaded, -1 not available */
+static void *(*jit_compile_fn)(const uint8_t *, size_t, const char *, int, int, void *, void *) = NULL;
+
+static int jit_load(void) {
+    if (jit_state != 0) return jit_state > 0;
+    jit_state = -1;
+    const char *off = getenv("NABU_JIT");
+    if (off != NULL && off[0] == '0') return 0;
+    void *handle = NULL;
+    const char *lib = getenv("NABU_JIT_LIB");
+    if (lib != NULL && *lib) handle = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+    if (handle == NULL) handle = dlopen("libnabu_jit.so", RTLD_NOW | RTLD_LOCAL);
+    if (handle == NULL) return 0;
+    int (*init)(const nabu_jit_host_t *) = (int (*)(const nabu_jit_host_t *))dlsym(handle, "nabu_jit_init");
+    jit_compile_fn = (void *(*)(const uint8_t *, size_t, const char *, int, int, void *, void *))dlsym(handle, "nabu_jit_compile");
+    if (init == NULL || jit_compile_fn == NULL) return 0;
+    static nabu_jit_host_t host = { jit_cp_int, jit_cp_long, jit_cp_float, jit_cp_double, jit_resolve_static,
+                                    jit_host_call, jit_host_throw_arith, &interp_pending_exception };
+    if (init(&host) != 0) return 0;
+    jit_state = 1;
+    return 1;
+}
+#endif
+
+/* Compiles a method to machine code, or NULL when there is no JIT or it does not understand the method. */
+void *nabu_jit_try_compile(nabu_interp_method_t *m) {
+    if (m == NULL || m->code == NULL || m->code_len == 0 || m->is_native || m->exc_count > 0) return NULL;
+#ifndef _WIN32
+    if (!jit_load() || (m->access & 0x0008) == 0 || m->desc == NULL) return NULL;
+    void *code = jit_compile_fn(m->code, (size_t)m->code_len, m->desc, 1, m->max_locals, m->const_pool, m);
+    if (getenv("NABU_JIT_TRACE") != NULL) fprintf(stderr, "jit: %s.%s%s %s\n", m->class_name, m->name, m->desc, code != NULL ? "compiled" : "not compiled");
+    return code;
+#else
+    return NULL;
+#endif
+}
+
+#ifndef _WIN32
+/* A call of a compiled method from the interpreter. */
+static void *jit_invoke(nabu_interp_method_t *m, void **args, int nargs) {
+    int64_t buf[64];
+    const char *p = strchr(m->desc, '(');
+    p = p != NULL ? p + 1 : m->desc;
+    int n = 0;
+    for (char c; n < nargs && n < 64 && (c = jit_next_type(&p)) != 0; n++) buf[n] = jit_pack(c, args != NULL ? args[n] : NULL);
+    int64_t raw = ((int64_t (*)(const int64_t *))m->compiled_fn)(buf);
+    const char *rd = strchr(m->desc, ')');
+    return jit_unpack(rd != NULL ? rd[1] : 'V', raw);
+}
+#endif
 
 /* ---- Static fields and class initialization ---- */
 
@@ -570,28 +728,35 @@ static void place_args(nabu_interp_frame_t *f, nabu_interp_method_t *m, void **a
     }
 }
 
+/* A method with a branch backwards (a loop) is compiled at its first call: it may be called once and run for a long time. */
+static int has_loop(nabu_interp_method_t *m) {
+    if (m->code == NULL || (m->access & 0x0008) == 0) return 0;
+    for (int i = 0; i + 2 < (int)m->code_len; i++) {
+        unsigned char op = m->code[i];
+        if (((op >= 0x99 && op <= 0xa7) || op == 0xc6 || op == 0xc7) && m->code[i + 1] >= 0x80) return 1;
+    }
+    return 0;
+}
+
 void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
     if (m == NULL) return NULL;
     if (m->class_name != NULL && m->name != NULL && strcmp(m->name, "<clinit>") != 0) ensure_clinit(m->class_name);
     /* If JIT-compiled and not deoptimized, call the compiled function directly. */
-    if (m->compiled_fn != NULL && !m->deoptimized) {
-        /* For now, assume (int, int) -> int signature. */
-        typedef int (*jit_fn_t)(int, int);
-        jit_fn_t f = (jit_fn_t)m->compiled_fn;
-        /* Extract int args. */
-        int a0 = (nargs > 0 && args != NULL) ? (int)(intptr_t)args[0] : 0;
-        int a1 = (nargs > 1 && args != NULL) ? (int)(intptr_t)args[1] : 0;
-        return (void *)(intptr_t)f(a0, a1);
-    }
+#ifndef _WIN32
+    if (m->compiled_fn != NULL && !m->deoptimized) return jit_invoke(m, args, nargs);
+#endif
     /* Hot method detection: increment call counter. */
     m->call_count++;
-    if (m->call_count >= NABU_JIT_THRESHOLD && !m->jit_attempted && m->code != NULL && m->code_len > 0) {
+    if ((m->call_count >= jit_threshold() || (m->call_count == 1 && has_loop(m))) && !m->jit_attempted && m->code != NULL && m->code_len > 0) {
         m->jit_attempted = 1;
         /* Attempt JIT compilation for any bytecode. The Cranelift JIT will
          * return NULL if it cannot handle the bytecode. */
         void *compiled = nabu_jit_try_compile(m);
         if (compiled != NULL) {
             m->compiled_fn = compiled;
+#ifndef _WIN32
+            return jit_invoke(m, args, nargs);   /* this call too */
+#endif
         }
     }
     if (m->is_native) {
@@ -928,9 +1093,11 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     if (interp_jmp_active) longjmp(interp_jmp_buf, 1);
                     running = 0; break;
                 }
-                push(f, (void *)(intptr_t)(a / b)); break;
+                push(f, (void *)(intptr_t)(b == -1 ? (int)(0u - (unsigned)a) : a / b)); break;
             }
-            case 0x70: { int b=(int)(intptr_t)pop(f); int a=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a%b)); break; }
+            case 0x70: { int b=(int)(intptr_t)pop(f); int a=(int)(intptr_t)pop(f);
+                if (b == 0) { jit_host_throw_arith_i(); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
+                push(f,(void*)(intptr_t)(b==-1?0:a%b)); break; }
             case 0x74: { int a=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(-a)); break; }
             /* long/float/double arithmetic */
             case 0x61: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a+b)); break; }
@@ -942,19 +1109,22 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
             case 0x69: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a*b)); break; }
             case 0x6a: { int bb=(int)(intptr_t)pop(f); int aa=(int)(intptr_t)pop(f); float fb,fa; memcpy(&fb,&bb,sizeof(fb)); memcpy(&fa,&aa,sizeof(fa)); float r=fa*fb; int rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
             case 0x6b: { long bb=(long)(intptr_t)pop(f); long aa=(long)(intptr_t)pop(f); double db,da; memcpy(&db,&bb,sizeof(db)); memcpy(&da,&aa,sizeof(da)); double r=da*db; long rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
-            case 0x6d: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(b==0?0:a/b)); break; }
-            case 0x6e: { int bb=(int)(intptr_t)pop(f); int aa=(int)(intptr_t)pop(f); float fb,fa; memcpy(&fb,&bb,sizeof(fb)); memcpy(&fa,&aa,sizeof(fa)); float r= (fb==0.0f)?0.0f:fa/fb; int rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
-            case 0x6f: { long bb=(long)(intptr_t)pop(f); long aa=(long)(intptr_t)pop(f); double db,da; memcpy(&db,&bb,sizeof(db)); memcpy(&da,&aa,sizeof(da)); double r= (db==0.0)?0.0:da/db; long rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
-            case 0x71: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(b==0?0:a%b)); break; }
-            case 0x72: { int bb=(int)(intptr_t)pop(f); int aa=(int)(intptr_t)pop(f); float fb,fa; memcpy(&fb,&bb,sizeof(fb)); memcpy(&fa,&aa,sizeof(fa)); float r=fa-fb*(int)(fa/fb); int rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
-            case 0x73: { /* drem simplified */ long bb=(long)(intptr_t)pop(f); long aa=(long)(intptr_t)pop(f); double db,da; memcpy(&db,&bb,sizeof(db)); memcpy(&da,&aa,sizeof(da)); double r=da-db*(long)(da/db); long rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
+            case 0x6d: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(b==0?0:(b==-1?(long)(0ul-(unsigned long)a):a/b))); break; }
+            case 0x6e: { float b=S2F(pop(f)); float a=S2F(pop(f)); push(f,F2S(a/b)); break; }
+            case 0x6f: { double b=S2D(pop(f)); double a=S2D(pop(f)); push(f,D2S(a/b)); break; }
+            case 0x71: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(b==0?0:(b==-1?0:a%b))); break; }
+            case 0x72: { float b=S2F(pop(f)); float a=S2F(pop(f)); push(f,F2S(fmodf(a,b))); break; }
+            case 0x73: { double b=S2D(pop(f)); double a=S2D(pop(f)); push(f,D2S(fmod(a,b))); break; }
             case 0x75: { long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(-a)); break; }
             case 0x76: { int a=(int)(intptr_t)pop(f); float fa; memcpy(&fa,&a,sizeof(fa)); float r=-fa; int rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
             case 0x77: { long a=(long)(intptr_t)pop(f); double da; memcpy(&da,&a,sizeof(da)); double r=-da; long rb; memcpy(&rb,&r,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
-            case 0x79: { int s=(int)(intptr_t)pop(f); long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(v<<s)); break; }
-            case 0x7b: { int s=(int)(intptr_t)pop(f); long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(v>>s)); break; }
-            case 0x7c: { int s=(int)(intptr_t)pop(f); int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)((unsigned int)v>>s)); break; }
-            case 0x7d: { int s=(int)(intptr_t)pop(f); long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)((unsigned long)v>>s)); break; }
+            case 0x78: { int sh=(int)(intptr_t)pop(f); int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(int)((unsigned int)v<<(sh&31))); break; }
+            case 0x7a: { int sh=(int)(intptr_t)pop(f); int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(v>>(sh&31))); break; }
+            case 0x80: { int b=(int)(intptr_t)pop(f); int a=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a|b)); break; }
+            case 0x79: { int s=(int)(intptr_t)pop(f); long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(long)((unsigned long)v<<(s&63))); break; }
+            case 0x7b: { int s=(int)(intptr_t)pop(f); long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(v>>(s&63))); break; }
+            case 0x7c: { int s=(int)(intptr_t)pop(f); int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)((int)((unsigned int)v>>(s&31)))); break; }
+            case 0x7d: { int s=(int)(intptr_t)pop(f); long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)((unsigned long)v>>(s&63))); break; }
             case 0x7e: { int b=(int)(intptr_t)pop(f); int a=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a&b)); break; }
             case 0x7f: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a&b)); break; }
             case 0x81: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(a|b)); break; }
@@ -968,20 +1138,20 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
             case 0x98: { long b=(long)(intptr_t)pop(f); long a=(long)(intptr_t)pop(f); double db,da; memcpy(&db,&b,sizeof(db)); memcpy(&da,&a,sizeof(da)); int r; if (da>db) r=1; else if (da<db) r=-1; else if (da==db) r=0; else r=1; push(f,(void*)(intptr_t)r); break; }
             /* conversions */
             case 0x85: { int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(long)v); break; }
-            case 0x86: { int v=(int)(intptr_t)pop(f); float fv=(float)v; int bits; memcpy(&bits,&fv,sizeof(bits)); push(f,(void*)(intptr_t)bits); break; }
-            case 0x87: { int v=(int)(intptr_t)pop(f); double dv=(double)v; long bits; memcpy(&bits,&dv,sizeof(bits)); push(f,(void*)(intptr_t)bits); break; }
+            case 0x86: { int v=(int)(intptr_t)pop(f); push(f,F2S((float)v)); break; }
+            case 0x87: { int v=(int)(intptr_t)pop(f); push(f,D2S((double)v)); break; }
             case 0x88: { long v=(long)(intptr_t)pop(f); push(f,(void*)(intptr_t)(int)v); break; }
-            case 0x89: { int bits=(int)(intptr_t)pop(f); float fv; memcpy(&fv,&bits,sizeof(fv)); push(f,(void*)(intptr_t)(int)fv); break; }
-            case 0x8a: { long bits=(long)(intptr_t)pop(f); double dv; memcpy(&dv,&bits,sizeof(dv)); push(f,(void*)(intptr_t)(int)dv); break; }
-            case 0x8b: { long v=(long)(intptr_t)pop(f); float fv=(float)v; int bits; memcpy(&bits,&fv,sizeof(bits)); push(f,(void*)(intptr_t)bits); break; }
-            case 0x8c: { long v=(long)(intptr_t)pop(f); double dv=(double)v; long bits; memcpy(&bits,&dv,sizeof(bits)); push(f,(void*)(intptr_t)bits); break; }
-            case 0x8d: { int bits=(int)(intptr_t)pop(f); float fv; memcpy(&fv,&bits,sizeof(fv)); push(f,(void*)(intptr_t)(long)fv); break; }
-            case 0x8e: { long bits=(long)(intptr_t)pop(f); double dv; memcpy(&dv,&bits,sizeof(dv)); push(f,(void*)(intptr_t)(long)dv); break; }
-            case 0x8f: { int bits=(int)(intptr_t)pop(f); float fv; memcpy(&fv,&bits,sizeof(fv)); double dv=(double)fv; long rb; memcpy(&rb,&dv,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
-            case 0x90: { long bits=(long)(intptr_t)pop(f); double dv; memcpy(&dv,&bits,sizeof(dv)); float fv=(float)dv; int rb; memcpy(&rb,&fv,sizeof(rb)); push(f,(void*)(intptr_t)rb); break; }
+            case 0x89: { long v=(long)(intptr_t)pop(f); push(f,F2S((float)v)); break; }
+            case 0x8a: { long v=(long)(intptr_t)pop(f); push(f,D2S((double)v)); break; }
+            case 0x8b: { float v=S2F(pop(f)); push(f,(void*)(intptr_t)J_D2I((double)v)); break; }
+            case 0x8c: { float v=S2F(pop(f)); push(f,(void*)(intptr_t)J_D2L((double)v)); break; }
+            case 0x8d: { float v=S2F(pop(f)); push(f,D2S((double)v)); break; }
+            case 0x8e: { double v=S2D(pop(f)); push(f,(void*)(intptr_t)J_D2I(v)); break; }
+            case 0x8f: { double v=S2D(pop(f)); push(f,(void*)(intptr_t)J_D2L(v)); break; }
+            case 0x90: { double v=S2D(pop(f)); push(f,F2S((float)v)); break; }
             case 0x84: { int idx=m->code[f->pc++]; int8_t inc=(int8_t)m->code[f->pc++]; f->locals[idx]=(void*)(intptr_t)((int)(intptr_t)f->locals[idx]+inc); break; }
-            case 0x91: { int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(unsigned short)v); break; }
-            case 0x92: { int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(signed char)v); break; }
+            case 0x91: { int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(signed char)v); break; }
+            case 0x92: { int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(unsigned short)v); break; }
             case 0x93: { int v=(int)(intptr_t)pop(f); push(f,(void*)(intptr_t)(short)v); break; }
             case 0x99: case 0x9a: case 0x9b: case 0x9c: case 0x9d: case 0x9e: {
                 int16_t off = (int16_t)((m->code[f->pc] << 8) | m->code[f->pc+1]); f->pc += 2;

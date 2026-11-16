@@ -7130,6 +7130,86 @@ static void jcl_sockaddr_in(struct sockaddr_in *sa, uint32_t hostOrderAddress, i
     sa->sin_addr.s_addr = htonl(hostOrderAddress);
 }
 
+/* Whether sockets of the IPv6 family can be made. Every socket is then one of that family, accepting IPv4 as well
+ * (dual stack), as in the JDK: a client that tries ::1 for "localhost" finds the server there. */
+static int jcl_ipv6_ok(void) {
+    static volatile int known = -1;
+    if (known < 0) {
+        jcl_net_startup();
+        const jcl_sock s = socket(AF_INET6, SOCK_STREAM, 0);
+        if (s != JCL_SOCK_FAIL) {
+            JCL_SOCK_CLOSE(s);
+            known = 1;
+        } else {
+            known = 0;
+        }
+    }
+    return known;
+}
+
+/* The address of an InetAddress as bytes: 4 (an IPv4 address, in out[0..3]) or 6 (an IPv6 address, 16 bytes, with its
+ * scope id), 0 when it is neither. Inet6Address.holder6.ipaddress and scope_id. */
+static int jcl_inet_bytes(void *inetAddress, unsigned char *out, uint32_t *scope) {
+    if (inetAddress == NULL) return 0;
+    const char *type = nabu_compiled_type_name(inetAddress);
+    if (type != NULL && strcmp(type, "java/net/Inet6Address") == 0) {
+        const intptr_t holderOffset = nabu_instance_field_offset(inetAddress, "holder6");
+        if (holderOffset < 0) return 0;
+        void *holder = *(void **)((char *)inetAddress + holderOffset);
+        if (holder == NULL) return 0;
+        const intptr_t addressOffset = nabu_instance_field_offset(holder, "ipaddress");
+        if (addressOffset < 0) return 0;
+        void *bytes = *(void **)((char *)holder + addressOffset);
+        if (bytes == NULL || *(int32_t *)bytes < 16) return 0;
+        memcpy(out, (char *)bytes + 8, 16);
+        const intptr_t scopeOffset = nabu_instance_field_offset(holder, "scope_id");
+        *scope = scopeOffset >= 0 ? (uint32_t)*(int32_t *)((char *)holder + scopeOffset) : 0;
+        return 6;
+    }
+    uint32_t v4 = 0;
+    if (!jcl_inet_ipv4(inetAddress, &v4)) return 0;
+    out[0] = (unsigned char)(v4 >> 24);
+    out[1] = (unsigned char)(v4 >> 16);
+    out[2] = (unsigned char)(v4 >> 8);
+    out[3] = (unsigned char)v4;
+    return 4;
+}
+
+/* The socket address for bind and connect. A socket of the IPv6 family takes an IPv4 address as IPv4-mapped
+ * (::ffff:a.b.c.d), the IPv4 wildcard as the IPv6 one. 0 when the address does not fit the family of the socket. */
+static int jcl_make_sockaddr(void *inetAddress, int port, int v6socket, struct sockaddr_storage *ss, jcl_socklen *length) {
+    unsigned char b[16];
+    uint32_t scope = 0;
+    const int family = jcl_inet_bytes(inetAddress, b, &scope);
+    if (family == 0) return 0;
+    memset(ss, 0, sizeof *ss);
+    if (!v6socket) {
+        if (family != 4) return 0;
+        struct sockaddr_in *sa = (struct sockaddr_in *)ss;
+        sa->sin_family = AF_INET;
+        sa->sin_port = htons((unsigned short)port);
+        memcpy(&sa->sin_addr, b, 4);
+        *length = sizeof *sa;
+        return 1;
+    }
+    struct sockaddr_in6 *sa = (struct sockaddr_in6 *)ss;
+    sa->sin6_family = AF_INET6;
+    sa->sin6_port = htons((unsigned short)port);
+    if (family == 4) {
+        if (b[0] != 0 || b[1] != 0 || b[2] != 0 || b[3] != 0) {
+            unsigned char *a = (unsigned char *)&sa->sin6_addr;
+            a[10] = 0xff;
+            a[11] = 0xff;
+            memcpy(a + 12, b, 4);
+        }
+    } else {
+        memcpy(&sa->sin6_addr, b, 16);
+        sa->sin6_scope_id = scope;
+    }
+    *length = sizeof *sa;
+    return 1;
+}
+
 static void jcl_sock_set_blocking(jcl_sock s, int blocking) {
 #ifdef _WIN32
     u_long mode = blocking ? 0 : 1;
@@ -7182,7 +7262,7 @@ BIND(void, jcl_NetSupport_setFdVal0, JCL_NS("setFdVal0"), (void *fdObj, int32_t 
 }
 /* The new socket of an accept (the listening socket is the int), IOStatus.UNAVAILABLE when none is waiting. */
 BIND(int32_t, jcl_NetSupport_accept0, JCL_NS("accept0"), (int32_t listening)) {
-    struct sockaddr_in sa;
+    struct sockaddr_storage sa;
     jcl_socklen length = sizeof sa;
     const int released = JCL_NET_BLOCK_BEGIN();
     const jcl_sock s = accept((jcl_sock)listening, (struct sockaddr *)&sa, &length);
@@ -7196,42 +7276,72 @@ BIND(int32_t, jcl_NetSupport_accept0, JCL_NS("accept0"), (int32_t listening)) {
     }
     return (int32_t)s;
 }
-/* (IPv4 address << 16) | port of the local or the remote end; -1 when there is none. */
-BIND(int64_t, jcl_NetSupport_name0, JCL_NS("name0"), (int32_t fd, uint8_t remote)) {
-    struct sockaddr_in sa;
-    jcl_socklen length = sizeof sa;
-    const int r = remote ? getpeername((jcl_sock)fd, (struct sockaddr *)&sa, &length)
-                         : getsockname((jcl_sock)fd, (struct sockaddr *)&sa, &length);
-    if (r != 0) return -1;
-    return ((int64_t)ntohl(sa.sin_addr.s_addr) << 16) | (int64_t)ntohs(sa.sin_port);
-}
-/* The IPv4 addresses of a host name, 4 bytes each; null when the name is unknown. */
-BIND(void *, jcl_NetSupport_resolve0, JCL_NS("resolve0"), (void *host)) {
-    jcl_net_startup();
-    struct addrinfo hints, *result = NULL;
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    if (host == NULL || getaddrinfo(jcl_str(host), NULL, &hints, &result) != 0 || result == NULL) return NULL;
-    char bytes[4 * 16];
-    size_t n = 0;
-    for (struct addrinfo *a = result; a != NULL && n + 4 <= sizeof bytes; a = a->ai_next) {
-        if (a->ai_family != AF_INET) continue;
-        memcpy(bytes + n, &((struct sockaddr_in *)a->ai_addr)->sin_addr, 4);
-        n += 4;
-    }
-    freeaddrinfo(result);
-    if (n == 0) return NULL;
+/* A new byte[] of n bytes. */
+static void *jcl_bytes_new(const unsigned char *data, size_t n) {
     void *array = jcl_alloc(8 + n);
     ((int32_t *)array)[0] = (int32_t)n;
     ((int32_t *)array)[1] = 1;
     jcl_arr_set_type(array, "[B");
-    memcpy((char *)array + 8, bytes, n);
+    memcpy((char *)array + 8, data, n);
     return array;
+}
+/* The address and port of the local or the remote end as bytes: the address (4 bytes for IPv4, 16 for IPv6; an
+ * IPv4-mapped IPv6 address of a dual stack socket counts as IPv4) and then the port, 2 bytes, big endian. Null when
+ * there is none. */
+BIND(void *, jcl_NetSupport_nameBytes0, JCL_NS("nameBytes0"), (int32_t fd, uint8_t remote)) {
+    struct sockaddr_storage sa;
+    jcl_socklen length = sizeof sa;
+    const int r = remote ? getpeername((jcl_sock)fd, (struct sockaddr *)&sa, &length)
+                         : getsockname((jcl_sock)fd, (struct sockaddr *)&sa, &length);
+    if (r != 0) return NULL;
+    unsigned char out[18];
+    if (sa.ss_family == AF_INET6) {
+        const struct sockaddr_in6 *s6 = (const struct sockaddr_in6 *)&sa;
+        const unsigned char *a = (const unsigned char *)&s6->sin6_addr;
+        static const unsigned char mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+        if (memcmp(a, mapped, 12) == 0) {
+            memcpy(out, a + 12, 4);
+            memcpy(out + 4, &s6->sin6_port, 2);
+            return jcl_bytes_new(out, 6);
+        }
+        memcpy(out, a, 16);
+        memcpy(out + 16, &s6->sin6_port, 2);
+        return jcl_bytes_new(out, 18);
+    }
+    const struct sockaddr_in *s4 = (const struct sockaddr_in *)&sa;
+    memcpy(out, &s4->sin_addr, 4);
+    memcpy(out + 4, &s4->sin_port, 2);
+    return jcl_bytes_new(out, 6);
+}
+/* The addresses of a host name: IPv4 ones first, then IPv6 ones, each as a length byte (4 or 16) and the address;
+ * null when the name is unknown. */
+BIND(void *, jcl_NetSupport_resolve0, JCL_NS("resolve0"), (void *host)) {
+    jcl_net_startup();
+    struct addrinfo hints, *result = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = jcl_ipv6_ok() ? AF_UNSPEC : AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if (host == NULL || getaddrinfo(jcl_str(host), NULL, &hints, &result) != 0 || result == NULL) return NULL;
+    unsigned char bytes[(1 + 16) * 16];
+    size_t n = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        const int want = pass == 0 ? AF_INET : AF_INET6;
+        const size_t size = pass == 0 ? 4 : 16;
+        for (struct addrinfo *a = result; a != NULL && n + 1 + size <= sizeof bytes; a = a->ai_next) {
+            if (a->ai_family != want) continue;
+            bytes[n++] = (unsigned char)size;
+            if (pass == 0) memcpy(bytes + n, &((struct sockaddr_in *)a->ai_addr)->sin_addr, 4);
+            else memcpy(bytes + n, &((struct sockaddr_in6 *)a->ai_addr)->sin6_addr, 16);
+            n += size;
+        }
+    }
+    freeaddrinfo(result);
+    if (n == 0) return NULL;
+    return jcl_bytes_new(bytes, n);
 }
 
 /* ---- sun.nio.ch.Net ---- */
-BIND(uint8_t, jcl_Net_isIPv6Available0, "sun.nio.ch.Net_isIPv6Available0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_isIPv6Available0, "sun.nio.ch.Net_isIPv6Available0", (void)) { return (uint8_t)jcl_ipv6_ok(); }
 BIND(uint8_t, jcl_Net_isReusePortAvailable0, "sun.nio.ch.Net_isReusePortAvailable0", (void)) { return 0; }
 BIND(int32_t, jcl_Net_isExclusiveBindAvailable, "sun.nio.ch.Net_isExclusiveBindAvailable", (void)) { return -1; }
 BIND(uint8_t, jcl_Net_shouldShutdownWriteBeforeClose0, "sun.nio.ch.Net_shouldShutdownWriteBeforeClose0", (void)) { return 1; }
@@ -7247,12 +7357,18 @@ BIND(int16_t, jcl_Net_pollnvalValue, "sun.nio.ch.Net_pollnvalValue", (void)) { r
 BIND(int16_t, jcl_Net_pollconnValue, "sun.nio.ch.Net_pollconnValue", (void)) { return JCL_EV_OUT; }
 
 BIND(int32_t, jcl_Net_socket0, "sun.nio.ch.Net_socket0", (uint8_t preferIPv6, uint8_t stream, uint8_t reuse, uint8_t fastLoopback)) {
-    (void)preferIPv6; (void)fastLoopback;
+    (void)fastLoopback;
     jcl_net_startup();
-    const jcl_sock s = socket(AF_INET, stream ? SOCK_STREAM : SOCK_DGRAM, 0);
+    const int v6 = preferIPv6 && jcl_ipv6_ok();
+    const jcl_sock s = socket(v6 ? AF_INET6 : AF_INET, stream ? SOCK_STREAM : SOCK_DGRAM, 0);
     if (s == JCL_SOCK_FAIL) {
         jcl_net_socket_fail("Socket creation", JCL_SOCK_ERRNO());
         return -1;
+    }
+    if (v6) {
+        /* dual stack: also IPv4 (Windows makes the socket IPv6 only by default) */
+        int off = 0;
+        setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&off, sizeof off);
     }
 #ifndef _WIN32
     if (reuse) {
@@ -7266,15 +7382,14 @@ BIND(int32_t, jcl_Net_socket0, "sun.nio.ch.Net_socket0", (uint8_t preferIPv6, ui
 }
 
 BIND(void, jcl_Net_bind0, "sun.nio.ch.Net_bind0", (void *fdObj, uint8_t preferIPv6, uint8_t useExclBind, void *inetAddress, int32_t port)) {
-    (void)preferIPv6; (void)useExclBind;
-    uint32_t address = 0;
-    if (!jcl_inet_ipv4(inetAddress, &address)) {
-        jcl_net_socket_fail("Bind (an address that is not IPv4)", 0);
+    (void)useExclBind;
+    struct sockaddr_storage sa;
+    jcl_socklen length = 0;
+    if (!jcl_make_sockaddr(inetAddress, port, preferIPv6 && jcl_ipv6_ok(), &sa, &length)) {
+        jcl_net_socket_fail("Bind (an address that does not fit the socket)", 0);
         return;
     }
-    struct sockaddr_in sa;
-    jcl_sockaddr_in(&sa, address, port);
-    if (bind(jcl_sock_of(fdObj), (struct sockaddr *)&sa, sizeof sa) != 0) {
+    if (bind(jcl_sock_of(fdObj), (struct sockaddr *)&sa, length) != 0) {
         const int err = JCL_SOCK_ERRNO();
         jcl_net_fail("java/net/BindException", "java/net/SocketException", "bind", err);
     }
@@ -7285,16 +7400,14 @@ BIND(void, jcl_Net_listen, "sun.nio.ch.Net_listen", (void *fdObj, int32_t backlo
 }
 
 BIND(int32_t, jcl_Net_connect0, "sun.nio.ch.Net_connect0", (uint8_t preferIPv6, void *fdObj, void *inetAddress, int32_t port)) {
-    (void)preferIPv6;
-    uint32_t address = 0;
-    if (!jcl_inet_ipv4(inetAddress, &address)) {
-        jcl_net_socket_fail("Connect (an address that is not IPv4)", 0);
+    struct sockaddr_storage sa;
+    jcl_socklen length = 0;
+    if (!jcl_make_sockaddr(inetAddress, port, preferIPv6 && jcl_ipv6_ok(), &sa, &length)) {
+        jcl_net_socket_fail("Connect (an address that does not fit the socket)", 0);
         return -1;
     }
-    struct sockaddr_in sa;
-    jcl_sockaddr_in(&sa, address, port);
     const int released = JCL_NET_BLOCK_BEGIN();
-    const int r = connect(jcl_sock_of(fdObj), (struct sockaddr *)&sa, sizeof sa);
+    const int r = connect(jcl_sock_of(fdObj), (struct sockaddr *)&sa, length);
     const int err = r != 0 ? JCL_SOCK_ERRNO() : 0;
     JCL_NET_BLOCK_END(released);
     if (r == 0) return 1;
@@ -7311,23 +7424,28 @@ BIND(void, jcl_Net_shutdown, "sun.nio.ch.Net_shutdown", (void *fdObj, int32_t ho
     }
 }
 
+/* The port of a socket address of either family. */
+static int jcl_sockaddr_port(const struct sockaddr_storage *sa) {
+    return ntohs(sa->ss_family == AF_INET6 ? ((const struct sockaddr_in6 *)sa)->sin6_port
+                                           : ((const struct sockaddr_in *)sa)->sin_port);
+}
 BIND(int32_t, jcl_Net_localPort, "sun.nio.ch.Net_localPort", (void *fdObj)) {
-    struct sockaddr_in sa;
+    struct sockaddr_storage sa;
     jcl_socklen length = sizeof sa;
     if (getsockname(jcl_sock_of(fdObj), (struct sockaddr *)&sa, &length) != 0) {
         jcl_net_socket_fail("getsockname", JCL_SOCK_ERRNO());
         return -1;
     }
-    return ntohs(sa.sin_port);
+    return jcl_sockaddr_port(&sa);
 }
 BIND(int32_t, jcl_Net_remotePort, "sun.nio.ch.Net_remotePort", (void *fdObj)) {
-    struct sockaddr_in sa;
+    struct sockaddr_storage sa;
     jcl_socklen length = sizeof sa;
     if (getpeername(jcl_sock_of(fdObj), (struct sockaddr *)&sa, &length) != 0) {
         jcl_net_socket_fail("getpeername", JCL_SOCK_ERRNO());
         return -1;
     }
-    return ntohs(sa.sin_port);
+    return jcl_sockaddr_port(&sa);
 }
 
 BIND(int32_t, jcl_Net_getIntOption0, "sun.nio.ch.Net_getIntOption0", (void *fdObj, uint8_t mayNeedConversion, int32_t level, int32_t option)) {

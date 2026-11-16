@@ -10,6 +10,17 @@
 #endif
 #include <math.h>
 
+/* The class of an object of the interpreter. A value that cannot be a heap pointer (an identity boxed int, a tagged box) has none:
+ * nabu_compiled_type_name reads the first word of whatever it gets. */
+static inline const char *interp_type_name(const void *p) {
+#ifdef _WIN32
+    if ((uintptr_t)p < (1u << 20)) return NULL;
+#else
+    if ((uintptr_t)p < 0x100000000ull || (uintptr_t)p >= 0x800000000000ull) return NULL;
+#endif
+    return nabu_compiled_type_name(p);
+}
+
 /* Exception state. */
 static jmp_buf interp_jmp_buf;
 static int interp_jmp_active = 0;
@@ -25,6 +36,10 @@ static inline long J_D2L(double v) { return v != v ? 0 : v >= 922337203685477580
 static void jit_host_throw_arith_i(void);
 static void *interp_new_object(const char *cname);
 static int interp_instanceof(void *obj, const char *cname);
+/* NABU_TRACE_EXC=1 names the method and the index of an array exception */
+static void interp_array_dbg(void *arr, int idx, nabu_interp_method_t *m, int pc) {
+    if (getenv("NABU_TRACE_EXC")) fprintf(stderr, "array exception: %s.%s%s pc=%d index=%d length=%d\n", m->class_name, m->name, m->desc, pc, idx, arr ? *(int *)arr : -1);
+}
 static void interp_throw_array(int is_null) {
     void *exc = calloc(1, sizeof(nabu_object) + 2 * sizeof(void *));
     if (is_null) nabu_init_object_ex(exc, "java/lang/NullPointerException", "java/lang/RuntimeException");
@@ -33,7 +48,7 @@ static void interp_throw_array(int is_null) {
 }
 /* null and bounds check of an array access: the exception is pending and the instruction is left. A null array stays lenient
  * in JDK classes (reads give 0, stores are dropped): they run without their <clinit> and rely on it. */
-#define INTERP_ARRAY_CHECK(arr, idx) if (((arr) == NULL && strict_nulls(m)) || ((arr) != NULL && (unsigned)(idx) >= (unsigned)*(int *)(arr))) { interp_throw_array((arr) == NULL); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
+#define INTERP_ARRAY_CHECK(arr, idx) if (((arr) == NULL && strict_nulls(m)) || ((arr) != NULL && (unsigned)(idx) >= (unsigned)*(int *)(arr))) { interp_array_dbg((arr), (int)(idx), m, f->pc); interp_throw_array((arr) == NULL); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
 
 /* ---- Known strings set (for safe string concat) ---- */
 #define NABU_MAX_STRINGS 65536
@@ -265,7 +280,7 @@ static void *alloc_multi(const char *desc, int *counts, int n) {
     } else {
         int esize = elem_size_for(comp[0]);
         arr = calloc(1, 8 + (size_t)size * esize);
-        if (arr != NULL) *(int *)arr = size;
+        if (arr != NULL) { *(int *)arr = size; ((int *)arr)[1] = esize; }   /* the element size sits next to the length */
     }
     return arr;
 }
@@ -460,8 +475,23 @@ static inline int strict_nulls(nabu_interp_method_t *m) {
 static char **inited_classes = NULL;
 static int inited_count = 0, inited_cap = 0;
 
+/* JDK classes whose static initializer runs: the prefixes (separated by a colon) in NABU_JDK_CLINIT, by default the packages
+ * that were found to work. The rest of the JDK runs without <clinit>: its statics read as null. */
+static int jdk_clinit_allowed(const char *cls) {
+    const char *list = getenv("NABU_JDK_CLINIT");
+    if (list == NULL) list = "java/util/:java/math/:java/time/";   /* the default; NABU_JDK_CLINIT= switches it off */
+    while (*list) {
+        const char *end = strchr(list, ':');
+        size_t n = end ? (size_t)(end - list) : strlen(list);
+        if (n > 0 && strncmp(cls, list, n) == 0) return 1;
+        if (!end) break;
+        list = end + 1;
+    }
+    return 0;
+}
+
 static void ensure_clinit(const char *cls) {
-    if (cls == NULL || is_jdk_class(cls)) return;
+    if (cls == NULL || (is_jdk_class(cls) && !jdk_clinit_allowed(cls))) return;
     for (int i = 0; i < inited_count; i++) if (strcmp(inited_classes[i], cls) == 0) return;
     if (inited_count >= inited_cap) {
         int nc = inited_cap == 0 ? 32 : inited_cap * 2;
@@ -470,8 +500,10 @@ static void ensure_clinit(const char *cls) {
         inited_classes = a; inited_cap = nc;
     }
     inited_classes[inited_count++] = strdup(cls);   /* marked first: a clinit that reads its own statics must not loop */
+    nabu_classfile_load_class(cls);   /* a getstatic can come before any method of the class ran */
     nabu_interp_method_t *ci = nabu_interp_find_method(cls, "<clinit>", "()V");
     if (ci != NULL) nabu_interp_invoke(ci, NULL, 0);
+    if (getenv("NABU_TRACE_EXC") != NULL) fprintf(stderr, "clinit %s done%s\n", cls, interp_pending_exception != NULL ? " with an exception" : "");
 }
 
 /* ---- The method JIT (runtime/jit, libnabu_jit): numeric static methods become machine code ----
@@ -652,7 +684,7 @@ static void *jit_new_array(int atype, int count) {
     int esize = 1;
     switch (atype) { case 5: case 9: esize = 2; break; case 6: case 10: esize = 4; break; case 7: case 11: esize = 8; break; default: esize = 1; break; }
     void *arr = calloc(1, 8 + (size_t)(count > 0 ? count : 0) * esize);
-    if (arr != NULL) *(int *)arr = count;
+    if (arr != NULL) { *(int *)arr = count; ((int *)arr)[1] = esize; }
     return arr;
 }
 
@@ -780,7 +812,7 @@ static int jit_call_dispatch(void *cpv, int idx, int op, const int64_t *args, in
         nabu_cp_entry *e = &cp->entries[idx];
         const char *mname = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_name);
         const char *mdesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
-        const char *rt = nabu_compiled_type_name(recv);
+        const char *rt = interp_type_name(recv);
         if (rt != NULL) t = nabu_interp_resolve_in_hierarchy(rt, mname, mdesc, 0);
         if (t == NULL) return jit_call_synth(cpv, idx, op, args, nargs, result);   /* let the interpreter find out */
         c->type = type; c->cp = cp; c->idx = idx; c->target = t;
@@ -805,7 +837,7 @@ static void *jit_ldc_ref(void *cpv, int idx) {
     nabu_cp *cp = (nabu_cp *)cpv;
     if (cp == NULL || idx <= 0 || idx >= cp->count) return NULL;
     nabu_cp_entry *e = &cp->entries[idx];
-    if (e->tag == 7) { char *cn = nabu_cp_class_name(cp, idx); return cn ? strdup(cn) : NULL; }
+    if (e->tag == 7) { char *cn = nabu_cp_class_name(cp, idx); return cn ? nabu_class_object_for_name(cn) : NULL; }
     if (e->tag == 8) { char *str = nabu_cp_utf8(cp, e->str_index); return str ? strdup(str) : NULL; }
     return NULL;
 }
@@ -1041,7 +1073,7 @@ char *nabu_interp_object_to_string(void *av) {
     if ((uintptr_t)av >= (1 << 20) && nabu_as_closure(av) == NULL) {
         char *sb = nabu_interp_sb_text(av);
         if (sb != NULL) return strdup(sb);   /* a StringBuilder of the natives */
-        const char *rt = nabu_compiled_type_name(av);
+        const char *rt = interp_type_name(av);
         if (rt != NULL) {
             nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "toString", "()Ljava/lang/String;", 0);
             if (t != NULL && t->code != NULL) {
@@ -1065,6 +1097,24 @@ char *nabu_interp_object_to_string(void *av) {
     return strdup(tmp);
 }
 
+void *nabu_interp_new_object(const char *cname) { return interp_new_object(cname); }
+
+/* hashCode() of any value of the interpreter: a String (a char *), a box, an object with its own hashCode(), else its address. */
+int nabu_interp_hash_code(void *v) {
+    if (v == NULL) return 0;
+    if (nabu_box_kind(v)) { char bb[8]; const char *t = nabu_box_text(v, bb); return strcmp(t, "true") == 0 ? 1231 : strcmp(t, "false") == 0 ? 1237 : (int)(intptr_t)v; }
+    if ((uintptr_t)v < 0x100000000ull || (uintptr_t)v >= 0x800000000000ull) return (int)(intptr_t)v;   /* an identity boxed int */
+    const char *rt = interp_type_name(v);
+    if (rt != NULL) {
+        nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "hashCode", "()I", 0);
+        if (t != NULL && t->code != NULL) { void *a[1] = { v }; return (int)(intptr_t)nabu_interp_invoke(t, a, 1); }
+        return (int)(((uintptr_t)v >> 4) & 0x7fffffff);
+    }
+    int h = 0;
+    for (const unsigned char *p = (const unsigned char *)v; *p; p++) h = 31 * h + *p;   /* a String */
+    return h;
+}
+
 /* Whether a class is the named one, a subclass of it or implements it. */
 static int class_is_a(const char *cls, const char *target, int depth) {
     if (cls == NULL || depth > 40) return 0;
@@ -1081,7 +1131,7 @@ static int interp_instanceof(void *obj, const char *cname) {
     if (obj == NULL || cname == NULL) return 0;
     if (strcmp(cname, "java/lang/Object") == 0) return 1;
     if (nabu_as_closure(obj) != NULL) return 1;   /* a lambda is an instance of its functional interface */
-    const char *rt = nabu_compiled_type_name(obj);
+    const char *rt = interp_type_name(obj);
     if (rt != NULL) return class_is_a(rt, cname, 0);
     if (nabu_is_known_string(obj) || (uintptr_t)obj > 0x10000) {
         /* a String of the interpreter is a plain char *: only its own types */
@@ -1107,7 +1157,7 @@ static void *interp_new_object(const char *cname) {
 /* A method of a class, its superclasses or (default methods) its interfaces: the first one that has code or is native. */
 /* The class of an exception that nobody caught (NULL when there is none); the exception stays pending. */
 const char *nabu_interp_uncaught_exception(void) {
-    return interp_pending_exception != NULL ? nabu_compiled_type_name(interp_pending_exception) : NULL;
+    return interp_pending_exception != NULL ? interp_type_name(interp_pending_exception) : NULL;
 }
 
 nabu_interp_method_t *nabu_interp_resolve_in_hierarchy(const char *cls, const char *name, const char *desc, int depth) {
@@ -1149,7 +1199,7 @@ static nabu_interp_method_t *resolve_invoke_target(nabu_interp_frame_t *f, nabu_
             void *recv = f->stack[f->stack_top - 1 - pc];
             /* a JDK receiver is only looked at when it can be a heap pointer */
             const char *rt = (recv != NULL && (!jdk || ((uintptr_t)recv >= 0x100000000ull && (uintptr_t)recv < 0x800000000000ull)))
-                ? nabu_compiled_type_name(recv) : NULL;
+                ? interp_type_name(recv) : NULL;
             if (rt != NULL && (cur == NULL || cur->class_name == NULL || strcmp(rt, cur->class_name) != 0)) {
                 nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, mname, mdesc, 0);
                 if (t != NULL) return t;
@@ -1274,7 +1324,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     else if (e->tag == 4) val = (void *)(intptr_t)e->int_val; /* float bits */
                     else if (e->tag == 5) val = (void *)(intptr_t)e->long_val; /* long */
                     else if (e->tag == 6) val = (void *)(intptr_t)e->long_val; /* double bits */
-                    else if (e->tag == 7) { char *cn = nabu_cp_class_name(m->const_pool, idx); val = cn ? (void *)strdup(cn) : NULL; } /* handle (char*) */
+                    else if (e->tag == 7) { char *cn = nabu_cp_class_name(m->const_pool, idx); val = cn ? nabu_class_object_for_name(cn) : NULL; } /* handle (char*) */
                     else if (e->tag == 8) { char *s = nabu_cp_utf8(m->const_pool, e->str_index); val = s ? strdup(s) : NULL; }
                 }
                 push(f, val);
@@ -1289,7 +1339,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     else if (e->tag == 4) val = (void *)(intptr_t)e->int_val;
                     else if (e->tag == 5) val = (void *)(intptr_t)e->long_val;
                     else if (e->tag == 6) val = (void *)(intptr_t)e->long_val;
-                    else if (e->tag == 7) { char *cn = nabu_cp_class_name(m->const_pool, idx); val = cn ? (void *)strdup(cn) : NULL; }
+                    else if (e->tag == 7) { char *cn = nabu_cp_class_name(m->const_pool, idx); val = cn ? nabu_class_object_for_name(cn) : NULL; }
                     else if (e->tag == 8) { char *s = nabu_cp_utf8(m->const_pool, e->str_index); val = s ? strdup(s) : NULL; }
                 }
                 push(f, val);
@@ -1722,7 +1772,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
                 void *obj = pop(f);
                 void *val = NULL;
-                if (obj == NULL && strict_nulls(m)) { interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
+                if (obj == NULL && strict_nulls(m)) { interp_array_dbg(NULL, -1, m, f->pc); interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
                 if (obj != NULL && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
                     nabu_cp_entry *e = &m->const_pool->entries[idx];
                     if (e->tag == 9) {
@@ -1742,7 +1792,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
                 void *val = pop(f);
                 void *obj = pop(f);
-                if (obj == NULL && strict_nulls(m)) { interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
+                if (obj == NULL && strict_nulls(m)) { interp_array_dbg(NULL, -1, m, f->pc); interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
                 if (obj != NULL && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
                     nabu_cp_entry *e = &m->const_pool->entries[idx];
                     if (e->tag == 9) {
@@ -1805,7 +1855,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         char *mn = proxy_method_name ? proxy_method_name : "greet";
                         long a0 = (proxy_sam > 0) ? (long)(intptr_t)sam_args[0] : 0;
                         long a1 = (proxy_sam > 1) ? (long)(intptr_t)sam_args[1] : 0;
-                        const char *hcls = handler ? nabu_compiled_type_name(handler) : NULL;
+                        const char *hcls = handler ? interp_type_name(handler) : NULL;
                         if (hcls == NULL) hcls = "java/lang/Object";
                         char *desc = "(Ljava/lang/String;JJ)Ljava/lang/String;";
                         nabu_interp_method_t *hm = nabu_interp_find_method(hcls, "invokeMethod", desc);
@@ -1893,6 +1943,25 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 }
                 if ((op == 0xb6 || op == 0xb7) && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
                     target = resolve_invoke_target(f, m->const_pool, idx, op, target);
+                }
+                if (target == NULL && op == 0xb6 && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
+                    /* clone() of an array: a copy of the length and the elements */
+                    nabu_cp_entry *ce = &m->const_pool->entries[idx];
+                    const char *cn = (ce->tag == 10 && ce->ref_class > 0) ? nabu_cp_class_name(m->const_pool, ce->ref_class) : NULL;
+                    const char *mn = (ce->ref_nat > 0) ? nabu_cp_utf8(m->const_pool, m->const_pool->entries[ce->ref_nat].nat_name) : NULL;
+                    if (cn != NULL && cn[0] == '[' && mn != NULL && strcmp(mn, "clone") == 0) {
+                        void *arr = pop(f);
+                        int esize = 8;
+                        switch (cn[1]) { case 'B': case 'Z': esize = 1; break; case 'S': case 'C': esize = 2; break; case 'I': case 'F': esize = 4; break; default: esize = 8; }
+                        void *copy = NULL;
+                        if (arr != NULL) {
+                            size_t bytes = 8 + (size_t)*(int *)arr * (size_t)esize;
+                            copy = calloc(1, bytes);
+                            memcpy(copy, arr, bytes);
+                        } else if (strict_nulls(m)) { interp_array_dbg(NULL, -1, m, f->pc); interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
+                        push(f, copy);
+                        break;
+                    }
                 }
                 if (target == NULL) {
                     {
@@ -2045,7 +2114,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                          for (int i = proxy_sam - 1; i >= 0; i--) sam_args[i] = pop(f);
                          pop(f); /* proxy receiver */
                          char *mn = method_name ? method_name : "invoke";
-                         const char *hcls = handler ? nabu_compiled_type_name(handler) : NULL;
+                         const char *hcls = handler ? interp_type_name(handler) : NULL;
                          if (hcls == NULL) hcls = "java/lang/Object";
                          /* Create a Method object for the invoked method. */
                          nabu_classfile_load_class("java/lang/reflect/Method");
@@ -2149,7 +2218,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                             int _pcnt = count_params(mdesc);
                             if (f->stack_top >= _pcnt + 1) {
                                 void *recv = f->stack[f->stack_top - _pcnt - 1];
-                                recv_type_for_cache = (char *)nabu_compiled_type_name(recv);
+                                recv_type_for_cache = (char *)interp_type_name(recv);
                             }
                         }
                         nabu_itable_entry_t *cached = (recv_type_for_cache && cname && mname && mdesc)
@@ -2177,7 +2246,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                             int _pcnt = count_params(mdesc);
                             if (f->stack_top >= _pcnt + 1) {
                                 void *recv = f->stack[f->stack_top - _pcnt - 1];
-                                recv_type = nabu_compiled_type_name(recv);
+                                recv_type = interp_type_name(recv);
                                 if (recv != NULL) {
                                     /* get type info */
                                     nabu_object *o = (nabu_object *)recv;
@@ -2489,6 +2558,8 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     nabu_cp_entry *e = &m->const_pool->entries[idx];
                     if (e->tag == 7) cname = nabu_cp_class_name(m->const_pool, idx);
                 }
+                if (cname != NULL && getenv("NABU_TRACE_EXC") != NULL && (strstr(cname, "Exception") != NULL || strstr(cname, "Error") != NULL))
+                    fprintf(stderr, "new %s in %s.%s%s pc=%d\n", cname, m->class_name, m->name, m->desc, f->pc);
                 push(f, interp_new_object(cname));
                 break;
             }
@@ -2498,12 +2569,12 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 int esize = 1;
                 switch (type) { case 4: case 8: esize=1; break; case 5: case 9: esize=2; break; case 6: case 10: esize=4; break; case 7: case 11: esize=8; break; default: esize=1; break; }
                 void *arr = calloc(1, 8 + (size_t)count * esize);
-                if (arr != NULL) *(int *)arr = count;
+                if (arr != NULL) { *(int *)arr = count; ((int *)arr)[1] = esize; }
                 push(f, arr);
                 break;
             }
             case 0xbd: { f->pc += 2; int count=(int)(intptr_t)pop(f); void *arr=calloc(1,8+(size_t)count*sizeof(void*)); if(arr!=NULL)*(int*)arr=count; push(f,arr); break; }
-            case 0xbe: { void *arr=pop(f); int len=0; if (arr == NULL && strict_nulls(m)) { interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; } if(arr!=NULL) len=*(int*)arr; push(f,(void*)(intptr_t)len); break; }
+            case 0xbe: { void *arr=pop(f); int len=0; if (arr == NULL && strict_nulls(m)) { interp_array_dbg(NULL, -1, m, f->pc); interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; } if(arr!=NULL) len=*(int*)arr; push(f,(void*)(intptr_t)len); break; }
             case 0xbf: {
                 void *exc = pop(f);
                 interp_pending_exception = exc;
@@ -2511,6 +2582,17 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 running = 0; break;
             }
             case 0xc0: { f->pc += 2; break; }
+            case 0xc2: case 0xc3: pop(f); break;   /* monitorenter / monitorexit: one thread at a time here */
+            case 0xc8: { int32_t off = (int32_t)(((uint32_t)m->code[f->pc] << 24) | ((uint32_t)m->code[f->pc+1] << 16) | ((uint32_t)m->code[f->pc+2] << 8) | m->code[f->pc+3]); f->pc += off - 1; break; }   /* goto_w */
+            case 0xc4: { /* wide */
+                int wop = m->code[f->pc++];
+                int widx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
+                if (wop == 0x84) { int16_t inc = (int16_t)((m->code[f->pc] << 8) | m->code[f->pc+1]); f->pc += 2; f->locals[widx] = (void *)(intptr_t)((int)(intptr_t)f->locals[widx] + inc); }
+                else if (wop >= 0x15 && wop <= 0x19) push(f, f->locals[widx]);
+                else if (wop >= 0x36 && wop <= 0x3a) f->locals[widx] = pop(f);
+                else { fprintf(stderr, "interp: unsupported wide opcode 0x%x\n", wop); running = 0; }
+                break;
+            }
             case 0xc1: { /* instanceof */
                 int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
                 void *obj = pop(f);

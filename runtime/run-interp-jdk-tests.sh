@@ -14,7 +14,7 @@ javac --release 17 -cp "$O/classes" -d "$O/jarclasses" "$R"/jtest-jar/*.java || 
 cp -r "$R"/jtest-jar/META-INF "$O/jarclasses/"
 jar cf "$O/lib.jar" -C "$O/jarclasses" . || exit 1
 JH="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
-jimage extract --dir "$O/x" --include 'regex:/java.base/java/(lang|util|io|net|nio|security|text|time)/.*' "$JH/lib/modules" || exit 1
+jimage extract --dir "$O/x" --include 'regex:/java.base/(java/(lang|util|io|net|nio|security|text|time|math)|jdk/internal/(util|access|math))/.*' "$JH/lib/modules" || exit 1
 mkdir -p "$O/dev/jdkclasses/classes"; cp -r "$O"/x/java.base/* "$O/dev/jdkclasses/classes/"
 printf 'ServiceTest$Greeter=ServiceTest$En\n' > "$O/dev/services.txt"
 export NABU_DEV_DIR="$O/dev" NABU_CLASSPATH="$O/classes:$O/lib.jar"

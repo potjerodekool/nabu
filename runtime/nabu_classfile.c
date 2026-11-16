@@ -261,19 +261,36 @@ static void native_println_byte(nabu_interp_frame_t *frame, void **args, int nar
 static char *name_to_path(const char *name);
 
 /* Helper: create a real java.lang.Class object with name field set. */
+/* One Class object per class name, so that == and the identity of getClass() and X.class hold. Without the JDK's Class.class
+ * a class is its name (a char *), interned the same way. */
+typedef struct { char *name; void *obj; } class_cache_t;
+static class_cache_t *class_cache = NULL;
+static int class_cache_count = 0, class_cache_cap = 0;
+
 static void *make_class_object(const char *name) {
     if (name == NULL) return NULL;
+    for (int i = 0; i < class_cache_count; i++) if (strcmp(class_cache[i].name, name) == 0) return class_cache[i].obj;
     nabu_classfile_load(nabu_dev_path("jdkclasses/classes/java/lang/Class.class"));
     int fc = nabu_interp_field_count("java/lang/Class");
-    void *obj = calloc(1, sizeof(nabu_object) + (size_t)(fc > 0 ? fc : 1) * sizeof(void *));
-    if (obj == NULL) return NULL;
-    nabu_type_info *ti = (nabu_type_info *)nabu_register_interpreted_type("java/lang/Class", "java/lang/Object", 0, NULL, NULL);
-    ((nabu_object *)obj)->type = ti;
     int fi_name = nabu_interp_field_index("java/lang/Class", "name");
-    if (fi_name >= 0) {
+    void *obj;
+    if (fi_name < 0) {
+        obj = strdup(name);
+    } else {
+        obj = calloc(1, sizeof(nabu_object) + (size_t)(fc > 0 ? fc : 1) * sizeof(void *));
+        if (obj == NULL) return NULL;
+        nabu_type_info *ti = (nabu_type_info *)nabu_register_interpreted_type("java/lang/Class", "java/lang/Object", 0, NULL, NULL);
+        ((nabu_object *)obj)->type = ti;
         void **fields = (void **)((char *)obj + sizeof(nabu_object));
         fields[fi_name] = (void *)strdup(name);
     }
+    if (class_cache_count >= class_cache_cap) {
+        class_cache_cap = class_cache_cap ? class_cache_cap * 2 : 64;
+        class_cache = (class_cache_t *)realloc(class_cache, sizeof(class_cache_t) * (size_t)class_cache_cap);
+    }
+    class_cache[class_cache_count].name = strdup(name);
+    class_cache[class_cache_count].obj = obj;
+    class_cache_count++;
     return obj;
 }
 
@@ -1749,21 +1766,19 @@ static void native_string_replace(nabu_interp_frame_t *frame, void **args, int n
 }
 
 static void native_system_arraycopy(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)frame; (void)nargs;
-    /* args: src, srcPos, dest, destPos, length */
+    /* args: src, srcPos, dest, destPos, length. The element size is next to the length of the array (0 means a pointer). */
     void *src = (args != NULL) ? args[0] : NULL;
     int srcPos = (nargs > 1) ? (int)(intptr_t)args[1] : 0;
     void *dest = (nargs > 2) ? args[2] : NULL;
     int destPos = (nargs > 3) ? (int)(intptr_t)args[3] : 0;
     int length = (nargs > 4) ? (int)(intptr_t)args[4] : 0;
-    if (src && dest) {
-        /* both are our arrays: void** with count at offset 0, elements at +8 */
-        void **srcElems = (void **)((char *)src + 8);
-        void **destElems = (void **)((char *)dest + 8);
-        /* element size: assume pointer-sized (reference arrays) or int arrays (4 bytes). 
-           Heuristic: if srcPos/src are ints stored as pointers, copy pointer-sized. */
-        for (int i = 0; i < length; i++) {
-            destElems[destPos + i] = srcElems[srcPos + i];
+    if (src && dest && length > 0) {
+        int esize = ((int *)src)[1];
+        if (esize <= 0) esize = ((int *)dest)[1] > 0 ? ((int *)dest)[1] : (int)sizeof(void *);
+        if (srcPos < 0 || destPos < 0 || srcPos + length > *(int *)src || destPos + length > *(int *)dest) {
+            nabu_interp_throw("java/lang/ArrayIndexOutOfBoundsException", "java/lang/RuntimeException");
+        } else {
+            memmove((char *)dest + 8 + (size_t)destPos * esize, (char *)src + 8 + (size_t)srcPos * esize, (size_t)length * esize);
         }
     }
     frame->has_result = 0;
@@ -2414,7 +2429,7 @@ static void native_arrays_copyOf_int(nabu_interp_frame_t *frame, void **args, in
     if (newLen < 0) newLen = 0;
     void *arr = calloc(1, 8 + (size_t)newLen * sizeof(int));
     if (arr != NULL) {
-        *(int *)arr = newLen;
+        *(int *)arr = newLen; ((int *)arr)[1] = 4;
         if (src && newLen > 0) {
             int *dst = (int *)((char *)arr + 8);
             int copyLen = (srcLen < newLen) ? srcLen : newLen;
@@ -2843,6 +2858,16 @@ static void native_char_isWhitespace(nabu_interp_frame_t *frame, void **args, in
 static void native_char_toUpperCase(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, (c >= 'a' && c <= 'z') ? c - 32 : c); }
 static void native_char_toLowerCase(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, (c >= 'A' && c <= 'Z') ? c + 32 : c); }
 
+static void native_char_digit(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int c = nargs > 0 ? (int)(intptr_t)args[0] : 0, radix = nargs > 1 ? (int)(intptr_t)args[1] : 10, d = -1;
+    if (c >= '0' && c <= '9') d = c - '0'; else if (c >= 'a' && c <= 'z') d = c - 'a' + 10; else if (c >= 'A' && c <= 'Z') d = c - 'A' + 10;
+    NATIVE_RET_INT(frame, (d >= 0 && d < radix && radix >= 2 && radix <= 36) ? d : -1);
+}
+static void native_char_forDigit(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int d = nargs > 0 ? (int)(intptr_t)args[0] : 0, radix = nargs > 1 ? (int)(intptr_t)args[1] : 10;
+    NATIVE_RET_INT(frame, (d >= 0 && d < radix && radix >= 2 && radix <= 36) ? (d < 10 ? '0' + d : 'a' + d - 10) : 0);
+}
+
 static double arg_double(void **args, int i, int nargs) { long bits = (i < nargs) ? (long)(intptr_t)args[i] : 0; double v; memcpy(&v, &bits, sizeof v); return v; }
 static float arg_float(void **args, int i, int nargs) { int bits = (i < nargs) ? (int)(intptr_t)args[i] : 0; float v; memcpy(&v, &bits, sizeof v); return v; }
 static void ret_double(nabu_interp_frame_t *frame, double v) { long bits; memcpy(&bits, &v, sizeof bits); frame->result = (void *)(intptr_t)bits; frame->has_result = 1; }
@@ -2974,6 +2999,163 @@ static void native_sb_deleteCharAt(nabu_interp_frame_t *frame, void **args, int 
     frame->result = obj; frame->has_result = 1;
 }
 
+/* ---- jdk.internal.misc.Unsafe, CDS and friends over the objects of the interpreter ----
+ * An object is its header followed by one 8-byte slot per field; an array is its length (8 bytes) followed by the elements.
+ * A field offset is therefore the byte offset in the object, and arrayBaseOffset is 8. */
+
+#define UNSAFE_ADDR(args, nargs) ((char *)((nargs > 1) ? args[1] : NULL) + ((nargs > 2) ? (long)(intptr_t)args[2] : 0))
+
+static void native_unsafe_getUnsafe(nabu_interp_frame_t *frame, void **args, int nargs) {
+    (void)args; (void)nargs;
+    static void *theUnsafe = NULL;
+    if (theUnsafe == NULL) theUnsafe = nabu_interp_new_object("jdk/internal/misc/Unsafe");
+    frame->result = theUnsafe; frame->has_result = 1;
+}
+
+static void native_unsafe_objectFieldOffset(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *cls = (nargs > 1) ? class_handle_name(args[1]) : NULL;
+    const char *name = (nargs > 2 && args[2] != NULL) ? (const char *)args[2] : NULL;
+    int fi = (cls != NULL && name != NULL) ? nabu_interp_field_index(cls, name) : -1;
+    frame->result = (void *)(intptr_t)(fi >= 0 ? (long)(sizeof(nabu_object) + (size_t)fi * sizeof(void *)) : -1L);
+    frame->has_result = 1;
+}
+
+static void native_unsafe_objectFieldOffsetField(nabu_interp_frame_t *frame, void **args, int nargs) {
+    nabu_field_info_t *fi = (nargs > 1) ? nabu_lookup_field_info(args[1]) : NULL;
+    int idx = fi != NULL ? nabu_interp_field_index(fi->cls, fi->name) : -1;
+    frame->result = (void *)(intptr_t)(idx >= 0 ? (long)(sizeof(nabu_object) + (size_t)idx * sizeof(void *)) : -1L);
+    frame->has_result = 1;
+}
+
+static void native_unsafe_arrayBaseOffset(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; NATIVE_RET_INT(frame, 8); }
+
+static void native_unsafe_arrayIndexScale(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *cls = (nargs > 1) ? class_handle_name(args[1]) : NULL;
+    int scale = 8;
+    if (cls != NULL && cls[0] == '[') {
+        switch (cls[1]) { case 'B': case 'Z': scale = 1; break; case 'S': case 'C': scale = 2; break; case 'I': case 'F': scale = 4; break; default: scale = 8; }
+    }
+    NATIVE_RET_INT(frame, scale);
+}
+
+static void native_unsafe_arrayBaseOffsetL(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; frame->result = (void *)(intptr_t)8; frame->has_result = 1; }
+static void native_unsafe_arrayIndexScaleL(nabu_interp_frame_t *frame, void **args, int nargs) { native_unsafe_arrayIndexScale(frame, args, nargs); }
+static void native_unsafe_getInt(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, *(int32_t *)UNSAFE_ADDR(args, nargs)); }
+static void native_unsafe_putInt(nabu_interp_frame_t *frame, void **args, int nargs) { *(int32_t *)UNSAFE_ADDR(args, nargs) = (nargs > 3) ? (int32_t)(intptr_t)args[3] : 0; frame->has_result = 0; }
+static void native_unsafe_getLong(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = (void *)(intptr_t)*(int64_t *)UNSAFE_ADDR(args, nargs); frame->has_result = 1; }
+static void native_unsafe_putLong(nabu_interp_frame_t *frame, void **args, int nargs) { *(int64_t *)UNSAFE_ADDR(args, nargs) = (nargs > 3) ? (int64_t)(intptr_t)args[3] : 0; frame->has_result = 0; }
+static void native_unsafe_getRef(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = *(void **)UNSAFE_ADDR(args, nargs); frame->has_result = 1; }
+static void native_unsafe_putRef(nabu_interp_frame_t *frame, void **args, int nargs) { *(void **)UNSAFE_ADDR(args, nargs) = (nargs > 3) ? args[3] : NULL; frame->has_result = 0; }
+static void native_unsafe_getByte(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, *(int8_t *)UNSAFE_ADDR(args, nargs)); }
+static void native_unsafe_putByte(nabu_interp_frame_t *frame, void **args, int nargs) { *(int8_t *)UNSAFE_ADDR(args, nargs) = (nargs > 3) ? (int8_t)(intptr_t)args[3] : 0; frame->has_result = 0; }
+
+static void native_unsafe_casInt(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int32_t *p = (int32_t *)UNSAFE_ADDR(args, nargs);
+    int32_t expect = (nargs > 3) ? (int32_t)(intptr_t)args[3] : 0, update = (nargs > 4) ? (int32_t)(intptr_t)args[4] : 0;
+    NATIVE_RET_INT(frame, __sync_bool_compare_and_swap(p, expect, update));
+}
+static void native_unsafe_casLong(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int64_t *p = (int64_t *)UNSAFE_ADDR(args, nargs);
+    int64_t expect = (nargs > 3) ? (int64_t)(intptr_t)args[3] : 0, update = (nargs > 4) ? (int64_t)(intptr_t)args[4] : 0;
+    NATIVE_RET_INT(frame, __sync_bool_compare_and_swap(p, expect, update));
+}
+static void native_unsafe_casRef(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void **p = (void **)UNSAFE_ADDR(args, nargs);
+    void *expect = (nargs > 3) ? args[3] : NULL, *update = (nargs > 4) ? args[4] : NULL;
+    NATIVE_RET_INT(frame, __sync_bool_compare_and_swap(p, expect, update));
+}
+static void native_unsafe_witnessInt(nabu_interp_frame_t *frame, void **args, int nargs) {   /* compareAndExchangeInt */
+    int32_t *p = (int32_t *)UNSAFE_ADDR(args, nargs);
+    int32_t expect = (nargs > 3) ? (int32_t)(intptr_t)args[3] : 0, update = (nargs > 4) ? (int32_t)(intptr_t)args[4] : 0;
+    NATIVE_RET_INT(frame, __sync_val_compare_and_swap(p, expect, update));
+}
+static void native_unsafe_witnessLong(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int64_t *p = (int64_t *)UNSAFE_ADDR(args, nargs);
+    int64_t expect = (nargs > 3) ? (int64_t)(intptr_t)args[3] : 0, update = (nargs > 4) ? (int64_t)(intptr_t)args[4] : 0;
+    frame->result = (void *)(intptr_t)__sync_val_compare_and_swap(p, expect, update); frame->has_result = 1;
+}
+static void native_unsafe_witnessRef(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void **p = (void **)UNSAFE_ADDR(args, nargs);
+    void *expect = (nargs > 3) ? args[3] : NULL, *update = (nargs > 4) ? args[4] : NULL;
+    frame->result = __sync_val_compare_and_swap(p, expect, update); frame->has_result = 1;
+}
+static void native_unsafe_getAndAddInt(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, __sync_fetch_and_add((int32_t *)UNSAFE_ADDR(args, nargs), (nargs > 3) ? (int32_t)(intptr_t)args[3] : 0)); }
+static void native_unsafe_getAndAddLong(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = (void *)(intptr_t)__sync_fetch_and_add((int64_t *)UNSAFE_ADDR(args, nargs), (nargs > 3) ? (int64_t)(intptr_t)args[3] : 0); frame->has_result = 1; }
+static void native_unsafe_getAndSetInt(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, __sync_lock_test_and_set((int32_t *)UNSAFE_ADDR(args, nargs), (nargs > 3) ? (int32_t)(intptr_t)args[3] : 0)); }
+static void native_unsafe_getAndSetLong(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = (void *)(intptr_t)__sync_lock_test_and_set((int64_t *)UNSAFE_ADDR(args, nargs), (nargs > 3) ? (int64_t)(intptr_t)args[3] : 0); frame->has_result = 1; }
+static void native_unsafe_getAndSetRef(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = __sync_lock_test_and_set((void **)UNSAFE_ADDR(args, nargs), (nargs > 3) ? args[3] : NULL); frame->has_result = 1; }
+
+static void native_nothing(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; frame->has_result = 0; }
+static void native_zero(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; NATIVE_RET_INT(frame, 0); }
+static void native_one(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; NATIVE_RET_INT(frame, 1); }
+static void native_eight(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; NATIVE_RET_INT(frame, 8); }
+static void native_pageSize(nabu_interp_frame_t *frame, void **args, int nargs) { (void)args; (void)nargs; NATIVE_RET_INT(frame, 4096); }
+static void native_unsafe_allocateInstance(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *cls = (nargs > 1) ? class_handle_name(args[1]) : NULL;
+    frame->result = nabu_interp_new_object(cls); frame->has_result = 1;
+}
+
+/* ArraysSupport.hashCode(Object[], from, length, initialValue): 31 * h + hashCode(element) */
+static void native_arrayssupport_hashCode(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void **a = (nargs > 0 && args[0] != NULL) ? (void **)((char *)args[0] + 8) : NULL;
+    int from = nargs > 1 ? (int)(intptr_t)args[1] : 0, len = nargs > 2 ? (int)(intptr_t)args[2] : 0, h = nargs > 3 ? (int)(intptr_t)args[3] : 1;
+    for (int i = 0; a != NULL && i < len; i++) h = 31 * h + nabu_interp_hash_code(a[from + i]);
+    NATIVE_RET_INT(frame, h);
+}
+
+/* SharedSecrets.getJavaLangAccess(): an object whose getEnumConstantsShared(Class) calls values() of the enum. */
+static void native_sharedsecrets_jla(nabu_interp_frame_t *frame, void **args, int nargs) {
+    (void)args; (void)nargs;
+    static void *jla = NULL;
+    if (jla == NULL) jla = nabu_interp_new_object("jdk/internal/access/JavaLangAccessImpl");
+    frame->result = jla; frame->has_result = 1;
+}
+static void native_jla_getEnumConstantsShared(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *cls = (nargs > 1) ? class_handle_name(args[1]) : NULL;
+    frame->result = NULL; frame->has_result = 1;
+    if (cls == NULL) return;
+    char desc[300];
+    snprintf(desc, sizeof desc, "()[L%s;", cls);
+    nabu_classfile_load_class(cls);
+    nabu_interp_method_t *t = nabu_interp_find_method(cls, "values", desc);
+    if (t != NULL) frame->result = nabu_interp_invoke(t, NULL, 0);
+}
+
+/* Comparable.compareTo(Object) for what the interpreter has no class for: Strings (a char *), boxed numbers (the value itself),
+ * tagged Boolean and Character boxes. An object with its own compareTo runs that method. */
+static int plain_value(void *v) { return (uintptr_t)v < 0x100000000ull || (uintptr_t)v >= 0x800000000000ull; }
+
+static void native_comparable_compareTo(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *a = nargs > 0 ? args[0] : NULL, *b = nargs > 1 ? args[1] : NULL;
+    if (a != NULL && !plain_value(a) && !nabu_box_kind(a)) {
+        const char *rt = nabu_compiled_type_name(a);
+        if (rt != NULL) {
+            nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "compareTo", "(Ljava/lang/Object;)I", 0);
+            if (t == NULL || t->code == NULL) {
+                /* javac makes a bridge method for compareTo(T); without it the class has the typed one only */
+                char d[300];
+                snprintf(d, sizeof d, "(L%s;)I", rt);
+                t = nabu_interp_resolve_in_hierarchy(rt, "compareTo", d, 0);
+            }
+            if (t != NULL && t->code != NULL) { frame->result = nabu_interp_invoke(t, args, nargs); frame->has_result = 1; return; }
+        }
+        if (!nabu_box_kind(a) && b != NULL && !plain_value(b)) { NATIVE_RET_INT(frame, strcmp((const char *)a, (const char *)b)); return; }   /* Strings */
+    }
+    char ba[8], bb[8];
+    if (nabu_box_kind(a) || nabu_box_kind(b)) { const char *x = nabu_box_kind(a) ? nabu_box_text(a, ba) : "", *y = nabu_box_kind(b) ? nabu_box_text(b, bb) : ""; NATIVE_RET_INT(frame, strcmp(x, y)); return; }
+    long x = (long)(intptr_t)a, y = (long)(intptr_t)b;
+    NATIVE_RET_INT(frame, x < y ? -1 : (x > y ? 1 : 0));
+}
+
+static void native_integer_compare(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int x = nargs > 0 ? (int)(intptr_t)args[0] : 0, y = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    NATIVE_RET_INT(frame, x < y ? -1 : (x > y ? 1 : 0));
+}
+static void native_long_compare(nabu_interp_frame_t *frame, void **args, int nargs) {
+    long x = nargs > 0 ? (long)(intptr_t)args[0] : 0, y = nargs > 1 ? (long)(intptr_t)args[1] : 0;
+    NATIVE_RET_INT(frame, x < y ? -1 : (x > y ? 1 : 0));
+}
+
 static void native_string_lastChars(nabu_interp_frame_t *frame, void **args, int nargs) {   /* isBlank */
     const char *s = arg_cstr(args, 0, nargs);
     int blank = 1;
@@ -3003,6 +3185,17 @@ static void register_builtins(void) {
     register_native("java/lang/Character", "isWhitespace", "(C)Z", native_char_isWhitespace);
     register_native("java/lang/Character", "toUpperCase", "(C)C", native_char_toUpperCase);
     register_native("java/lang/Character", "toLowerCase", "(C)C", native_char_toLowerCase);
+    register_native("java/lang/Character", "digit", "(CI)I", native_char_digit);
+    register_native("java/lang/Character", "digit", "(II)I", native_char_digit);
+    register_native("java/lang/Character", "forDigit", "(II)C", native_char_forDigit);
+    register_native("java/lang/Character", "isDigit", "(I)Z", native_char_isDigit);
+    register_native("java/lang/Character", "isLetter", "(I)Z", native_char_isLetter);
+    register_native("java/lang/Character", "isLetterOrDigit", "(I)Z", native_char_isLetterOrDigit);
+    register_native("java/lang/Character", "isWhitespace", "(I)Z", native_char_isWhitespace);
+    register_native("java/lang/Character", "isUpperCase", "(I)Z", native_char_isUpperCase);
+    register_native("java/lang/Character", "isLowerCase", "(I)Z", native_char_isLowerCase);
+    register_native("java/lang/Character", "toUpperCase", "(I)I", native_char_toUpperCase);
+    register_native("java/lang/Character", "toLowerCase", "(I)I", native_char_toLowerCase);
     register_native("java/lang/Math", "abs", "(D)D", native_math_abs_d);
     register_native("java/lang/Math", "abs", "(F)F", native_math_abs_f);
     register_native("java/lang/Math", "max", "(DD)D", native_math_max_d);
@@ -3028,6 +3221,110 @@ static void register_builtins(void) {
     register_native("java/lang/String", "repeat", "(I)Ljava/lang/String;", native_string_repeat);
     register_native("java/lang/String", "substring", "(I)Ljava/lang/String;", native_string_substring_from);
     register_native("java/lang/String", "isBlank", "()Z", native_string_lastChars);
+    register_native("jdk/internal/misc/Unsafe", "getUnsafe", "()Ljdk/internal/misc/Unsafe;", native_unsafe_getUnsafe);
+    register_native("jdk/internal/misc/Unsafe", "objectFieldOffset", "(Ljava/lang/Class;Ljava/lang/String;)J", native_unsafe_objectFieldOffset);
+    register_native("jdk/internal/misc/Unsafe", "objectFieldOffset", "(Ljava/lang/reflect/Field;)J", native_unsafe_objectFieldOffsetField);
+    register_native("jdk/internal/misc/Unsafe", "arrayBaseOffset", "(Ljava/lang/Class;)I", native_unsafe_arrayBaseOffset);
+    register_native("jdk/internal/misc/Unsafe", "arrayBaseOffset", "(Ljava/lang/Class;)J", native_unsafe_arrayBaseOffsetL);
+    register_native("jdk/internal/misc/Unsafe", "arrayIndexScale", "(Ljava/lang/Class;)J", native_unsafe_arrayIndexScaleL);
+    register_native("jdk/internal/misc/Unsafe", "arrayIndexScale", "(Ljava/lang/Class;)I", native_unsafe_arrayIndexScale);
+    register_native("jdk/internal/misc/Unsafe", "getInt", "(Ljava/lang/Object;J)I", native_unsafe_getInt);
+    register_native("jdk/internal/misc/Unsafe", "getLong", "(Ljava/lang/Object;J)J", native_unsafe_getLong);
+    register_native("jdk/internal/misc/Unsafe", "getReference", "(Ljava/lang/Object;J)Ljava/lang/Object;", native_unsafe_getRef);
+    register_native("jdk/internal/misc/Unsafe", "getByte", "(Ljava/lang/Object;J)B", native_unsafe_getByte);
+    register_native("jdk/internal/misc/Unsafe", "getIntVolatile", "(Ljava/lang/Object;J)I", native_unsafe_getInt);
+    register_native("jdk/internal/misc/Unsafe", "getLongVolatile", "(Ljava/lang/Object;J)J", native_unsafe_getLong);
+    register_native("jdk/internal/misc/Unsafe", "getReferenceVolatile", "(Ljava/lang/Object;J)Ljava/lang/Object;", native_unsafe_getRef);
+    register_native("jdk/internal/misc/Unsafe", "getByteVolatile", "(Ljava/lang/Object;J)B", native_unsafe_getByte);
+    register_native("jdk/internal/misc/Unsafe", "getIntAcquire", "(Ljava/lang/Object;J)I", native_unsafe_getInt);
+    register_native("jdk/internal/misc/Unsafe", "getLongAcquire", "(Ljava/lang/Object;J)J", native_unsafe_getLong);
+    register_native("jdk/internal/misc/Unsafe", "getReferenceAcquire", "(Ljava/lang/Object;J)Ljava/lang/Object;", native_unsafe_getRef);
+    register_native("jdk/internal/misc/Unsafe", "getByteAcquire", "(Ljava/lang/Object;J)B", native_unsafe_getByte);
+    register_native("jdk/internal/misc/Unsafe", "getIntOpaque", "(Ljava/lang/Object;J)I", native_unsafe_getInt);
+    register_native("jdk/internal/misc/Unsafe", "getLongOpaque", "(Ljava/lang/Object;J)J", native_unsafe_getLong);
+    register_native("jdk/internal/misc/Unsafe", "getReferenceOpaque", "(Ljava/lang/Object;J)Ljava/lang/Object;", native_unsafe_getRef);
+    register_native("jdk/internal/misc/Unsafe", "getByteOpaque", "(Ljava/lang/Object;J)B", native_unsafe_getByte);
+    register_native("jdk/internal/misc/Unsafe", "putInt", "(Ljava/lang/Object;JI)V", native_unsafe_putInt);
+    register_native("jdk/internal/misc/Unsafe", "putLong", "(Ljava/lang/Object;JJ)V", native_unsafe_putLong);
+    register_native("jdk/internal/misc/Unsafe", "putReference", "(Ljava/lang/Object;JLjava/lang/Object;)V", native_unsafe_putRef);
+    register_native("jdk/internal/misc/Unsafe", "putByte", "(Ljava/lang/Object;JB)V", native_unsafe_putByte);
+    register_native("jdk/internal/misc/Unsafe", "putIntVolatile", "(Ljava/lang/Object;JI)V", native_unsafe_putInt);
+    register_native("jdk/internal/misc/Unsafe", "putLongVolatile", "(Ljava/lang/Object;JJ)V", native_unsafe_putLong);
+    register_native("jdk/internal/misc/Unsafe", "putReferenceVolatile", "(Ljava/lang/Object;JLjava/lang/Object;)V", native_unsafe_putRef);
+    register_native("jdk/internal/misc/Unsafe", "putByteVolatile", "(Ljava/lang/Object;JB)V", native_unsafe_putByte);
+    register_native("jdk/internal/misc/Unsafe", "putIntRelease", "(Ljava/lang/Object;JI)V", native_unsafe_putInt);
+    register_native("jdk/internal/misc/Unsafe", "putLongRelease", "(Ljava/lang/Object;JJ)V", native_unsafe_putLong);
+    register_native("jdk/internal/misc/Unsafe", "putReferenceRelease", "(Ljava/lang/Object;JLjava/lang/Object;)V", native_unsafe_putRef);
+    register_native("jdk/internal/misc/Unsafe", "putByteRelease", "(Ljava/lang/Object;JB)V", native_unsafe_putByte);
+    register_native("jdk/internal/misc/Unsafe", "putIntOpaque", "(Ljava/lang/Object;JI)V", native_unsafe_putInt);
+    register_native("jdk/internal/misc/Unsafe", "putLongOpaque", "(Ljava/lang/Object;JJ)V", native_unsafe_putLong);
+    register_native("jdk/internal/misc/Unsafe", "putReferenceOpaque", "(Ljava/lang/Object;JLjava/lang/Object;)V", native_unsafe_putRef);
+    register_native("jdk/internal/misc/Unsafe", "putByteOpaque", "(Ljava/lang/Object;JB)V", native_unsafe_putByte);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetInt", "(Ljava/lang/Object;JII)Z", native_unsafe_casInt);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetLong", "(Ljava/lang/Object;JJJ)Z", native_unsafe_casLong);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetReference", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z", native_unsafe_casRef);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetIntPlain", "(Ljava/lang/Object;JII)Z", native_unsafe_casInt);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetLongPlain", "(Ljava/lang/Object;JJJ)Z", native_unsafe_casLong);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetReferencePlain", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z", native_unsafe_casRef);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetIntAcquire", "(Ljava/lang/Object;JII)Z", native_unsafe_casInt);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetLongAcquire", "(Ljava/lang/Object;JJJ)Z", native_unsafe_casLong);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetReferenceAcquire", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z", native_unsafe_casRef);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetIntRelease", "(Ljava/lang/Object;JII)Z", native_unsafe_casInt);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetLongRelease", "(Ljava/lang/Object;JJJ)Z", native_unsafe_casLong);
+    register_native("jdk/internal/misc/Unsafe", "weakCompareAndSetReferenceRelease", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z", native_unsafe_casRef);
+    register_native("jdk/internal/misc/Unsafe", "compareAndSetInt", "(Ljava/lang/Object;JII)Z", native_unsafe_casInt);
+    register_native("jdk/internal/misc/Unsafe", "compareAndSetLong", "(Ljava/lang/Object;JJJ)Z", native_unsafe_casLong);
+    register_native("jdk/internal/misc/Unsafe", "compareAndSetReference", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z", native_unsafe_casRef);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeInt", "(Ljava/lang/Object;JII)I", native_unsafe_witnessInt);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeLong", "(Ljava/lang/Object;JJJ)J", native_unsafe_witnessLong);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeReference", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", native_unsafe_witnessRef);
+    register_native("jdk/internal/misc/Unsafe", "getAndAddInt", "(Ljava/lang/Object;JI)I", native_unsafe_getAndAddInt);
+    register_native("jdk/internal/misc/Unsafe", "getAndAddLong", "(Ljava/lang/Object;JJ)J", native_unsafe_getAndAddLong);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetInt", "(Ljava/lang/Object;JI)I", native_unsafe_getAndSetInt);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetLong", "(Ljava/lang/Object;JJ)J", native_unsafe_getAndSetLong);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetReference", "(Ljava/lang/Object;JLjava/lang/Object;)Ljava/lang/Object;", native_unsafe_getAndSetRef);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeIntAcquire", "(Ljava/lang/Object;JII)I", native_unsafe_witnessInt);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeLongAcquire", "(Ljava/lang/Object;JJJ)J", native_unsafe_witnessLong);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeReferenceAcquire", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", native_unsafe_witnessRef);
+    register_native("jdk/internal/misc/Unsafe", "getAndAddIntAcquire", "(Ljava/lang/Object;JI)I", native_unsafe_getAndAddInt);
+    register_native("jdk/internal/misc/Unsafe", "getAndAddLongAcquire", "(Ljava/lang/Object;JJ)J", native_unsafe_getAndAddLong);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetIntAcquire", "(Ljava/lang/Object;JI)I", native_unsafe_getAndSetInt);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetLongAcquire", "(Ljava/lang/Object;JJ)J", native_unsafe_getAndSetLong);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetReferenceAcquire", "(Ljava/lang/Object;JLjava/lang/Object;)Ljava/lang/Object;", native_unsafe_getAndSetRef);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeIntRelease", "(Ljava/lang/Object;JII)I", native_unsafe_witnessInt);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeLongRelease", "(Ljava/lang/Object;JJJ)J", native_unsafe_witnessLong);
+    register_native("jdk/internal/misc/Unsafe", "compareAndExchangeReferenceRelease", "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", native_unsafe_witnessRef);
+    register_native("jdk/internal/misc/Unsafe", "getAndAddIntRelease", "(Ljava/lang/Object;JI)I", native_unsafe_getAndAddInt);
+    register_native("jdk/internal/misc/Unsafe", "getAndAddLongRelease", "(Ljava/lang/Object;JJ)J", native_unsafe_getAndAddLong);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetIntRelease", "(Ljava/lang/Object;JI)I", native_unsafe_getAndSetInt);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetLongRelease", "(Ljava/lang/Object;JJ)J", native_unsafe_getAndSetLong);
+    register_native("jdk/internal/misc/Unsafe", "getAndSetReferenceRelease", "(Ljava/lang/Object;JLjava/lang/Object;)Ljava/lang/Object;", native_unsafe_getAndSetRef);
+    register_native("jdk/internal/misc/Unsafe", "fullFence", "()V", native_nothing);
+    register_native("jdk/internal/misc/Unsafe", "loadFence", "()V", native_nothing);
+    register_native("jdk/internal/misc/Unsafe", "storeFence", "()V", native_nothing);
+    register_native("jdk/internal/misc/Unsafe", "loadLoadFence", "()V", native_nothing);
+    register_native("jdk/internal/misc/Unsafe", "storeStoreFence", "()V", native_nothing);
+    register_native("jdk/internal/misc/Unsafe", "ensureClassInitialized", "(Ljava/lang/Class;)V", native_nothing);
+    register_native("jdk/internal/misc/Unsafe", "shouldBeInitialized", "(Ljava/lang/Class;)Z", native_zero);
+    register_native("jdk/internal/misc/Unsafe", "allocateInstance", "(Ljava/lang/Class;)Ljava/lang/Object;", native_unsafe_allocateInstance);
+    register_native("jdk/internal/misc/Unsafe", "addressSize", "()I", native_eight);
+    register_native("jdk/internal/misc/Unsafe", "pageSize", "()I", native_pageSize);
+    register_native("jdk/internal/misc/Unsafe", "isBigEndian", "()Z", native_zero);
+    register_native("jdk/internal/misc/Unsafe", "unalignedAccess", "()Z", native_one);
+    register_native("jdk/internal/misc/CDS", "getRandomSeedForDumping", "()J", native_zero);
+    register_native("jdk/internal/misc/CDS", "isDumpingClassList", "()Z", native_zero);
+    register_native("jdk/internal/misc/CDS", "isDumpingArchive", "()Z", native_zero);
+    register_native("jdk/internal/misc/CDS", "isSharingEnabled", "()Z", native_zero);
+    register_native("jdk/internal/misc/CDS", "initializeFromArchive", "(Ljava/lang/Class;)V", native_nothing);
+    register_native("jdk/internal/util/ArraysSupport", "hashCode", "([Ljava/lang/Object;III)I", native_arrayssupport_hashCode);
+    register_native("jdk/internal/access/SharedSecrets", "getJavaLangAccess", "()Ljdk/internal/access/JavaLangAccess;", native_sharedsecrets_jla);
+    register_native("jdk/internal/access/JavaLangAccess", "getEnumConstantsShared", "(Ljava/lang/Class;)[Ljava/lang/Enum;", native_jla_getEnumConstantsShared);
+    register_native("jdk/internal/access/JavaLangAccessImpl", "getEnumConstantsShared", "(Ljava/lang/Class;)[Ljava/lang/Enum;", native_jla_getEnumConstantsShared);
+    register_native("java/lang/Comparable", "compareTo", "(Ljava/lang/Object;)I", native_comparable_compareTo);
+    register_native("java/lang/Integer", "compareTo", "(Ljava/lang/Integer;)I", native_comparable_compareTo);
+    register_native("java/lang/Long", "compareTo", "(Ljava/lang/Long;)I", native_comparable_compareTo);
+    register_native("java/lang/Integer", "compare", "(II)I", native_integer_compare);
+    register_native("java/lang/Long", "compare", "(JJ)I", native_long_compare);
     register_native("java/lang/StringBuilder", "length", "()I", native_sb_length);
     register_native("java/lang/StringBuilder", "charAt", "(I)C", native_sb_charAt);
     register_native("java/lang/StringBuilder", "setLength", "(I)V", native_sb_setLength);
@@ -3162,6 +3459,7 @@ static void register_builtins(void) {
     /* Arrays */
     register_native("java/util/Arrays", "copyOf", "([II)[I", native_arrays_copyOf_int);
     register_native("java/util/Arrays", "copyOf", "([Ljava/lang/Object;I)[Ljava/lang/Object;", native_arrays_copyOf_obj);
+    register_native("java/util/Arrays", "copyOf", "([Ljava/lang/Object;ILjava/lang/Class;)[Ljava/lang/Object;", native_arrays_copyOf_obj);
     register_native("java/util/Arrays", "sort", "([I)V", native_arrays_sort_int);
     register_native("java/lang/String", "replace", "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;", native_string_replace_str);
     register_native("java/lang/ClassLoader", "getSystemClassLoader", "()Ljava/lang/ClassLoader;", native_cl_handle);

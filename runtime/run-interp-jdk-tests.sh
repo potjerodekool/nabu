@@ -46,6 +46,9 @@ if [ "$java_out" == "$wide_out" ]; then echo "PASS WideStackTest"; else echo "FA
 java_out=$(cd "$O" && java -cp classes CoreOpsTest 2>&1)
 core_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/CoreOpsTest.class" CoreOpsTest 2>&1)
 if [ "$java_out" == "$core_out" ]; then echo "PASS CoreOpsTest"; else echo "FAIL CoreOpsTest"; diff <(echo "$java_out") <(echo "$core_out"); fail=1; fi
+java_out=$(cd "$O" && java -cp classes BoxedValuesTest 2>&1)
+bx_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/BoxedValuesTest.class" BoxedValuesTest 2>&1)
+if [ "$java_out" == "$bx_out" ]; then echo "PASS BoxedValuesTest"; else echo "FAIL BoxedValuesTest"; diff <(echo "$java_out") <(echo "$bx_out"); fail=1; fi
 java_out=$(cd "$O" && java -cp classes StreamsTest 2>&1)
 st_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/StreamsTest.class" StreamsTest 2>&1)
 if [ "$java_out" == "$st_out" ]; then echo "PASS StreamsTest"; else echo "FAIL StreamsTest"; diff <(echo "$java_out") <(echo "$st_out"); fail=1; fi

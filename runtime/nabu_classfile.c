@@ -1792,36 +1792,21 @@ static void native_system_arraycopy(nabu_interp_frame_t *frame, void **args, int
 }
 
 static void native_object_hashCode(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)nargs;
-    void *obj = (args != NULL) ? args[0] : NULL;
-    if (obj != NULL && (uintptr_t)obj >= (1 << 20)) {
-        const char *s = (const char *)obj;
-        int printable = 1;
-        for (int i = 0; i < 8 && s[i]; i++) if ((unsigned char)s[i] < 32) { printable = 0; break; }
-        if (printable && s[0]) {
-            int h = 0;
-            for (const char *p = s; *p; p++) h = 31 * h + (unsigned char)*p;
-            frame->result = (void *)(intptr_t)h;
-            frame->has_result = 1;
-            return;
-        }
-    }
-    frame->result = (void *)(intptr_t)(obj ? (int)(intptr_t)obj : 0);
+    frame->result = (void *)(intptr_t)nabu_interp_hash_code(nargs > 0 ? args[0] : NULL);
     frame->has_result = 1;
 }
 
+static int numbers_equal(void *a, void *b);
 static void native_object_equals(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)nargs;
     void *a = (args != NULL) ? args[0] : NULL;
     void *b = (nargs > 1) ? args[1] : NULL;
     int r = (a == b) ? 1 : 0;
-    if (!r && a && b && (uintptr_t)a >= (1 << 20) && (uintptr_t)b >= (1 << 20)) {
-        const char *sa = (const char *)a;
-        const char *sb = (const char *)b;
-        int pa = 1, pb = 1;
-        for (int i = 0; i < 8 && sa[i]; i++) if ((unsigned char)sa[i] < 32) { pa = 0; break; }
-        for (int i = 0; i < 8 && sb[i]; i++) if ((unsigned char)sb[i] < 32) { pb = 0; break; }
-        if (pa && pb && strcmp(sa, sb) == 0) r = 1;
+    if (!r && a && b) {
+        if (numbers_equal(a, b)) r = 1;
+        else if ((uintptr_t)a >= 0x100000000ull && (uintptr_t)a < 0x800000000000ull && (uintptr_t)b >= 0x100000000ull && (uintptr_t)b < 0x800000000000ull
+                 && nabu_compiled_type_name(a) == NULL && nabu_compiled_type_name(b) == NULL) {
+            r = strcmp((const char *)a, (const char *)b) == 0;   /* two Strings */
+        }
     }
     frame->result = (void *)(intptr_t)r;
     frame->has_result = 1;
@@ -3012,6 +2997,7 @@ static void native_sb_deleteCharAt(nabu_interp_frame_t *frame, void **args, int 
 
 #define UNSAFE_ADDR(args, nargs) ((char *)((nargs > 1) ? args[1] : NULL) + ((nargs > 2) ? (long)(intptr_t)args[2] : 0))
 
+static int numbers_equal(void *a, void *b);
 static void native_unsafe_getUnsafe(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)args; (void)nargs;
     static void *theUnsafe = NULL;
@@ -3255,8 +3241,10 @@ static void native_jla_getEnumConstantsShared(nabu_interp_frame_t *frame, void *
  * tagged Boolean and Character boxes. An object with its own compareTo runs that method. */
 static int plain_value(void *v) { return (uintptr_t)v < 0x100000000ull || (uintptr_t)v >= 0x800000000000ull; }
 
+static int compare_numbers(void *a, void *b, int *result);
 static void native_comparable_compareTo(nabu_interp_frame_t *frame, void **args, int nargs) {
     void *a = nargs > 0 ? args[0] : NULL, *b = nargs > 1 ? args[1] : NULL;
+    { int r; if (a != NULL && compare_numbers(a, b, &r)) { NATIVE_RET_INT(frame, r); return; } }
     if (a != NULL && !plain_value(a) && !nabu_box_kind(a)) {
         const char *rt = nabu_compiled_type_name(a);
         if (rt != NULL) {
@@ -3292,16 +3280,23 @@ static void native_box_int(nabu_interp_frame_t *frame, void **args, int nargs) {
     frame->result = v == NULL ? nabu_box_zero(0) : v; frame->has_result = 1;
 }
 static void native_box_double(nabu_interp_frame_t *frame, void **args, int nargs) {
-    void *v = (nargs > 0) ? args[0] : NULL;
-    frame->result = v == NULL ? nabu_box_zero(1) : v; frame->has_result = 1;
+    long bits = (nargs > 0) ? (long)(intptr_t)args[0] : 0;
+    double d; memcpy(&d, &bits, sizeof d);
+    frame->result = nabu_interp_box_double(d); frame->has_result = 1;
 }
 static void native_box_float(nabu_interp_frame_t *frame, void **args, int nargs) {
-    void *v = (nargs > 0) ? args[0] : NULL;
-    frame->result = v == NULL ? nabu_box_zero(2) : v; frame->has_result = 1;
+    int bits = (nargs > 0) ? (int)(intptr_t)args[0] : 0;
+    float f; memcpy(&f, &bits, sizeof f);
+    frame->result = nabu_interp_box_float(f); frame->has_result = 1;
+}
+static void native_box_long(nabu_interp_frame_t *frame, void **args, int nargs) {
+    frame->result = nabu_interp_box_long(nargs > 0 ? (int64_t)(intptr_t)args[0] : 0); frame->has_result = 1;
 }
 /* xxxValue() of a boxed number, converted to the type asked for: the box holds an int (I), long (J), float (F) or double (D). */
 static void unbox_convert(nabu_interp_frame_t *frame, void **args, int nargs, char from, char to) {
-    void *raw = nabu_unbox(nargs > 0 ? args[0] : NULL);
+    void *arg = nargs > 0 ? args[0] : NULL;
+    void *raw = nabu_unbox(arg);
+    { char k; int64_t bits; if (nabu_interp_heap_box(arg, &k, &bits)) { from = k; raw = (void *)(intptr_t)bits; } }
     double d = 0; long l = 0;
     if (from == 'I') { l = (long)(int)(intptr_t)raw; d = (double)l; }
     else if (from == 'J') { l = (long)(intptr_t)raw; d = (double)l; }
@@ -3336,6 +3331,52 @@ static void native_int_max(nabu_interp_frame_t *frame, void **args, int nargs) {
 static void native_int_min(nabu_interp_frame_t *frame, void **args, int nargs) { int a = nargs > 0 ? (int)(intptr_t)args[0] : 0, b = nargs > 1 ? (int)(intptr_t)args[1] : 0; NATIVE_RET_INT(frame, a < b ? a : b); }
 static void native_long_sum(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = (void *)(intptr_t)((nargs > 0 ? (long)(intptr_t)args[0] : 0) + (nargs > 1 ? (long)(intptr_t)args[1] : 0)); frame->has_result = 1; }
 static void native_double_sum(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, arg_double(args, 0, nargs) + arg_double(args, 2, nargs)); }
+/* ---- equals, hashCode, toString and compareTo of boxed values ---- */
+
+/* The number a boxed value stands for: its kind ('I' integral, 'J', 'D', 'F') and bits; 0 when it is none. */
+static int number_of(void *v, char *kind, int64_t *bits) {
+    if (v == NULL) return 0;
+    if (nabu_interp_heap_box(v, kind, bits)) return 1;
+    int k = nabu_box_kind(v);
+    if (k == 3) { *kind = 'I'; *bits = 0; return 1; }
+    if (k) return 0;
+    if (plain_value(v)) { *kind = 'I'; *bits = (int64_t)(intptr_t)v; return 1; }
+    return 0;
+}
+
+static int numbers_equal(void *a, void *b) {
+    char ka, kb; int64_t ba, bb;
+    if (!number_of(a, &ka, &ba) || !number_of(b, &kb, &bb)) return 0;
+    int fa = ka == 'D' || ka == 'F', fb = kb == 'D' || kb == 'F';
+    return fa == fb && (!fa || ka == kb) && ba == bb;
+}
+
+static void native_number_equals(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *a = nargs > 0 ? args[0] : NULL, *b = nargs > 1 ? args[1] : NULL;
+    NATIVE_RET_INT(frame, a == b || numbers_equal(a, b));
+}
+static void native_number_hashCode(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, nabu_interp_hash_code(nargs > 0 ? args[0] : NULL)); }
+static void native_number_toString(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = nabu_interp_object_to_string(nargs > 0 ? args[0] : NULL); frame->has_result = 1; }
+static void native_tagged_equals(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, nargs > 1 && args[0] == args[1]); }
+static void native_tagged_hashCode(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, nabu_interp_hash_code(nargs > 0 ? args[0] : NULL)); }
+
+/* Comparison of two boxed numbers (Double.compare semantics for the floating point kinds). */
+static int compare_numbers(void *a, void *b, int *result) {
+    char ka, kb; int64_t ba, bb;
+    if (!number_of(a, &ka, &ba) || !number_of(b, &kb, &bb)) return 0;
+    if (ka == 'D' || ka == 'F' || kb == 'D' || kb == 'F') {
+        double x, y;
+        if (ka == 'D') memcpy(&x, &ba, sizeof x); else if (ka == 'F') { int32_t t = (int32_t)ba; float f; memcpy(&f, &t, sizeof f); x = f; } else x = (double)ba;
+        if (kb == 'D') memcpy(&y, &bb, sizeof y); else if (kb == 'F') { int32_t t = (int32_t)bb; float f; memcpy(&f, &t, sizeof f); y = f; } else y = (double)bb;
+        *result = x < y ? -1 : (x > y ? 1 : (x == y ? 0 : (x != x ? (y != y ? 0 : 1) : -1)));
+    } else *result = ba < bb ? -1 : (ba > bb ? 1 : 0);
+    return 1;
+}
+static void native_double_compare(nabu_interp_frame_t *frame, void **args, int nargs) {
+    double x = arg_double(args, 0, nargs), y = arg_double(args, 2, nargs);
+    NATIVE_RET_INT(frame, x < y ? -1 : (x > y ? 1 : (x == y ? 0 : (x != x ? (y != y ? 0 : 1) : -1))));
+}
+
 static void native_string_lastChars(nabu_interp_frame_t *frame, void **args, int nargs) {   /* isBlank */
     const char *s = arg_cstr(args, 0, nargs);
     int blank = 1;
@@ -3515,6 +3556,37 @@ static void register_builtins(void) {
     register_native("java/lang/Integer", "compareTo", "(Ljava/lang/Integer;)I", native_comparable_compareTo);
     register_native("java/lang/Long", "compareTo", "(Ljava/lang/Long;)I", native_comparable_compareTo);
     register_native("java/lang/Integer", "compare", "(II)I", native_integer_compare);
+    register_native("java/lang/Integer", "equals", "(Ljava/lang/Object;)Z", native_number_equals);
+    register_native("java/lang/Integer", "hashCode", "()I", native_number_hashCode);
+    register_native("java/lang/Integer", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Integer", "compareTo", "(Ljava/lang/Integer;)I", native_comparable_compareTo);
+    register_native("java/lang/Long", "equals", "(Ljava/lang/Object;)Z", native_number_equals);
+    register_native("java/lang/Long", "hashCode", "()I", native_number_hashCode);
+    register_native("java/lang/Long", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Long", "compareTo", "(Ljava/lang/Long;)I", native_comparable_compareTo);
+    register_native("java/lang/Short", "equals", "(Ljava/lang/Object;)Z", native_number_equals);
+    register_native("java/lang/Short", "hashCode", "()I", native_number_hashCode);
+    register_native("java/lang/Short", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Short", "compareTo", "(Ljava/lang/Short;)I", native_comparable_compareTo);
+    register_native("java/lang/Byte", "equals", "(Ljava/lang/Object;)Z", native_number_equals);
+    register_native("java/lang/Byte", "hashCode", "()I", native_number_hashCode);
+    register_native("java/lang/Byte", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Byte", "compareTo", "(Ljava/lang/Byte;)I", native_comparable_compareTo);
+    register_native("java/lang/Double", "equals", "(Ljava/lang/Object;)Z", native_number_equals);
+    register_native("java/lang/Double", "hashCode", "()I", native_number_hashCode);
+    register_native("java/lang/Double", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Double", "compareTo", "(Ljava/lang/Double;)I", native_comparable_compareTo);
+    register_native("java/lang/Float", "equals", "(Ljava/lang/Object;)Z", native_number_equals);
+    register_native("java/lang/Float", "hashCode", "()I", native_number_hashCode);
+    register_native("java/lang/Float", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Float", "compareTo", "(Ljava/lang/Float;)I", native_comparable_compareTo);
+    register_native("java/lang/Boolean", "equals", "(Ljava/lang/Object;)Z", native_tagged_equals);
+    register_native("java/lang/Boolean", "hashCode", "()I", native_tagged_hashCode);
+    register_native("java/lang/Boolean", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Character", "equals", "(Ljava/lang/Object;)Z", native_tagged_equals);
+    register_native("java/lang/Character", "hashCode", "()I", native_tagged_hashCode);
+    register_native("java/lang/Character", "toString", "()Ljava/lang/String;", native_number_toString);
+    register_native("java/lang/Double", "compare", "(DD)I", native_double_compare);
     register_native("java/lang/Integer", "sum", "(II)I", native_int_sum);
     register_native("java/lang/Integer", "max", "(II)I", native_int_max);
     register_native("java/lang/Integer", "min", "(II)I", native_int_min);
@@ -3549,7 +3621,7 @@ static void register_builtins(void) {
     /* Integer */
     register_native("java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", native_box_int);
     /* A boxed primitive is its raw value in this interpreter: valueOf and xxxValue are the identity. */
-    register_native("java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", native_box_int);
+    register_native("java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", native_box_long);
     register_native("java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", native_box_bool);
     register_native("java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", native_box_char);
     register_native("java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", native_box_int);

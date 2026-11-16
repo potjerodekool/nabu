@@ -1105,6 +1105,8 @@ char *nabu_interp_object_to_string(void *av) {
     if (nabu_as_closure(av) == NULL) {
         char *sb = nabu_interp_sb_text(av);
         if (sb != NULL) return strdup(sb);   /* a StringBuilder of the natives */
+        char *num = nabu_interp_number_text(av);
+        if (num != NULL) return num;
         const char *rt = interp_type_name(av);
         if (rt != NULL) {
             nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "toString", "()Ljava/lang/String;", 0);
@@ -1136,8 +1138,10 @@ void nabu_interp_ensure_clinit(const char *cls) { ensure_clinit(cls); }
 int nabu_interp_hash_code(void *v) {
     if (v == NULL) return 0;
     if (nabu_box_kind(v) == 3) return 0;
+    if (nabu_box_kind(v) == 2) return (int)((uintptr_t)v & 0xffff);
     if (nabu_box_kind(v)) { char bb[8]; const char *t = nabu_box_text(v, bb); return strcmp(t, "true") == 0 ? 1231 : strcmp(t, "false") == 0 ? 1237 : (int)(intptr_t)v; }
     if ((uintptr_t)v < 0x100000000ull || (uintptr_t)v >= 0x800000000000ull) return (int)(intptr_t)v;   /* an identity boxed int */
+    { char k; int64_t b; if (nabu_interp_heap_box(v, &k, &b)) return k == 'F' ? (int)b : (int)(b ^ ((uint64_t)b >> 32)); }
     const char *rt = interp_type_name(v);
     if (rt != NULL) {
         nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "hashCode", "()I", 0);
@@ -1411,6 +1415,44 @@ static int invoke_returns_void(nabu_interp_method_t *m, int idx) {
 static int recv_depth_lo(nabu_interp_method_t *m, int idx) { int n = invoke_param_count(m, idx); return n >= 0 ? n : 0; }
 static int recv_depth_hi(nabu_interp_method_t *m, int idx) { int n = invoke_param_count(m, idx); return n >= 0 ? n + 1 : 8; }
 
+/* ---- Boxed numbers ----
+ * An Integer (and a Short, Byte, and a Long in int range) is its raw value, a 0 of any kind a tagged box (nabu_box_zero).
+ * A Double, a Float and a Long beyond int range are objects of the JDK class with the bits in their `value` slot: their raw
+ * bits would look like heap pointers or like another number. */
+void *nabu_interp_box_heap(const char *cls, int64_t bits) {
+    void *o = interp_new_object(cls);
+    if (o == NULL) return NULL;
+    int fi = nabu_interp_field_index(cls, "value");
+    ((int64_t *)((char *)o + sizeof(nabu_object)))[fi >= 0 ? fi : 0] = bits;
+    return o;
+}
+void *nabu_interp_box_double(double v) { int64_t b; memcpy(&b, &v, sizeof b); return nabu_interp_box_heap("java/lang/Double", b); }
+void *nabu_interp_box_float(float v) { int32_t b; memcpy(&b, &v, sizeof b); return nabu_interp_box_heap("java/lang/Float", (int64_t)b); }
+void *nabu_interp_box_long(int64_t v) {
+    if (v == 0) return nabu_box_zero(0);
+    if (v >= -2147483648LL && v <= 2147483647LL) return (void *)(intptr_t)v;
+    return nabu_interp_box_heap("java/lang/Long", v);
+}
+/* A boxed number that is an object: its kind ('D', 'F' or 'J') and bits; 0 when v is not one. */
+int nabu_interp_heap_box(void *v, char *kind, int64_t *bits) {
+    const char *rt = interp_type_name(v);
+    if (rt == NULL || strncmp(rt, "java/lang/", 10) != 0) return 0;
+    char k = strcmp(rt, "java/lang/Double") == 0 ? 'D' : strcmp(rt, "java/lang/Float") == 0 ? 'F' : strcmp(rt, "java/lang/Long") == 0 ? 'J' : 0;
+    if (k == 0) return 0;
+    int fi = nabu_interp_field_index(rt, "value");
+    *kind = k;
+    *bits = ((int64_t *)((char *)v + sizeof(nabu_object)))[fi >= 0 ? fi : 0];
+    return 1;
+}
+/* The text of a boxed number object, malloc'd; NULL when v is none. */
+char *nabu_interp_number_text(void *v) {
+    char k; int64_t bits;
+    if (!nabu_interp_heap_box(v, &k, &bits)) return NULL;
+    if (k == 'D') { double d; memcpy(&d, &bits, sizeof d); return nabu_interp_double_to_string(d); }
+    if (k == 'F') { int32_t b = (int32_t)bits; float f; memcpy(&f, &b, sizeof f); return nabu_interp_float_to_string(f); }
+    char t[32]; snprintf(t, sizeof t, "%ld", (long)bits); return strdup(t);
+}
+
 /* A new object of a class: the class is loaded first so that the number of fields is right. */
 static void *interp_new_object(const char *cname) {
     if (cname != NULL) nabu_classfile_load_class(cname);
@@ -1480,12 +1522,11 @@ static nabu_interp_method_t *resolve_invoke_target(nabu_interp_frame_t *f, nabu_
     const char *mdesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
     if (cname == NULL || mname == NULL || mdesc == NULL) return cur;
     int jdk = is_jdk_class(cname);
-    /* the types whose values are not objects of the interpreter (an int, a char *, a tagged box) */
-    int plain = strcmp(cname, "java/lang/Object") == 0 || strcmp(cname, "java/lang/String") == 0 || strcmp(cname, "java/lang/CharSequence") == 0
-        || strcmp(cname, "java/lang/Comparable") == 0 || strcmp(cname, "java/lang/Number") == 0 || strncmp(cname, "java/lang/", 10) == 0
-        && (strstr(cname + 10, "/") == NULL) && (strcmp(cname, "java/lang/Integer") == 0 || strcmp(cname, "java/lang/Long") == 0
+    /* the final types whose values are not objects of the interpreter (an int, a char *, a tagged box); a receiver of a type that
+     * can be anything (Object, Number, ...) is looked at when it is an object */
+    int plain = strcmp(cname, "java/lang/String") == 0 || strcmp(cname, "java/lang/Integer") == 0 || strcmp(cname, "java/lang/Long") == 0
         || strcmp(cname, "java/lang/Short") == 0 || strcmp(cname, "java/lang/Byte") == 0 || strcmp(cname, "java/lang/Character") == 0
-        || strcmp(cname, "java/lang/Boolean") == 0 || strcmp(cname, "java/lang/Float") == 0 || strcmp(cname, "java/lang/Double") == 0);
+        || strcmp(cname, "java/lang/Boolean") == 0 || strcmp(cname, "java/lang/Float") == 0 || strcmp(cname, "java/lang/Double") == 0;
     if (jdk && plain) return cur;
     if (op == 0xb6) {
         int pc = count_params(mdesc);

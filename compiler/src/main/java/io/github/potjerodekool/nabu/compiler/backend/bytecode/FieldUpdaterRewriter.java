@@ -25,8 +25,9 @@ import java.util.function.Function;
  * variants), as the JDK and libraries call it from static initializers ({@code SQLException}, H2, Tomcat, ...). The
  * JDK's implementation checks access through the caller's class and reads the field through {@code Unsafe}; neither is
  * there in a native executable. When the arguments are constants, the call becomes {@code new Updater()} of a class
- * generated for that field, which reads and writes the field directly: the threads of a native program run under one
- * lock and are only switched at safepoints, which a compare-and-set does not contain.
+ * generated for that field, which reads and writes the field directly. The compare-and-set is the one of
+ * {@code Unsafe} on the offset of the field: threads run in parallel, and a read, a comparison and a write of the
+ * generated class would let two threads both succeed (Hikari then lent one connection to two threads).
  */
 final class FieldUpdaterRewriter {
 
@@ -170,11 +171,20 @@ final class FieldUpdaterRewriter {
         node.name = name;
         node.superName = kind.owner();
 
+        node.fields.add(new FieldNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL, "offset", "J", null, null));
+        final String unsafe = "jdk/internal/misc/Unsafe";
         final MethodNode init = new MethodNode(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
         init.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
         init.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, kind.owner(), "<init>", "()V", false));
+        init.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        init.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC, unsafe, "getUnsafe", "()L" + unsafe + ";", false));
+        init.instructions.add(new LdcInsnNode(Type.getObjectType(owner)));
+        init.instructions.add(new LdcInsnNode(field));
+        init.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, unsafe, "objectFieldOffset",
+                "(Ljava/lang/Class;Ljava/lang/String;)J", false));
+        init.instructions.add(new FieldInsnNode(Opcodes.PUTFIELD, name, "offset", "J"));
         init.instructions.add(new InsnNode(Opcodes.RETURN));
-        init.maxStack = 1;
+        init.maxStack = 6;
         init.maxLocals = 1;
         node.methods.add(init);
 
@@ -187,30 +197,19 @@ final class FieldUpdaterRewriter {
         final String casDesc = "(Ljava/lang/Object;" + valueDesc + valueDesc + ")Z";
         final MethodNode cas = new MethodNode(Opcodes.ACC_PUBLIC, "compareAndSet", casDesc, null, null);
         final InsnList c = cas.instructions;
-        final LabelNode failed = new LabelNode();
+        // U.compareAndSetInt / Long / Reference(obj, offset, expect, update): one atomic instruction
+        final String casName = kind == Kind.REFERENCE ? "compareAndSetReference"
+                : kind == Kind.INTEGER ? "compareAndSetInt" : "compareAndSetLong";
+        c.add(new MethodInsnNode(Opcodes.INVOKESTATIC, unsafe, "getUnsafe", "()L" + unsafe + ";", false));
         c.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        c.add(new TypeInsnNode(Opcodes.CHECKCAST, owner));
-        c.add(new FieldInsnNode(Opcodes.GETFIELD, owner, field, fieldDesc));
+        c.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        c.add(new FieldInsnNode(Opcodes.GETFIELD, name, "offset", "J"));
         c.add(new VarInsnNode(loadOpcode, 2));
-        switch (kind) {
-            case REFERENCE -> c.add(new JumpInsnNode(Opcodes.IF_ACMPNE, failed));
-            case INTEGER -> c.add(new JumpInsnNode(Opcodes.IF_ICMPNE, failed));
-            case LONG -> {
-                c.add(new InsnNode(Opcodes.LCMP));
-                c.add(new JumpInsnNode(Opcodes.IFNE, failed));
-            }
-        }
-        c.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        c.add(new TypeInsnNode(Opcodes.CHECKCAST, owner));
         c.add(new VarInsnNode(loadOpcode, 2 + valueSize));
-        castValue(c, kind, fieldDesc);
-        c.add(new FieldInsnNode(Opcodes.PUTFIELD, owner, field, fieldDesc));
-        c.add(new InsnNode(Opcodes.ICONST_1));
+        c.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, unsafe, casName,
+                "(Ljava/lang/Object;J" + valueDesc + valueDesc + ")Z", false));
         c.add(new InsnNode(Opcodes.IRETURN));
-        c.add(failed);
-        c.add(new InsnNode(Opcodes.ICONST_0));
-        c.add(new InsnNode(Opcodes.IRETURN));
-        cas.maxStack = 6;
+        cas.maxStack = 10;
         cas.maxLocals = 2 + 2 * valueSize;
         node.methods.add(cas);
 

@@ -3812,6 +3812,7 @@ BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void
 typedef struct {
     int kind; char *cls; char *name; char *desc; int32_t modifiers; char *exceptions; char *signature;
     char *params;   /* the names of the parameters, comma-separated, or NULL */
+    void *key;      /* the String of ProxySupport.methodKey, made on first use (the state is scanned by the collector) */
 } s_method;
 
 /* Set by the compiler next to the access flags: declared in an interface
@@ -3866,7 +3867,11 @@ BIND(void *, jcl_proxy_methodKey, "io.github.potjerodekool.nabu.compiler.backend
      (void *method)) {
     s_method *m = jcl_method_of(method);
     if (m == NULL) return NULL;
-    return nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(m->cls, "#"), m->name), "#"), m->desc));
+    /* every proxied call asks for it: made once, a Java String is immutable */
+    if (m->key == NULL) {
+        m->key = nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(m->cls, "#"), m->name), "#"), m->desc));
+    }
+    return m->key;
 }
 
 /* Length of the field descriptor at d ("I", "[J", "Ljava/lang/String;"). */
@@ -5030,10 +5035,32 @@ typedef struct jcl_ofo_entry { struct jcl_ofo_entry *next; char *cls; char *fiel
 static jcl_ofo_entry *volatile jcl_ofo_cache[1024];
 static int64_t jcl_unsafe_field_offset_slow(const char *cls_name, const char *field);
 
+/* The C string of a short ASCII String in buf, without allocating (nabu_cstr makes a new copy on the heap each time);
+ * anything else goes through nabu_cstr. */
+static const char *jcl_cstr_buf(const void *p, char *buf, size_t cap) {
+    if (nabu_is_jstring(p)) {
+        const nabu_jstring *js = (const nabu_jstring *) p;
+        if (js->value != NULL && js->coder == 0) {
+            const int32_t n = *(const int32_t *) js->value;
+            const unsigned char *data = (const unsigned char *) js->value + 8;
+            if (n >= 0 && (size_t) n < cap) {
+                int ascii = 1;
+                for (int32_t i = 0; i < n; i++) {
+                    if (data[i] == 0 || data[i] >= 0x80) { ascii = 0; break; }
+                    buf[i] = (char) data[i];
+                }
+                if (ascii) { buf[n] = 0; return buf; }
+            }
+        }
+    }
+    return nabu_cstr(p);
+}
+
 BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFieldOffset1", (void *self, void *cls, void *name)) {
     (void)self;
     const char *cls_name = jcl_unsafe_class_name(cls);
-    const char *field = nabu_cstr(name);
+    char field_buf[128];
+    const char *field = jcl_cstr_buf(name, field_buf, sizeof field_buf);
     uint32_t h = 2166136261u;
     for (const char *q = cls_name; *q; q++) h = (h ^ (unsigned char) *q) * 16777619u;
     for (const char *q = field; *q; q++) h = (h ^ (unsigned char) *q) * 16777619u;

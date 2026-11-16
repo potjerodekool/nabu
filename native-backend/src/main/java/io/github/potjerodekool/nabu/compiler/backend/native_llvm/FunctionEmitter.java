@@ -670,6 +670,15 @@ public class FunctionEmitter {
                 instructions.emitSafepointPoll();
             }
 
+            if (block == fn.blocks().get(0) && TRACE != null && fn.name != null) {
+                for (final String pattern : TRACE) {
+                    if (fn.name.contains(pattern)) {
+                        instructions.emitDiagTrace(llvmFn, fn.name);
+                        break;
+                    }
+                }
+            }
+
             if (handlerBody != null) {
                 // De catch-body leest de exception uit het slot van zijn eigen
                 // handler: welk landingspad hem ook bereikte, die heeft hem
@@ -708,6 +717,10 @@ public class FunctionEmitter {
      * Onbereikbare blokken volgen daarna in IR-volgorde.
      */
     /** The functions that poll at their entry (see {@link SafepointPlan}); null: every function that calls. */
+    /** {@code -Dnabu.trace=a,b}: the functions whose name contains one of these call nabu_diag_trace at their entry. */
+    private static final String[] TRACE = System.getProperty("nabu.trace") == null ? null
+            : System.getProperty("nabu.trace").split(",");
+
     private java.util.Set<String> entryPolls;
 
     void setEntryPolls(final java.util.Set<String> entryPolls) {

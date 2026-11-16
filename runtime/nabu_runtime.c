@@ -3319,6 +3319,81 @@ void nabu_monitorexit(void *obj) {
     }
 }
 
+/* -Dnabu.trace=<names>: the functions whose name contains one of them call this at their entry. Every thread keeps its
+ * last events in a ring; when org.h2.message.DbException.get(90007) is called ("the object is already closed") the events
+ * of all threads, in order, are written to stderr. For hunting a race between threads. */
+#define NABU_TRACE_RING 2048
+#define NABU_TRACE_THREADS 64
+typedef struct { unsigned long seq; const char *name; int64_t a, b; int tid; } nabu_trace_event;
+typedef struct { nabu_trace_event events[NABU_TRACE_RING]; unsigned long count; } nabu_trace_ring;
+static nabu_trace_ring *nabu_trace_rings[NABU_TRACE_THREADS];
+static volatile int nabu_trace_ring_count = 0;
+static volatile unsigned long nabu_trace_seq = 0;
+static volatile int nabu_trace_dumps = 0;
+static __thread nabu_trace_ring *nabu_trace_mine = NULL;
+typedef struct { uint64_t object; int tid; } nabu_trace_owner;
+static nabu_trace_owner nabu_trace_owners[4096];
+
+static int nabu_trace_cmp(const void *x, const void *y) {
+    const unsigned long a = ((const nabu_trace_event *)x)->seq, b = ((const nabu_trace_event *)y)->seq;
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
+static void nabu_trace_dump(void) {
+    if (__atomic_add_fetch(&nabu_trace_dumps, 1, __ATOMIC_SEQ_CST) > 3) return;
+    const int rings = nabu_trace_ring_count;
+    nabu_trace_event *all = (nabu_trace_event *)malloc(sizeof(nabu_trace_event) * NABU_TRACE_RING * (size_t)(rings > 0 ? rings : 1));
+    size_t n = 0;
+    for (int r = 0; r < rings; r++) {
+        const nabu_trace_ring *ring = nabu_trace_rings[r];
+        if (ring == NULL) continue;
+        for (int i = 0; i < NABU_TRACE_RING; i++) {
+            if (ring->events[i].name != NULL) all[n++] = ring->events[i];
+        }
+    }
+    qsort(all, n, sizeof *all, nabu_trace_cmp);
+    const size_t from = n > 2500 ? n - 2500 : 0;
+    fprintf(stderr, "[nabu/trace] ---- 90007 on thread %d: the last %zu events of all threads\n", nabu_thread_id, n - from);
+    for (size_t i = from; i < n; i++) {
+        fprintf(stderr, "[nabu/trace] #%lu t%d %s %llx %llx\n", all[i].seq, all[i].tid, all[i].name,
+                (unsigned long long)all[i].a, (unsigned long long)all[i].b);
+    }
+    fflush(stderr);
+    free(all);
+}
+
+void nabu_diag_trace(const char *name, int64_t a, int64_t b) {
+    nabu_trace_ring *ring = nabu_trace_mine;
+    if (ring == NULL) {
+        ring = (nabu_trace_ring *)calloc(1, sizeof *ring);
+        const int slot = __atomic_fetch_add(&nabu_trace_ring_count, 1, __ATOMIC_SEQ_CST);
+        if (slot >= NABU_TRACE_THREADS) { __atomic_fetch_sub(&nabu_trace_ring_count, 1, __ATOMIC_SEQ_CST); return; }
+        nabu_trace_rings[slot] = ring;
+        nabu_trace_mine = ring;
+    }
+    nabu_trace_event *e = &ring->events[ring->count % NABU_TRACE_RING];
+    ring->count++;
+    e->seq = __atomic_add_fetch(&nabu_trace_seq, 1, __ATOMIC_SEQ_CST);
+    e->name = name;
+    e->a = a;
+    e->b = b;
+    e->tid = nabu_thread_id;
+    if (a == 90007 && strstr(name, "DbException_get") != NULL) nabu_trace_dump();
+    /* A JdbcResultSet closed by another thread than the one that made it (the anomaly behind the 90007 errors): show the
+     * events that led to it. */
+    if (strstr(name, "JdbcResultSet_init") != NULL) {
+        nabu_trace_owner *o = &nabu_trace_owners[((uint64_t)a >> 4) & 4095];
+        o->object = (uint64_t)a;
+        o->tid = nabu_thread_id;
+    } else if (strstr(name, "JdbcResultSet_closeInternal") != NULL) {
+        const nabu_trace_owner *o = &nabu_trace_owners[((uint64_t)a >> 4) & 4095];
+        if (o->object == (uint64_t)a && o->tid != nabu_thread_id) {
+            fprintf(stderr, "[nabu/trace] ResultSet %llx made by thread %d is closed by thread %d\n", (unsigned long long)a, o->tid, nabu_thread_id);
+            nabu_trace_dump();
+        }
+    }
+}
+
 /* The process must end when a missing function is called, whatever the trace below runs into (a lock held by
  * another thread, a slow symbol lookup): a watchdog ends it after a few seconds. */
 static void *nabu_unresolved_watchdog(void *arg) {

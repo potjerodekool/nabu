@@ -1006,6 +1006,18 @@ public void setReflectionRegistry(
                 LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<Pointer>(0), 0, 0));
         LLVMSetLinkage(safepointPollFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_safepoint_poll", safepointPollFn);
+        // -Dnabu.trace=<name,name>: a call of void nabu_diag_trace(i8* name, i64 a, i64 b) at the entry of the functions that
+        // match (a hunt for races: the runtime keeps the events of every thread and shows them on an error)
+        {
+            final PointerPointer<Pointer> traceParams = new PointerPointer<>(3);
+            traceParams.put(0, LLVMPointerTypeInContext(ctx, 0));
+            traceParams.put(1, LLVMInt64TypeInContext(ctx));
+            traceParams.put(2, LLVMInt64TypeInContext(ctx));
+            final LLVMValueRef traceFn = LLVMAddFunction(mod, new BytePointer("nabu_diag_trace"),
+                    LLVMFunctionType(LLVMVoidTypeInContext(ctx), traceParams, 3, 0));
+            LLVMSetLinkage(traceFn, LLVMExternalLinkage);
+            globalValueMap.put("@nabu_diag_trace", traceFn);
+        }
 
         // --- String-concat (altijd nodig) ---
         // i8* nabu_concat(i8* a, i8* b)

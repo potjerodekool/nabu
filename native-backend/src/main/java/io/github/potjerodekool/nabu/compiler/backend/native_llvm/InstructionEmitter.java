@@ -2630,6 +2630,33 @@ public class InstructionEmitter {
      * Look at nabu_safepoint_request and call nabu_safepoint_poll while it is set. Emitted at the start of a
      * function that calls others, so that deep recursion and long runs of calls (no loop, no wait) answer too.
      */
+    /** {@code -Dnabu.trace}: tells the runtime that the function was entered, with its first two parameters as numbers. */
+    public void emitDiagTrace(final LLVMValueRef function, final String name) {
+        final LLVMValueRef trace = globalValueMap.get("@nabu_diag_trace");
+        if (trace == null) {
+            return;
+        }
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final PointerPointer<Pointer> args = new PointerPointer<>(3);
+        args.put(0, constants.resolveString(name, IRGlobal.Linkage.PRIVATE));
+        final int count = LLVMCountParams(function);
+        for (int i = 0; i < 2; i++) {
+            LLVMValueRef value = LLVMConstInt(i64, 0, 0);
+            if (i < count) {
+                final LLVMValueRef param = LLVMGetParam(function, i);
+                final int kind = LLVMGetTypeKind(LLVMTypeOf(param));
+                if (kind == LLVMPointerTypeKind) {
+                    value = LLVMBuildPtrToInt(builder, param, i64, "trace.p" + i);
+                } else if (kind == LLVMIntegerTypeKind) {
+                    value = LLVMBuildZExt(builder, param, i64, "trace.p" + i);
+                }
+            }
+            args.put(1 + i, value);
+        }
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(trace), trace, args, 3, "");
+        Reference.reachabilityFence(args);
+    }
+
     public void emitSafepointPoll() {
         final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
         final LLVMValueRef flag = globalValueMap.get("@nabu_safepoint_request");

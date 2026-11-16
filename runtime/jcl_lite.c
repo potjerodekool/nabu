@@ -5759,7 +5759,21 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
 }
 
 BIND(void *, jcl_Thread_threadLocals, "java.lang.Thread_threadLocals", (void *self)) { return jcl_thread_of(self)->threadLocals; }
-BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->threadLocals = map; }
+static int jcl_diag_on(void);
+static void jcl_diag_report(const char *what, long a, long b);
+static void *jcl_diag_maps[1024];
+static void jcl_diag_map_set(s_thread *st, void *map) {
+    if (!jcl_diag_on() || map == NULL) return;
+    for (int i = 0; i < 1024; i++) {
+        if (jcl_diag_maps[i] == map && i != (int)(st->id & 1023)) jcl_diag_report("ThreadLocal map held by two threads: ids", (long)st->id, i);
+    }
+    jcl_diag_maps[st->id & 1023] = map;
+}
+BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) {
+    s_thread *st = jcl_thread_of(self);
+    jcl_diag_map_set(st, map);
+    st->threadLocals = map;
+}
 BIND(void *, jcl_Thread_inheritableThreadLocals, "java.lang.Thread_inheritableThreadLocals", (void *self)) { return jcl_thread_of(self)->inheritableThreadLocals; }
 BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->inheritableThreadLocals = map; }
 /* The values of a TerminatingThreadLocal live as long as the thread: the NIO buffer cache of the thread is made once.
@@ -5801,8 +5815,30 @@ BIND(void, jcl_Thread_setPriority, "java.lang.Thread_setPriority", (void *self, 
 BIND(void, jcl_Thread_setName, "java.lang.Thread_setName", (void *self, void *name)) { jcl_thread_of(self)->name = jcl_dup(nabu_cstr(name)); }
 BIND(void, jcl_Thread_setContextClassLoader, "java.lang.Thread_setContextClassLoader", (void *self, void *loader)) { (void)self; (void)loader; }
 BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { jcl_thread_of(self)->handler = handler; }
-BIND(void *, jcl_Thread_currentThread, "java.lang.Thread_currentThread", (void)) { return jcl_current_thread(); }
-BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentThread", (void)) { return jcl_current_thread(); }
+/* NABU_DIAG=1: checks of the thread bookkeeping, for hunting threads that share state. A Thread object that does not
+ * belong to the running thread, or a ThreadLocal map that two threads hold, is reported on stderr. */
+static int jcl_diag_on(void) {
+    static volatile int known = -1;
+    if (known < 0) known = getenv("NABU_DIAG") != NULL;
+    return known;
+}
+static void jcl_diag_report(const char *what, long a, long b) {
+    char line[200];
+    const int n = snprintf(line, sizeof line, "[nabu/diag] %s %ld %ld\n", what, a, b);
+    if (n > 0) fwrite(line, 1, (size_t)n, stderr);
+}
+static void *jcl_diag_current(void) {
+    void *obj = jcl_current_thread();
+    if (jcl_diag_on()) {
+        s_thread *st = jcl_thread_state(obj);
+        const int id = nabu_current_thread_id();
+        if (st == NULL) jcl_diag_report("currentThread without state", id, 0);
+        else if (st->id != id) jcl_diag_report("currentThread belongs to another thread: state id, os id", (long)st->id, id);
+    }
+    return obj;
+}
+BIND(void *, jcl_Thread_currentThread, "java.lang.Thread_currentThread", (void)) { return jcl_diag_current(); }
+BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentThread", (void)) { return jcl_diag_current(); }
 BIND(int, jcl_Thread_isVirtual, "java.lang.Thread_isVirtual", (void *self)) { return jcl_thread_of(self)->is_virtual; }
 BIND(int64_t, jcl_Thread_threadId, "java.lang.Thread_threadId", (void *self)) { return jcl_thread_of(self)->id; }
 BIND(void *, jcl_Thread_getName, "java.lang.Thread_getName", (void *self)) { return nabu_jstring_new(jcl_thread_of(self)->name); }

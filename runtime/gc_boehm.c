@@ -97,14 +97,23 @@ static void nabu_prof_record(void *site, size_t n) {
     }
 }
 
+/* NABU_ALLOC_GLOBAL=1 (for a build with -Dnabu.allocProfile=true): allocate without the thread-local free lists of the
+ * collector, to tell whether those are the cause of an object that is handed out twice. */
+extern void *GC_malloc_kind_global(size_t n, int kind);
+static int nabu_alloc_global_flag(void) {
+    static volatile int known = -1;
+    if (known < 0) known = getenv("NABU_ALLOC_GLOBAL") != NULL;
+    return known;
+}
+
 void *nabu_prof_malloc(size_t n) {
     nabu_prof_record(__builtin_return_address(0), n);
-    return GC_malloc(n);
+    return nabu_alloc_global_flag() ? GC_malloc_kind_global(n, 1) : GC_malloc(n);
 }
 
 void *nabu_prof_malloc_atomic(size_t n) {
     nabu_prof_record(__builtin_return_address(0), n);
-    return GC_malloc_atomic(n);
+    return nabu_alloc_global_flag() ? GC_malloc_kind_global(n, 0) : GC_malloc_atomic(n);
 }
 
 static void nabu_prof_dump(void) {

@@ -1792,6 +1792,13 @@ for (IRModule m : modules) {
         return p.jvmDescriptor() == null || !"java/lang/Object".equals(fromDescriptor(p.jvmDescriptor()));
     }
 
+    /**
+     * The data layout that sizes and offsets of the object structs are computed with. An empty layout string gives LLVM's
+     * defaults, where a 64-bit integer needs only 4-byte alignment; the targets (x86-64, arm64) align it to 8, so the offset
+     * of a long or double field after an int field (Unsafe.objectFieldOffset, reflection) was 4 bytes too low.
+     */
+    static final String DATA_LAYOUT = "e-i64:64-i128:128-f80:128-n8:16:32:64-S128";
+
     /** Words of a Thread object from the state word on (offset 40) to the first field of a subclass (offset 128). */
     static final int THREAD_ROOM_WORDS = 11;
 
@@ -1869,7 +1876,7 @@ for (IRModule m : modules) {
         // gecompileerde klasse — niet alleen de reflect-config-klassen.
         final List<Map.Entry<String, Long>> instanceFields = new ArrayList<>();
         {
-            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
             int fieldCounter = 0;
             for (IRField field : module.fields()) {
                 final Integer idx = indexMap.get(fieldCounter++);
@@ -2711,7 +2718,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         globalValueMap.put("@" + nameGlobal, nameGlobalVal);
 
         // object size
-        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         long size = LLVMABISizeOfType(dl, structType);
         LLVMDisposeTargetData(dl);
 
@@ -2788,7 +2795,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMSetLinkage(infoGlobal, LLVMInternalLinkage);
         LLVMSetGlobalConstant(infoGlobal, 1);
 
-        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         long size = LLVMABISizeOfType(dl, objectHeaderType());
         LLVMDisposeTargetData(dl);
 

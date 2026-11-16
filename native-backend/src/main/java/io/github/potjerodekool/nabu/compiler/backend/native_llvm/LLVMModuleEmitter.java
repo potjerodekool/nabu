@@ -456,7 +456,7 @@ public void setReflectionRegistry(
         final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
         long size = 0;
         if (compiled) {
-            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
             size = LLVMABISizeOfType(dl, layout.structType);
             LLVMDisposeTargetData(dl);
         }
@@ -588,7 +588,7 @@ public void setReflectionRegistry(
         Reference.reachabilityFence(memberTypes);
         final List<LLVMValueRef> entries = new java.util.ArrayList<>();
         final java.util.Set<String> seen = new java.util.HashSet<>();
-        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         int index = 0;
         for (final IRModule module : modules) {
             if (io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, io.github.potjerodekool.nabu.lang.Flags.ABSTRACT)
@@ -669,7 +669,7 @@ public void setReflectionRegistry(
         final List<LLVMValueRef> entries = new java.util.ArrayList<>();
         final java.util.Set<String> wanted = new java.util.HashSet<>(
                 io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES);
-        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         int index = 0;
         for (final IRModule module : modules) {
             final String internalName = ClassLayouts.normalizeInternalName(module.name);

@@ -310,7 +310,7 @@ public class ReflectionInfoEmitter {
     }
 
     private long offsetOfElement(final ClassLayouts.ClassLayout layout, final int structIndex) {
-        final var dl = LLVMCreateTargetData(new BytePointer(""));
+        final var dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         final long offset = LLVMOffsetOfElement(dl, layout.structType, structIndex);
         LLVMDisposeTargetData(dl);
         return offset;

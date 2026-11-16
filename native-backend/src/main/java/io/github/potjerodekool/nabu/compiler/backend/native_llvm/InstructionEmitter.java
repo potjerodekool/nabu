@@ -1033,7 +1033,7 @@ public class InstructionEmitter {
     private static final long ARRAY_HEADER_SIZE = 8;
 
     private long sizeOf(LLVMTypeRef type) {
-        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         long size = LLVMABISizeOfType(dl, type);
         LLVMDisposeTargetData(dl);
         return size;

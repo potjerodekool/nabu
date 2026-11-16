@@ -1797,6 +1797,11 @@ for (IRModule m : modules) {
      * defaults, where a 64-bit integer needs only 4-byte alignment; the targets (x86-64, arm64) align it to 8, so the offset
      * of a long or double field after an int field (Unsafe.objectFieldOffset, reflection) was 4 bytes too low.
      */
+    private static final boolean CHECK_LAYOUT = Boolean.getBoolean("nabu.checkLayout");
+    private static final java.util.concurrent.atomic.AtomicInteger layoutStructs = new java.util.concurrent.atomic.AtomicInteger();
+    private static final java.util.concurrent.atomic.AtomicInteger layoutDiffering = new java.util.concurrent.atomic.AtomicInteger();
+    private static final java.util.concurrent.atomic.AtomicInteger layoutUnder = new java.util.concurrent.atomic.AtomicInteger();
+
     static final String DATA_LAYOUT = "e-i64:64-i128:128-f80:128-n8:16:32:64-S128";
 
     /** Words of a Thread object from the state word on (offset 40) to the first field of a subclass (offset 128). */
@@ -2721,6 +2726,25 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
         long size = LLVMABISizeOfType(dl, structType);
         LLVMDisposeTargetData(dl);
+        if (CHECK_LAYOUT) {
+            // -Dnabu.checkLayout=true: the objects that the empty layout string (LLVM's defaults: a 64-bit integer aligned to
+            // 4 bytes) would have given too little room, after the collector's extra byte and granule of 16 bytes
+            final LLVMTargetDataRef old = LLVMCreateTargetData(new BytePointer(""));
+            final long oldSize = LLVMABISizeOfType(old, structType);
+            LLVMDisposeTargetData(old);
+            layoutStructs.incrementAndGet();
+            if (size != oldSize) {
+                layoutDiffering.incrementAndGet();
+                // the collector gives an object of n bytes (n + 1) rounded up to 16: it keeps a pointer one past the end valid
+                final boolean under = size > ((oldSize + 1 + 15) & ~15L);
+                if (under) {
+                    layoutUnder.incrementAndGet();
+                }
+                System.err.println("[layout] " + internalName + " empty-layout size " + oldSize + ", real size " + size
+                        + (under ? "  UNDERALLOCATED (" + layoutUnder.get() + " so far)" : "  (hidden by the 16-byte granule)")
+                        + "  of " + layoutStructs.get() + " structs");
+            }
+        }
 
         // super_type: verwijst naar de super-klasse in deze compilatie; anders naar de
         // gesynthetiseerde library-type-info (Exception-keten) of null.

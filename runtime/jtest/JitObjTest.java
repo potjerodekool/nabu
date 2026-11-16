@@ -58,5 +58,7 @@ public class JitObjTest {
         System.out.println(acc + "|" + counter + "|" + total + "|" + o.base + "|" + o.wide + "|" + (long) (o.scale * 1000));
         for (int i = 0; i < 30; i++) { len(p); }
         try { for (int i = 0; i < 30; i++) get(p, i); } catch (ArrayIndexOutOfBoundsException e) { System.out.println("aioobe"); }
+        try { for (int i = 0; i < 30; i++) len(i < 29 ? p : null); } catch (NullPointerException e) { System.out.println("npe"); }
+        try { for (int i = 0; i < 30; i++) o.field(i < 29 ? o : null); } catch (NullPointerException e) { System.out.println("npe2"); }
     }
 }

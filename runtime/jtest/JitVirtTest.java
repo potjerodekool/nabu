@@ -28,5 +28,7 @@ public class JitVirtTest {
         Shape[] shapes = { new Sq(), new Rect(), new Big(), new Sq() };
         System.out.println(total(shapes, 50));
         System.out.println(grow(new Big(), 100) + "|" + grow(new Rect(), 100));
+        Shape nothing = null;
+        try { for (int i = 0; i < 30; i++) total(new Shape[] { i < 29 ? shapes[0] : nothing }, 1); } catch (NullPointerException e) { System.out.println("npe"); }
     }
 }

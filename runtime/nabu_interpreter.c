@@ -29,9 +29,9 @@ static void interp_throw_array(int is_null) {
     else nabu_init_object_ex(exc, "java/lang/ArrayIndexOutOfBoundsException", "java/lang/RuntimeException");
     interp_pending_exception = exc;
 }
-/* bounds check of an array access: the exception is pending and the instruction is left. A null array stays lenient (reads
- * give 0, stores are dropped): the JDK classes run without their <clinit> and rely on it. */
-#define INTERP_ARRAY_CHECK(arr, idx)     if ((arr) != NULL && (unsigned)(idx) >= (unsigned)*(int *)(arr)) {         interp_throw_array(0);         if (interp_jmp_active) longjmp(interp_jmp_buf, 1);         running = 0; break;     }
+/* null and bounds check of an array access: the exception is pending and the instruction is left. A null array stays lenient
+ * in JDK classes (reads give 0, stores are dropped): they run without their <clinit> and rely on it. */
+#define INTERP_ARRAY_CHECK(arr, idx) if (((arr) == NULL && strict_nulls(m)) || ((arr) != NULL && (unsigned)(idx) >= (unsigned)*(int *)(arr))) { interp_throw_array((arr) == NULL); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
 
 /* ---- Known strings set (for safe string concat) ---- */
 #define NABU_MAX_STRINGS 65536
@@ -446,6 +446,13 @@ static nabu_static_t *static_slot(const char *cls, const char *name, int create)
 static int is_jdk_class(const char *cls) {
     return strncmp(cls, "java/", 5) == 0 || strncmp(cls, "javax/", 6) == 0 || strncmp(cls, "jdk/", 4) == 0
         || strncmp(cls, "sun/", 4) == 0 || strncmp(cls, "NabuReflect", 11) == 0;
+}
+
+/* Code of the program throws a NullPointerException for a null array, object or receiver; the JDK classes run without their
+ * <clinit> and rely on null reading as 0 and stores being dropped. */
+static inline int strict_nulls(nabu_interp_method_t *m) {
+    if (m->null_mode == 0) m->null_mode = (m->class_name != NULL && !is_jdk_class(m->class_name)) ? 2 : 1;
+    return m->null_mode == 2;
 }
 
 static char **inited_classes = NULL;
@@ -867,6 +874,11 @@ static int has_loop(nabu_interp_method_t *m) {
 }
 
 /* A method of a class, its superclasses or (default methods) its interfaces: the first one that has code or is native. */
+/* The class of an exception that nobody caught (NULL when there is none); the exception stays pending. */
+const char *nabu_interp_uncaught_exception(void) {
+    return interp_pending_exception != NULL ? nabu_compiled_type_name(interp_pending_exception) : NULL;
+}
+
 nabu_interp_method_t *nabu_interp_resolve_in_hierarchy(const char *cls, const char *name, const char *desc, int depth) {
     if (cls == NULL || depth > 40) return NULL;
     nabu_interp_method_t *t = nabu_interp_find_method(cls, name, desc);
@@ -1460,6 +1472,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
                 void *obj = pop(f);
                 void *val = NULL;
+                if (obj == NULL && strict_nulls(m)) { interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
                 if (obj != NULL && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
                     nabu_cp_entry *e = &m->const_pool->entries[idx];
                     if (e->tag == 9) {
@@ -1479,6 +1492,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
                 void *val = pop(f);
                 void *obj = pop(f);
+                if (obj == NULL && strict_nulls(m)) { interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; }
                 if (obj != NULL && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
                     nabu_cp_entry *e = &m->const_pool->entries[idx];
                     if (e->tag == 9) {
@@ -1671,6 +1685,12 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     args[is_static ? i : i + 1] = pop(f);
                 }
                 if (!is_static) args[0] = pop(f);
+                if (!is_static && args[0] == NULL && strict_nulls(m) && strcmp(target->name, "<init>") != 0) {
+                    free(args);
+                    interp_throw_array(1);
+                    if (interp_jmp_active) longjmp(interp_jmp_buf, 1);
+                    running = 0; break;
+                }
                 void *r = nabu_interp_invoke(target, args, nargs);
                 free(args);
                 if (interp_pending_exception != NULL) {
@@ -2266,7 +2286,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 break;
             }
             case 0xbd: { f->pc += 2; int count=(int)(intptr_t)pop(f); void *arr=calloc(1,8+(size_t)count*sizeof(void*)); if(arr!=NULL)*(int*)arr=count; push(f,arr); break; }
-            case 0xbe: { void *arr=pop(f); int len=0; if(arr!=NULL) len=*(int*)arr; push(f,(void*)(intptr_t)len); break; }
+            case 0xbe: { void *arr=pop(f); int len=0; if (arr == NULL && strict_nulls(m)) { interp_throw_array(1); if (interp_jmp_active) longjmp(interp_jmp_buf, 1); running = 0; break; } if(arr!=NULL) len=*(int*)arr; push(f,(void*)(intptr_t)len); break; }
             case 0xbf: {
                 void *exc = pop(f);
                 interp_pending_exception = exc;

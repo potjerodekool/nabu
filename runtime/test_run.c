@@ -9,5 +9,7 @@ int main(int argc, char **argv) {
     nabu_interp_init();
     if (nabu_classfile_load(argv[1]) != 0) { fprintf(stderr, "load fail\n"); return 1; }
     nabu_interp_invoke_by_name(argv[2], "main", "([Ljava/lang/String;)V", NULL, 0);
+    const char *ex = nabu_interp_uncaught_exception();
+    if (ex != NULL) { fprintf(stderr, "Exception in thread \"main\" %s\n", ex); return 1; }
     return 0;
 }

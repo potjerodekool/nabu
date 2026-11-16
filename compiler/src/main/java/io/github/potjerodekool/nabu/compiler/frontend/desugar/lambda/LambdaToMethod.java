@@ -123,7 +123,10 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
                     .build());
         }
         for (final var local : visibleLocals(scope)) {
-            if (recording.referenced.contains(local.getSimpleName())
+            // A field is not captured: a lambda in a field initializer (or any body) reaches it as a field, and a
+            // field that is declared before the lambda is in scope too.
+            if (local.getKind() != ElementKind.FIELD
+                    && recording.referenced.contains(local.getSimpleName())
                     && !parameterNames.contains(local.getSimpleName())) {
                 captured.add(local);
             }

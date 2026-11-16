@@ -33,13 +33,8 @@ class ThreadLocalPersistsE2eIT {
 
                 public class Main {
                     static int made;
-                    static final ThreadLocal<int[]> LOCAL = new ThreadLocal<int[]>() {
-                        @Override
-                        protected int[] initialValue() {
-                            made++;
-                            return new int[1];
-                        }
-                    };
+                    // a lambda in a static initializer that uses a static field declared before it
+                    static final ThreadLocal<int[]> LOCAL = ThreadLocal.withInitial(() -> { made++; return new int[1]; });
 
                     static void use() {
                         LOCAL.get()[0]++;

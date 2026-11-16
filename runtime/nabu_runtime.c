@@ -2199,8 +2199,18 @@ void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
 
 /* A checked cast to an interface or an array type, by name ("java/lang/Runnable", "[Ljava/lang/String;"). It
  * only fails for what the runtime can judge: an object of a compiled class, or an array of a known type. */
+/* Answers of checkcast_name per (class, wanted name), direct mapped. A class and the name pointer decide the answer
+ * for a compiled object, so a hit skips the type lookups and the strcmp chains. Threads run under the GIL. */
+typedef struct { uintptr_t type; const char *wanted; } nabu_cast_entry;
+static nabu_cast_entry nabu_cast_cache[1024];
+
 void *nabu_checkcast_name(void *obj, const char *wanted) {
     if (obj == NULL || wanted == NULL) return obj;
+    if (wanted[0] != '[') {
+        const uintptr_t type = ((const uintptr_t *) obj)[0];
+        const nabu_cast_entry *e = &nabu_cast_cache[((type >> 4) ^ ((uintptr_t) wanted >> 3)) & 1023];
+        if (type != 0 && e->type == type && e->wanted == wanted) return obj;
+    }
     const char *actual = nabu_compiled_type_name(obj);
     if (wanted[0] == '[') {
         if (actual != NULL) nabu_throw_cce(actual, wanted);
@@ -2211,7 +2221,14 @@ void *nabu_checkcast_name(void *obj, const char *wanted) {
         if (array == NULL || nabu_instanceof_array(obj, wanted)) return obj;
         nabu_throw_cce(array, wanted);
     }
-    if (actual == NULL || nabu_instanceof(obj, wanted)) return obj;
+    if (actual == NULL) return obj;
+    if (nabu_instanceof(obj, wanted)) {
+        const uintptr_t type = ((const uintptr_t *) obj)[0];
+        nabu_cast_entry *e = &nabu_cast_cache[((type >> 4) ^ ((uintptr_t) wanted >> 3)) & 1023];
+        e->type = type;
+        e->wanted = wanted;
+        return obj;
+    }
     nabu_throw_cce(actual, wanted);
     return obj;
 }

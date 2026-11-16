@@ -3143,7 +3143,7 @@ static void native_comparable_compareTo(nabu_interp_frame_t *frame, void **args,
     }
     char ba[8], bb[8];
     if (nabu_box_kind(a) || nabu_box_kind(b)) { const char *x = nabu_box_kind(a) ? nabu_box_text(a, ba) : "", *y = nabu_box_kind(b) ? nabu_box_text(b, bb) : ""; NATIVE_RET_INT(frame, strcmp(x, y)); return; }
-    long x = (long)(intptr_t)a, y = (long)(intptr_t)b;
+    long x = (long)(intptr_t)nabu_unbox(a), y = (long)(intptr_t)nabu_unbox(b);
     NATIVE_RET_INT(frame, x < y ? -1 : (x > y ? 1 : 0));
 }
 
@@ -3155,6 +3155,51 @@ static void native_long_compare(nabu_interp_frame_t *frame, void **args, int nar
     long x = nargs > 0 ? (long)(intptr_t)args[0] : 0, y = nargs > 1 ? (long)(intptr_t)args[1] : 0;
     NATIVE_RET_INT(frame, x < y ? -1 : (x > y ? 1 : 0));
 }
+
+/* Boxing of numbers: the value itself, except 0, which is a tagged box so that it is not the null pointer. */
+static void native_box_int(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *v = (nargs > 0) ? args[0] : NULL;
+    frame->result = v == NULL ? nabu_box_zero(0) : v; frame->has_result = 1;
+}
+static void native_box_double(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *v = (nargs > 0) ? args[0] : NULL;
+    frame->result = v == NULL ? nabu_box_zero(1) : v; frame->has_result = 1;
+}
+static void native_box_float(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *v = (nargs > 0) ? args[0] : NULL;
+    frame->result = v == NULL ? nabu_box_zero(2) : v; frame->has_result = 1;
+}
+/* xxxValue() of a boxed number, converted to the type asked for: the box holds an int (I), long (J), float (F) or double (D). */
+static void unbox_convert(nabu_interp_frame_t *frame, void **args, int nargs, char from, char to) {
+    void *raw = nabu_unbox(nargs > 0 ? args[0] : NULL);
+    double d = 0; long l = 0;
+    if (from == 'I') { l = (long)(int)(intptr_t)raw; d = (double)l; }
+    else if (from == 'J') { l = (long)(intptr_t)raw; d = (double)l; }
+    else if (from == 'F') { int b = (int)(intptr_t)raw; float f; memcpy(&f, &b, sizeof f); d = f; l = (long)f; }
+    else { long b = (long)(intptr_t)raw; memcpy(&d, &b, sizeof d); l = (long)d; }
+    if (to == 'I') frame->result = (void *)(intptr_t)(int)l;
+    else if (to == 'J') frame->result = (void *)(intptr_t)l;
+    else if (to == 'F') { float f = (float)d; int b; memcpy(&b, &f, sizeof b); frame->result = (void *)(intptr_t)b; }
+    else { long b; memcpy(&b, &d, sizeof b); frame->result = (void *)(intptr_t)b; }
+    frame->has_result = 1;
+}
+#define UNBOX_NATIVE(name, from, to) static void name(nabu_interp_frame_t *frame, void **args, int nargs) { unbox_convert(frame, args, nargs, from, to); }
+UNBOX_NATIVE(native_int_to_int, 'I', 'I')
+UNBOX_NATIVE(native_int_to_long, 'I', 'J')
+UNBOX_NATIVE(native_int_to_float, 'I', 'F')
+UNBOX_NATIVE(native_int_to_double, 'I', 'D')
+UNBOX_NATIVE(native_long_to_int, 'J', 'I')
+UNBOX_NATIVE(native_long_to_long, 'J', 'J')
+UNBOX_NATIVE(native_long_to_float, 'J', 'F')
+UNBOX_NATIVE(native_long_to_double, 'J', 'D')
+UNBOX_NATIVE(native_double_to_int, 'D', 'I')
+UNBOX_NATIVE(native_double_to_long, 'D', 'J')
+UNBOX_NATIVE(native_double_to_float, 'D', 'F')
+UNBOX_NATIVE(native_double_to_double, 'D', 'D')
+UNBOX_NATIVE(native_float_to_int, 'F', 'I')
+UNBOX_NATIVE(native_float_to_long, 'F', 'J')
+UNBOX_NATIVE(native_float_to_float, 'F', 'F')
+UNBOX_NATIVE(native_float_to_double, 'F', 'D')
 
 static void native_string_lastChars(nabu_interp_frame_t *frame, void **args, int nargs) {   /* isBlank */
     const char *s = arg_cstr(args, 0, nargs);
@@ -3351,19 +3396,35 @@ static void register_builtins(void) {
     /* Object */
     register_native("java/lang/Object", "toString", "()Ljava/lang/String;", native_object_toString);
     /* Integer */
-    register_native("java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", native_identity_int);
+    register_native("java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", native_box_int);
     /* A boxed primitive is its raw value in this interpreter: valueOf and xxxValue are the identity. */
-    register_native("java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", native_identity_int);
+    register_native("java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", native_box_int);
     register_native("java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", native_box_bool);
     register_native("java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", native_box_char);
-    register_native("java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", native_identity_int);
-    register_native("java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", native_identity_int);
-    register_native("java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", native_identity_int);
-    register_native("java/lang/Integer", "intValue", "()I", native_identity_int);
-    register_native("java/lang/Long", "longValue", "()J", native_identity_int);
+    register_native("java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", native_box_int);
+    register_native("java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", native_box_int);
+    register_native("java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", native_box_float);
+    register_native("java/lang/Integer", "intValue", "()I", native_int_to_int);
+    register_native("java/lang/Integer", "longValue", "()J", native_int_to_long);
+    register_native("java/lang/Integer", "floatValue", "()F", native_int_to_float);
+    register_native("java/lang/Integer", "doubleValue", "()D", native_int_to_double);
+    register_native("java/lang/Integer", "shortValue", "()S", native_int_to_int);
+    register_native("java/lang/Integer", "byteValue", "()B", native_int_to_int);
+    register_native("java/lang/Long", "intValue", "()I", native_long_to_int);
+    register_native("java/lang/Long", "floatValue", "()F", native_long_to_float);
+    register_native("java/lang/Long", "doubleValue", "()D", native_long_to_double);
+    register_native("java/lang/Double", "doubleValue", "()D", native_double_to_double);
+    register_native("java/lang/Double", "intValue", "()I", native_double_to_int);
+    register_native("java/lang/Double", "longValue", "()J", native_double_to_long);
+    register_native("java/lang/Double", "floatValue", "()F", native_double_to_float);
+    register_native("java/lang/Float", "floatValue", "()F", native_float_to_float);
+    register_native("java/lang/Float", "intValue", "()I", native_float_to_int);
+    register_native("java/lang/Float", "longValue", "()J", native_float_to_long);
+    register_native("java/lang/Float", "doubleValue", "()D", native_float_to_double);
+    register_native("java/lang/Long", "longValue", "()J", native_long_to_long);
     register_native("java/lang/Boolean", "booleanValue", "()Z", native_unbox);
     register_native("java/lang/Character", "charValue", "()C", native_unbox);
-    register_native("java/lang/Short", "shortValue", "()S", native_identity_int);
+    register_native("java/lang/Short", "shortValue", "()S", native_int_to_int);
     register_native("java/lang/Byte", "byteValue", "()B", native_identity_int);
     register_native("java/lang/Float", "floatValue", "()F", native_identity_int);
     register_native("java/lang/Double", "doubleValue", "()D", native_identity_int);
@@ -3411,7 +3472,7 @@ static void register_builtins(void) {
     /* Long */
     register_native("java/lang/Long", "toString", "(J)Ljava/lang/String;", native_long_toString);
     register_native("java/lang/Long", "parseLong", "(Ljava/lang/String;)J", native_long_parseLong);
-    register_native("java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", native_identity_double);
+    register_native("java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", native_box_double);
     /* Double */
     register_native("java/lang/Double", "toString", "(D)Ljava/lang/String;", native_double_toString);
     register_native("java/lang/String", "trim", "()Ljava/lang/String;", native_string_trim);

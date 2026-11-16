@@ -25,5 +25,12 @@ public class JdkCollectionsTest {
         int sum = 0;
         for (int v : set) sum += v;
         System.out.println(set.size() + "|" + sum);
+        List<Integer> zeros = new LinkedList<>();
+        zeros.add(0); zeros.add(5); zeros.add(0);
+        Map<String, Integer> dm = new TreeMap<>();
+        dm.put("a", 0); dm.put("b", 15);
+        long total = 0;
+        for (Integer z : zeros) total += z;
+        System.out.println(zeros + "|" + total + "|" + dm + "|" + zeros.contains(0) + "|" + zeros.indexOf(5) + "|" + (zeros.get(0) == 0));
     }
 }

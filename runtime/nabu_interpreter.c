@@ -1070,7 +1070,13 @@ char *nabu_interp_float_to_string(float v) { return java_fp_to_string((double)v,
 char *nabu_interp_object_to_string(void *av) {
     if (av == NULL) return strdup("null");
     if (nabu_box_kind(av)) { char bb[8]; return strdup(nabu_box_text(av, bb)); }
-    if ((uintptr_t)av >= (1 << 20) && nabu_as_closure(av) == NULL) {
+    if ((uintptr_t)av < 0x100000000ull || (uintptr_t)av >= 0x800000000000ull) {   /* a boxed number is its value */
+        char num[32];
+        long lv = (long)(intptr_t)av;
+        if (lv >= -2147483648L && lv <= 2147483647L) snprintf(num, sizeof num, "%d", (int)lv); else snprintf(num, sizeof num, "%ld", lv);
+        return strdup(num);
+    }
+    if (nabu_as_closure(av) == NULL) {
         char *sb = nabu_interp_sb_text(av);
         if (sb != NULL) return strdup(sb);   /* a StringBuilder of the natives */
         const char *rt = interp_type_name(av);
@@ -1102,6 +1108,7 @@ void *nabu_interp_new_object(const char *cname) { return interp_new_object(cname
 /* hashCode() of any value of the interpreter: a String (a char *), a box, an object with its own hashCode(), else its address. */
 int nabu_interp_hash_code(void *v) {
     if (v == NULL) return 0;
+    if (nabu_box_kind(v) == 3) return 0;
     if (nabu_box_kind(v)) { char bb[8]; const char *t = nabu_box_text(v, bb); return strcmp(t, "true") == 0 ? 1231 : strcmp(t, "false") == 0 ? 1237 : (int)(intptr_t)v; }
     if ((uintptr_t)v < 0x100000000ull || (uintptr_t)v >= 0x800000000000ull) return (int)(intptr_t)v;   /* an identity boxed int */
     const char *rt = interp_type_name(v);
@@ -2006,6 +2013,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 if (!is_static) args[0] = pop(f);
                 if (!is_static && args[0] == NULL && strict_nulls(m) && strcmp(target->name, "<init>") != 0) {
                     free(args);
+                    if (getenv("NABU_TRACE_EXC")) fprintf(stderr, "null receiver of %s.%s%s in %s.%s pc=%d\n", target->class_name, target->name, target->desc, m->class_name, m->name, f->pc);
                     interp_throw_array(1);
                     if (interp_jmp_active) longjmp(interp_jmp_buf, 1);
                     running = 0; break;

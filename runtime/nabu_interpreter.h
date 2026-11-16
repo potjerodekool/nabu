@@ -152,19 +152,24 @@ void nabu_interp_register_field(const char *class_name, const char *field_name, 
  * concatenation print "true" or 'x' instead of 1 or 120. */
 #define NABU_BOX_BOOL 0x5A5A000000000000ULL
 #define NABU_BOX_CHAR 0x5A5B000000000000ULL
+/* A boxed number whose value is 0 (Integer 0, Long 0L, Double 0.0 ...): its raw value would be the null pointer. The low bits
+ * say which: 0 integral, 1 double, 2 float. */
+#define NABU_BOX_ZERO 0x5A5C000000000000ULL
+static inline void *nabu_box_zero(int kind) { return (void *)(uintptr_t)(NABU_BOX_ZERO | (unsigned)kind); }
 static inline void *nabu_box_bool(int v) { return (void *)(uintptr_t)(NABU_BOX_BOOL | (v ? 1u : 0u)); }
 static inline void *nabu_box_char(int v) { return (void *)(uintptr_t)(NABU_BOX_CHAR | (unsigned)(v & 0xffff)); }
 static inline int nabu_box_kind(void *p) {   /* 1 Boolean, 2 Character, 0 not a tagged box */
     uintptr_t t = (uintptr_t)p >> 48;
-    return t == 0x5A5A ? 1 : t == 0x5A5B ? 2 : 0;
+    return t == 0x5A5A ? 1 : t == 0x5A5B ? 2 : t == 0x5A5C ? 3 : 0;
 }
 /* The raw value of a possibly boxed primitive. */
-static inline void *nabu_unbox(void *p) { return nabu_box_kind(p) ? (void *)(uintptr_t)((uintptr_t)p & 0xffffffffu) : p; }
+static inline void *nabu_unbox(void *p) { int k = nabu_box_kind(p); return k == 3 ? NULL : k ? (void *)(uintptr_t)((uintptr_t)p & 0xffffffffu) : p; }
 /* The text of a tagged box ("true", "x"), or NULL when p is not one; buf holds at least 8 bytes. */
 static inline const char *nabu_box_text(void *p, char *buf) {
     int k = nabu_box_kind(p);
     if (k == 1) return ((uintptr_t)p & 1) ? "true" : "false";
     if (k == 2) { buf[0] = (char)((uintptr_t)p & 0xff); buf[1] = 0; return buf; }
+    if (k == 3) return ((uintptr_t)p & 3) ? "0.0" : "0";
     return NULL;
 }
 

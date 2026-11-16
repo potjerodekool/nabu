@@ -8,11 +8,16 @@ R="$(cd "$(dirname "$0")" && pwd)"
 O="${TMPDIR:-/tmp}/nabu-interp-jdk-tests"; rm -rf "$O"; mkdir -p "$O/classes" "$O/dev/jdkclasses"
 javac --release 17 -d "$O/classes" "$R"/jtest/*.java || exit 1
 cp -r "$R"/jtest/META-INF "$O/classes/"   # service files, found through NABU_CLASSPATH
+# a jar with a class and a service provider that exist nowhere else: read from the zip by the runtime
+mkdir -p "$O/jarclasses"
+javac --release 17 -cp "$O/classes" -d "$O/jarclasses" "$R"/jtest-jar/*.java || exit 1
+cp -r "$R"/jtest-jar/META-INF "$O/jarclasses/"
+jar cf "$O/lib.jar" -C "$O/jarclasses" . || exit 1
 JH="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
 jimage extract --dir "$O/x" --include 'regex:/java.base/java/(lang|util|io|net|nio|security|text|time)/.*' "$JH/lib/modules" || exit 1
 mkdir -p "$O/dev/jdkclasses/classes"; cp -r "$O"/x/java.base/* "$O/dev/jdkclasses/classes/"
 printf 'ServiceTest$Greeter=ServiceTest$En\n' > "$O/dev/services.txt"
-export NABU_DEV_DIR="$O/dev" NABU_CLASSPATH="$O/classes"
+export NABU_DEV_DIR="$O/dev" NABU_CLASSPATH="$O/classes:$O/lib.jar"
 gcc -w -DNABU_GC_NONE -I"$R" -o "$O/test_run" "$R/test_run.c" "$R"/nabu_runtime.c "$R"/gc_none.c "$R"/nabu_interpreter.c "$R"/nabu_classfile.c "$R"/test_stubs.c -lpthread -ldl -lm || exit 1
 fail=0
 # class  expected-output (| separated lines)
@@ -32,4 +37,5 @@ check StaticTest 'static-5|6|7|7|int|true'
 check BoxTest '6|5|true|true|true|x|8|4|2|flag=false zero=0 c=q s=null b=true'
 check ReflectBoxTest 'true|k|3|false|false|5|b|true'
 check ReflectInheritTest '8|derived|11|not declared|no such method'
+check JarLoadTest '42|from jar'
 exit $fail

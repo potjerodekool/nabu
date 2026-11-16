@@ -290,6 +290,12 @@ static void native_class_forName0(nabu_interp_frame_t *frame, void **args, int n
     (void)nargs;
     const char *name = (const char *)(args != NULL ? args[0] : NULL);
     if (name == NULL) { frame->result = NULL; frame->has_result = 1; return; }
+    /* Class.forName loads the class (from a directory or a jar of NABU_CLASSPATH); one that cannot be found still gets its
+     * Class object, as the natives of the JDK classes have no class file. */
+    char internal[256];
+    snprintf(internal, sizeof(internal), "%s", name);
+    for (char *p = internal; *p; p++) if (*p == '.') *p = '/';
+    nabu_classfile_load_class(internal);
     frame->result = make_class_object(name);
     frame->has_result = 1;
 }
@@ -1035,6 +1041,264 @@ static void native_identity_int(nabu_interp_frame_t *frame, void **args, int nar
     frame->has_result = 1;
 }
 
+/* ---- Jar files: the entries of a zip file (stored or deflated), read without a library ---- */
+
+/* An inflater in the manner of puff.c (Mark Adler): small, no tables to build ahead. */
+typedef struct {
+    const unsigned char *in; size_t in_len, in_pos;
+    unsigned char *out; size_t out_len, out_pos;
+    unsigned bit_buf; int bit_cnt;
+    int failed;
+} nabu_infl;
+
+typedef struct { short count[16]; short symbol[288]; } nabu_huff;
+
+static int infl_bits(nabu_infl *s, int need) {
+    long val = s->bit_buf;
+    while (s->bit_cnt < need) {
+        if (s->in_pos >= s->in_len) { s->failed = 1; return 0; }
+        val |= (long)s->in[s->in_pos++] << s->bit_cnt;
+        s->bit_cnt += 8;
+    }
+    s->bit_buf = (unsigned)(val >> need);
+    s->bit_cnt -= need;
+    return (int)(val & ((1L << need) - 1));
+}
+
+static int infl_construct(nabu_huff *h, const short *length, int n) {
+    short offs[16];
+    for (int len = 0; len <= 15; len++) h->count[len] = 0;
+    for (int symbol = 0; symbol < n; symbol++) h->count[length[symbol]]++;
+    if (h->count[0] == n) return 0;
+    int left = 1;
+    for (int len = 1; len <= 15; len++) {
+        left <<= 1;
+        left -= h->count[len];
+        if (left < 0) return left;
+    }
+    offs[1] = 0;
+    for (int len = 1; len < 15; len++) offs[len + 1] = (short)(offs[len] + h->count[len]);
+    for (int symbol = 0; symbol < n; symbol++) {
+        if (length[symbol] != 0) h->symbol[offs[length[symbol]]++] = (short)symbol;
+    }
+    return left;
+}
+
+static int infl_decode(nabu_infl *s, const nabu_huff *h) {
+    int code = 0, first = 0, index = 0;
+    for (int len = 1; len <= 15; len++) {
+        code |= infl_bits(s, 1);
+        if (s->failed) return -1;
+        int count = h->count[len];
+        if (code - count < first) return h->symbol[index + (code - first)];
+        index += count;
+        first += count;
+        first <<= 1;
+        code <<= 1;
+    }
+    return -1;
+}
+
+static int infl_codes(nabu_infl *s, const nabu_huff *lencode, const nabu_huff *distcode) {
+    static const short lens[29] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
+                                   131, 163, 195, 227, 258};
+    static const short lext[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
+    static const short dists[30] = {1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025,
+                                    1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
+    static const short dext[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
+    int symbol;
+    do {
+        symbol = infl_decode(s, lencode);
+        if (symbol < 0 || s->failed) return -1;
+        if (symbol < 256) {
+            if (s->out_pos >= s->out_len) return -1;
+            s->out[s->out_pos++] = (unsigned char)symbol;
+        } else if (symbol > 256) {
+            symbol -= 257;
+            if (symbol >= 29) return -1;
+            int len = lens[symbol] + infl_bits(s, lext[symbol]);
+            symbol = infl_decode(s, distcode);
+            if (symbol < 0 || symbol >= 30 || s->failed) return -1;
+            size_t dist = (size_t)(dists[symbol] + infl_bits(s, dext[symbol]));
+            if (dist > s->out_pos || s->out_pos + (size_t)len > s->out_len) return -1;
+            while (len--) { s->out[s->out_pos] = s->out[s->out_pos - dist]; s->out_pos++; }
+        }
+    } while (symbol != 256);
+    return 0;
+}
+
+/* Raw deflate data in, exactly out_len bytes out; 0 when it went well. */
+static int nabu_inflate(const unsigned char *in, size_t in_len, unsigned char *out, size_t out_len) {
+    nabu_infl s;
+    memset(&s, 0, sizeof s);
+    s.in = in; s.in_len = in_len; s.out = out; s.out_len = out_len;
+    int last;
+    do {
+        last = infl_bits(&s, 1);
+        int type = infl_bits(&s, 2);
+        if (s.failed) return -1;
+        if (type == 0) {
+            s.bit_buf = 0; s.bit_cnt = 0;
+            if (s.in_pos + 4 > s.in_len) return -1;
+            unsigned len = s.in[s.in_pos] | (unsigned)s.in[s.in_pos + 1] << 8;
+            s.in_pos += 4;
+            if (s.in_pos + len > s.in_len || s.out_pos + len > s.out_len) return -1;
+            memcpy(s.out + s.out_pos, s.in + s.in_pos, len);
+            s.in_pos += len; s.out_pos += len;
+        } else if (type == 1 || type == 2) {
+            static nabu_huff lencode, distcode;
+            nabu_huff lc, dc;
+            short lengths[320];
+            if (type == 1) {
+                int sym = 0;
+                for (; sym < 144; sym++) lengths[sym] = 8;
+                for (; sym < 256; sym++) lengths[sym] = 9;
+                for (; sym < 280; sym++) lengths[sym] = 7;
+                for (; sym < 288; sym++) lengths[sym] = 8;
+                infl_construct(&lc, lengths, 288);
+                for (sym = 0; sym < 30; sym++) lengths[sym] = 5;
+                infl_construct(&dc, lengths, 30);
+            } else {
+                static const short order[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+                int nlen = infl_bits(&s, 5) + 257, ndist = infl_bits(&s, 5) + 1, ncode = infl_bits(&s, 4) + 4;
+                if (s.failed || nlen > 286 || ndist > 30) return -1;
+                int index;
+                for (index = 0; index < ncode; index++) lengths[order[index]] = (short)infl_bits(&s, 3);
+                for (; index < 19; index++) lengths[order[index]] = 0;
+                if (infl_construct(&lc, lengths, 19) != 0) return -1;
+                index = 0;
+                while (index < nlen + ndist) {
+                    int symbol = infl_decode(&s, &lc);
+                    if (symbol < 0 || s.failed) return -1;
+                    if (symbol < 16) {
+                        lengths[index++] = (short)symbol;
+                    } else {
+                        int len = 0, rep;
+                        if (symbol == 16) {
+                            if (index == 0) return -1;
+                            len = lengths[index - 1];
+                            rep = 3 + infl_bits(&s, 2);
+                        } else if (symbol == 17) {
+                            rep = 3 + infl_bits(&s, 3);
+                        } else {
+                            rep = 11 + infl_bits(&s, 7);
+                        }
+                        if (index + rep > nlen + ndist) return -1;
+                        while (rep--) lengths[index++] = (short)len;
+                    }
+                }
+                if (lengths[256] == 0) return -1;
+                infl_construct(&lc, lengths, nlen);
+                infl_construct(&dc, lengths + nlen, ndist);
+            }
+            (void)lencode; (void)distcode;
+            if (infl_codes(&s, &lc, &dc) != 0) return -1;
+        } else {
+            return -1;
+        }
+    } while (!last);
+    return s.out_pos == s.out_len ? 0 : -1;
+}
+
+typedef struct { char *name; unsigned method; unsigned csize, usize, offset; } nabu_zip_entry;
+typedef struct { char *path; nabu_zip_entry *entries; int count; int ok; } nabu_zip;
+#define NABU_ZIP_CACHE 16
+static nabu_zip nabu_zip_cache[NABU_ZIP_CACHE];
+static int nabu_zip_cached = 0;
+
+static unsigned zip_u16(const unsigned char *p) { return p[0] | (unsigned)p[1] << 8; }
+static unsigned zip_u32(const unsigned char *p) { return zip_u16(p) | (unsigned)zip_u16(p + 2) << 16; }
+
+/* The central directory of a jar (read once), or NULL when it is no zip file. */
+static nabu_zip *zip_open(const char *path) {
+    for (int i = 0; i < nabu_zip_cached; i++) {
+        if (strcmp(nabu_zip_cache[i].path, path) == 0) return nabu_zip_cache[i].ok ? &nabu_zip_cache[i] : NULL;
+    }
+    if (nabu_zip_cached >= NABU_ZIP_CACHE) return NULL;
+    nabu_zip *z = &nabu_zip_cache[nabu_zip_cached++];
+    memset(z, 0, sizeof *z);
+    z->path = strdup(path);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return NULL;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    long tail = size < 65557 ? size : 65557;
+    unsigned char *buf = (unsigned char *)malloc((size_t)tail);
+    fseek(f, size - tail, SEEK_SET);
+    if (buf == NULL || fread(buf, 1, (size_t)tail, f) != (size_t)tail) { fclose(f); free(buf); return NULL; }
+    long eocd = -1;
+    for (long i = tail - 22; i >= 0; i--) {
+        if (buf[i] == 'P' && buf[i + 1] == 'K' && buf[i + 2] == 5 && buf[i + 3] == 6) { eocd = i; break; }
+    }
+    if (eocd < 0) { fclose(f); free(buf); return NULL; }
+    int count = (int)zip_u16(buf + eocd + 10);
+    unsigned cd_size = zip_u32(buf + eocd + 12), cd_offset = zip_u32(buf + eocd + 16);
+    free(buf);
+    unsigned char *cd = (unsigned char *)malloc(cd_size);
+    fseek(f, (long)cd_offset, SEEK_SET);
+    if (cd == NULL || fread(cd, 1, cd_size, f) != cd_size) { fclose(f); free(cd); return NULL; }
+    fclose(f);
+    z->entries = (nabu_zip_entry *)calloc((size_t)(count > 0 ? count : 1), sizeof(nabu_zip_entry));
+    size_t at = 0;
+    for (int i = 0; i < count && at + 46 <= cd_size; i++) {
+        if (zip_u32(cd + at) != 0x02014b50u) break;
+        unsigned name_len = zip_u16(cd + at + 28), extra_len = zip_u16(cd + at + 30), comment_len = zip_u16(cd + at + 32);
+        nabu_zip_entry *e = &z->entries[z->count++];
+        e->method = zip_u16(cd + at + 10);
+        e->csize = zip_u32(cd + at + 20);
+        e->usize = zip_u32(cd + at + 24);
+        e->offset = zip_u32(cd + at + 42);
+        e->name = (char *)malloc(name_len + 1);
+        memcpy(e->name, cd + at + 46, name_len);
+        e->name[name_len] = 0;
+        at += 46 + name_len + extra_len + comment_len;
+    }
+    free(cd);
+    z->ok = 1;
+    return z;
+}
+
+/* The bytes of an entry of a jar (a NUL is added behind them, for text), or NULL; *len is their number. */
+static unsigned char *zip_read(const char *jar, const char *entry, size_t *len) {
+    nabu_zip *z = zip_open(jar);
+    if (z == NULL) return NULL;
+    for (int i = 0; i < z->count; i++) {
+        nabu_zip_entry *e = &z->entries[i];
+        if (strcmp(e->name, entry) != 0) continue;
+        FILE *f = fopen(jar, "rb");
+        if (f == NULL) return NULL;
+        unsigned char local[30];
+        fseek(f, (long)e->offset, SEEK_SET);
+        if (fread(local, 1, 30, f) != 30 || zip_u32(local) != 0x04034b50u) { fclose(f); return NULL; }
+        fseek(f, (long)(e->offset + 30 + zip_u16(local + 26) + zip_u16(local + 28)), SEEK_SET);
+        unsigned char *packed = (unsigned char *)malloc(e->csize > 0 ? e->csize : 1);
+        unsigned char *out = (unsigned char *)malloc((size_t)e->usize + 1);
+        int ok = packed != NULL && out != NULL && fread(packed, 1, e->csize, f) == e->csize;
+        fclose(f);
+        if (ok && e->method == 0 && e->csize == e->usize) memcpy(out, packed, e->usize);
+        else if (ok && e->method == 8) ok = nabu_inflate(packed, e->csize, out, e->usize) == 0;
+        else ok = 0;
+        free(packed);
+        if (!ok) { free(out); return NULL; }
+        out[e->usize] = 0;
+        if (len != NULL) *len = e->usize;
+        return out;
+    }
+    return NULL;
+}
+
+/* Whether a classpath entry is a jar (a file, not a directory). */
+static int is_jar_path(const char *path) {
+    size_t n = strlen(path);
+    return n > 4 && (strcmp(path + n - 4, ".jar") == 0 || strcmp(path + n - 4, ".zip") == 0);
+}
+
+#ifdef _WIN32
+#define NABU_CP_SEP ";"
+#else
+#define NABU_CP_SEP ":"
+#endif
+
 /* The providers of a service: "iface=impl" lines of $NABU_DEV_DIR/services.txt, and the META-INF/services/<iface> files
  * in the directories of NABU_CLASSPATH. impls holds up to 64 names of 256 characters. */
 static int collect_service_impls(const char *iface, char impls[64][256]) {
@@ -1062,24 +1326,44 @@ static int collect_service_impls(const char *iface, char impls[64][256]) {
         for (char *q = dotted; *q; q++) if (*q == '/') *q = '.';
         char *copy = strdup(cp);
         char *save = NULL;
-        for (char *dir = strtok_r(copy, ":", &save); dir != NULL && cnt < 64; dir = strtok_r(NULL, ":", &save)) {
+        for (char *dir = strtok_r(copy, NABU_CP_SEP, &save); dir != NULL && cnt < 64; dir = strtok_r(NULL, NABU_CP_SEP, &save)) {
             char path[1024];
-            snprintf(path, sizeof(path), "%s/META-INF/services/%s", dir, dotted);
-            FILE *sf = fopen(path, "r");
-            if (sf == NULL) continue;
-            char line[512];
-            while (fgets(line, sizeof(line), sf) && cnt < 64) {
+            unsigned char *text = NULL;
+            if (is_jar_path(dir)) {
+                /* a jar: the service file is an entry of it */
+                snprintf(path, sizeof(path), "META-INF/services/%s", dotted);
+                text = zip_read(dir, path, NULL);
+            } else {
+                snprintf(path, sizeof(path), "%s/META-INF/services/%s", dir, dotted);
+                FILE *sf = fopen(path, "rb");
+                if (sf != NULL) {
+                    fseek(sf, 0, SEEK_END);
+                    long size = ftell(sf);
+                    fseek(sf, 0, SEEK_SET);
+                    text = (unsigned char *)malloc((size_t)size + 1);
+                    if (text != NULL) {
+                        size_t got = fread(text, 1, (size_t)size, sf);
+                        text[got] = 0;
+                    }
+                    fclose(sf);
+                }
+            }
+            if (text == NULL) continue;
+            /* one provider per line; '#' starts a comment */
+            char *line_save = NULL;
+            for (char *line = strtok_r((char *)text, "\n", &line_save); line != NULL && cnt < 64;
+                 line = strtok_r(NULL, "\n", &line_save)) {
                 char *hash = strchr(line, '#'); if (hash) *hash = 0;
                 char *b = line;
                 while (*b == ' ' || *b == '\t') b++;
                 size_t n = strlen(b);
-                while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ' || b[n - 1] == '\t')) b[--n] = 0;
-                if (n == 0) continue;
+                while (n > 0 && (b[n - 1] == '\r' || b[n - 1] == ' ' || b[n - 1] == '\t')) b[--n] = 0;
+                if (n == 0 || n >= 256) continue;
                 int dup = 0;
                 for (int i = 0; i < cnt; i++) if (strcmp(impls[i], b) == 0) dup = 1;
                 if (!dup) { snprintf(impls[cnt], 256, "%s", b); cnt++; }
             }
-            fclose(sf);
+            free(text);
         }
         free(copy);
     }
@@ -2778,19 +3062,41 @@ char **nabu_get_interfaces(const char *class_name) {
     return NULL;
 }
 
+static int nabu_classfile_load_bytes(unsigned char *buf, long sz, const char *origin);
+
+/* A class that is an entry of a jar on NABU_CLASSPATH: loaded from the bytes of the entry; -1 when no jar has it. */
+static int nabu_classfile_load_from_jar(const char *internal_name) {
+    const char *cp = getenv("NABU_CLASSPATH");
+    if (cp == NULL || !*cp) return -1;
+    char entry[600];
+    snprintf(entry, sizeof(entry), "%s.class", internal_name);
+    for (char *q = entry; *q; q++) if (*q == '.') *q = '/';
+    entry[strlen(entry) - 6] = '.';   /* the dot of ".class" was turned into a slash */
+    char *copy = strdup(cp);
+    char *save = NULL;
+    int rc = -1;
+    for (char *dir = strtok_r(copy, NABU_CP_SEP, &save); dir != NULL && rc != 0; dir = strtok_r(NULL, NABU_CP_SEP, &save)) {
+        if (!is_jar_path(dir)) continue;
+        size_t len = 0;
+        unsigned char *bytes = zip_read(dir, entry, &len);
+        if (bytes == NULL) continue;
+        rc = nabu_classfile_load_bytes(bytes, (long)len, dir);   /* takes the bytes */
+    }
+    free(copy);
+    return rc;
+}
+
 int nabu_classfile_load_class(const char *internal_name) {
     /* Skip if already loaded (check if any method registered for this class). */
     if (nabu_interp_find_method(internal_name, NULL, NULL) != NULL) return 0;
     char *path = nabu_find_class_file(internal_name);
-    if (path == NULL) return -1;
+    if (path == NULL) return nabu_classfile_load_from_jar(internal_name);
     int rc = nabu_classfile_load(path);
     free(path);
     return rc;
 }
 
 int nabu_classfile_load(const char *path) {
-    register_builtins();
-
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
         fprintf(stderr, "classfile: cannot open %s\n", path);
@@ -2804,6 +3110,13 @@ int nabu_classfile_load(const char *path) {
         fclose(f); free(buf); return -1;
     }
     fclose(f);
+    return nabu_classfile_load_bytes(buf, sz, path);
+}
+
+/* Loads the class file in buf (sz bytes; freed here); origin names where it came from, for messages. */
+static int nabu_classfile_load_bytes(unsigned char *buf, long sz, const char *path) {
+    register_builtins();
+    (void)sz;
 
     const unsigned char *p = buf;
     /* magic + version */

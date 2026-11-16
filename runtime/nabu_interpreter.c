@@ -475,19 +475,23 @@ static inline int strict_nulls(nabu_interp_method_t *m) {
 static char **inited_classes = NULL;
 static int inited_count = 0, inited_cap = 0;
 
-/* JDK classes whose static initializer runs: the prefixes (separated by a colon) in NABU_JDK_CLINIT, by default the packages
- * that were found to work. The rest of the JDK runs without <clinit>: its statics read as null. */
+/* JDK classes whose static initializer runs: the prefixes (separated by a colon, "-prefix" excludes) in NABU_JDK_CLINIT, by
+ * default the packages that were found to work. The rest of the JDK runs without <clinit>: its statics read as null. */
 static int jdk_clinit_allowed(const char *cls) {
     const char *list = getenv("NABU_JDK_CLINIT");
-    if (list == NULL) list = "java/util/:java/math/:java/time/";   /* the default; NABU_JDK_CLINIT= switches it off */
+    if (list == NULL) list = "java/util/:java/math/:java/time/:java/lang/:-java/lang/reflect/";   /* the default; NABU_JDK_CLINIT= switches it off */
+    int allowed = 0;
     while (*list) {
         const char *end = strchr(list, ':');
         size_t n = end ? (size_t)(end - list) : strlen(list);
-        if (n > 0 && strncmp(cls, list, n) == 0) return 1;
+        int deny = n > 0 && list[0] == '-';
+        const char *prefix = deny ? list + 1 : list;
+        size_t pn = deny ? n - 1 : n;
+        if (pn > 0 && strncmp(cls, prefix, pn) == 0) { if (deny) return 0; allowed = 1; }
         if (!end) break;
         list = end + 1;
     }
-    return 0;
+    return allowed;
 }
 
 static void ensure_clinit(const char *cls) {

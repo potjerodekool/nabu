@@ -13,14 +13,22 @@ public final class BoehmGarbageCollector implements GarbageCollector {
         return "boehm";
     }
 
+    /**
+     * -Dnabu.allocProfile=true: the compiled code allocates through functions of gc_boehm.c that count the bytes and
+     * objects per call site (written to the file in NABU_ALLOC_PROF at run time).
+     */
+    private static boolean allocProfile() {
+        return Boolean.getBoolean("nabu.allocProfile");
+    }
+
     @Override
     public String allocateSymbol() {
-        return "GC_malloc";
+        return allocProfile() ? "nabu_prof_malloc" : "GC_malloc";
     }
 
     @Override
     public String allocateAtomicSymbol() {
-        return "GC_malloc_atomic";
+        return allocProfile() ? "nabu_prof_malloc_atomic" : "GC_malloc_atomic";
     }
 
     @Override

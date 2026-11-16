@@ -9,6 +9,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -71,10 +72,77 @@ static double nabu_gc_now_ms(void) {
 }
 extern size_t GC_get_prof_stats_unsafe(struct GC_prof_stats_s *, size_t); /* gc.h declares it only with GC_THREADS */
 static double nabu_gc_started_ms = 0;
+static int nabu_gc_stats_on = 0;
+
+/* An allocation profile (a build with -Dnabu.allocProfile=true: the compiled code then allocates through
+ * nabu_prof_malloc*, below): bytes and objects per call site, the return address of the allocation. With
+ * NABU_ALLOC_PROF=<file> the table is written to that file at every fourth collection, as "offset bytes count" lines (the
+ * offset from the start of the executable; symbolize with llvm-nm -n). */
+#define NABU_PROF_SLOTS 65536
+typedef struct { uintptr_t site; uint64_t bytes; uint64_t count; } nabu_prof_entry;
+static nabu_prof_entry nabu_prof_table[NABU_PROF_SLOTS];
+static const char *nabu_prof_path = NULL;
+
+static void nabu_prof_record(void *site, size_t n) {
+    const uintptr_t key = (uintptr_t) site;
+    size_t i = (size_t) ((key >> 2) * 0x9E3779B97F4A7C15ull >> 48) & (NABU_PROF_SLOTS - 1);
+    for (int probes = 0; probes < NABU_PROF_SLOTS; probes++, i = (i + 1) & (NABU_PROF_SLOTS - 1)) {
+        uintptr_t seen = __atomic_load_n(&nabu_prof_table[i].site, __ATOMIC_RELAXED);
+        if (seen == 0 && __atomic_compare_exchange_n(&nabu_prof_table[i].site, &seen, key, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) seen = key;
+        if (seen == key) {
+            __atomic_fetch_add(&nabu_prof_table[i].bytes, (uint64_t) n, __ATOMIC_RELAXED);
+            __atomic_fetch_add(&nabu_prof_table[i].count, 1, __ATOMIC_RELAXED);
+            return;
+        }
+    }
+}
+
+void *nabu_prof_malloc(size_t n) {
+    nabu_prof_record(__builtin_return_address(0), n);
+    return GC_malloc(n);
+}
+
+void *nabu_prof_malloc_atomic(size_t n) {
+    nabu_prof_record(__builtin_return_address(0), n);
+    return GC_malloc_atomic(n);
+}
+
+static void nabu_prof_dump(void) {
+#ifdef _WIN32
+    const uintptr_t base = (uintptr_t) GetModuleHandleA(NULL);
+    HANDLE f = CreateFileA(nabu_prof_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) return;
+#else
+    extern const char __executable_start;
+    const uintptr_t base = (uintptr_t) &__executable_start;
+    const int f = open(nabu_prof_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (f < 0) return;
+#endif
+    char line[96];
+    for (int i = 0; i < NABU_PROF_SLOTS; i++) {
+        if (nabu_prof_table[i].site == 0) continue;
+        const int n = snprintf(line, sizeof line, "%llx %llu %llu\n", (unsigned long long) (nabu_prof_table[i].site - base),
+                (unsigned long long) nabu_prof_table[i].bytes, (unsigned long long) nabu_prof_table[i].count);
+#ifdef _WIN32
+        DWORD written;
+        WriteFile(f, line, (DWORD) n, &written, NULL);
+#else
+        if (write(f, line, (size_t) n) < 0) break;
+#endif
+    }
+#ifdef _WIN32
+    CloseHandle(f);
+#else
+    close(f);
+#endif
+}
+
 static void nabu_gc_on_event(GC_EventType e) {
     if (e == GC_EVENT_START) {
         nabu_gc_started_ms = nabu_gc_now_ms();
     } else if (e == GC_EVENT_END) {
+        if (nabu_prof_path != NULL && GC_get_gc_no() % 4 == 0) nabu_prof_dump();
+        if (!nabu_gc_stats_on) return;
         struct GC_prof_stats_s s;
         GC_get_prof_stats_unsafe(&s, sizeof s); /* the collector holds its lock in the callback */
         /* No stdio here: the world is stopped, and a thread that holds the lock of stderr would never let go of it. */
@@ -93,7 +161,9 @@ static void nabu_gc_on_event(GC_EventType e) {
     }
 }
 __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
-    if (getenv("NABU_GC_STATS") != NULL) GC_set_on_collection_event(nabu_gc_on_event);
+    nabu_gc_stats_on = getenv("NABU_GC_STATS") != NULL;
+    nabu_prof_path = getenv("NABU_ALLOC_PROF");
+    if (nabu_gc_stats_on || nabu_prof_path != NULL) GC_set_on_collection_event(nabu_gc_on_event);
 }
 
 static volatile size_t nabu_gc_alloc_bytes = 0;

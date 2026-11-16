@@ -39,6 +39,13 @@ check ReflectBoxTest 'true|k|3|false|false|5|b|true'
 check ReflectInheritTest '8|derived|11|not declared|no such method'
 check JarLoadTest '42|from jar'
 check VirtualTest '6|27|54|27'
+# the same output as the JVM for the core operations (instanceof, toString in concatenation, doubles, Character, Math, String)
+java_out=$(cd "$O" && java -cp classes CoreOpsTest 2>&1)
+core_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/CoreOpsTest.class" CoreOpsTest 2>&1)
+if [ "$java_out" == "$core_out" ]; then echo "PASS CoreOpsTest"; else echo "FAIL CoreOpsTest"; diff <(echo "$java_out") <(echo "$core_out"); fail=1; fi
+java_out=$(cd "$O" && java -cp classes JdkCollectionsTest 2>&1)
+coll_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/JdkCollectionsTest.class" JdkCollectionsTest 2>&1)
+if [ "$java_out" == "$coll_out" ]; then echo "PASS JdkCollectionsTest"; else echo "FAIL JdkCollectionsTest"; diff <(echo "$java_out") <(echo "$coll_out"); fail=1; fi
 # the method JIT (runtime/jit, needs cargo): the same output with and without it, and with it for the compiled calls
 if command -v cargo >/dev/null 2>&1; then
   (cd "$R/jit" && cargo build --release -q) || exit 1

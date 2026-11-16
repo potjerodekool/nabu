@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <math.h>
 #ifdef _WIN32
 #include <windows.h>
 #ifndef strtok_r
@@ -181,22 +183,11 @@ static void native_println_str(nabu_interp_frame_t *frame, void **args, int narg
 }
 
 static void native_println_obj(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)frame;
     int idx = (nargs > 1) ? 1 : 0;
     void *v = args != NULL ? args[idx] : NULL;
-    if (v == NULL) { printf("null\n"); frame->has_result = 0; return; }
-    { char bb[8]; const char *bt = nabu_box_text(v, bb); if (bt != NULL) { printf("%s\n", bt); frame->has_result = 0; return; } }
-    /* Heuristic: small values are ints (from unboxed lambda results). */
-    if ((uintptr_t)v < (1 << 20)) {
-        printf("%d\n", (int)(intptr_t)v);
-    } else {
-        const char *s = (const char *)v;
-        /* check printable */
-        int ok = 1;
-        for (int i = 0; i < 64 && s[i]; i++) if ((unsigned char)s[i] < 32) { ok = 0; break; }
-        if (ok && s[0]) printf("%s\n", s);
-        else printf("%p\n", v);
-    }
+    char *text = nabu_interp_object_to_string(v);
+    printf("%s\n", text);
+    free(text);
     frame->has_result = 0;
 }
 
@@ -234,20 +225,22 @@ static void native_println_long(nabu_interp_frame_t *frame, void **args, int nar
 }
 
 static void native_println_float(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)frame;
     int idx = (nargs > 1) ? 1 : 0;
     int bits = (int)(intptr_t)(args != NULL ? args[idx] : NULL);
     float v; memcpy(&v, &bits, sizeof(v));
-    printf("%g\n", v);
+    char *text = nabu_interp_float_to_string(v);
+    printf("%s\n", text);
+    free(text);
     frame->has_result = 0;
 }
 
 static void native_println_double(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)frame;
     int idx = (nargs > 1) ? 1 : 0;
     long bits = (long)(intptr_t)(args != NULL ? args[idx] : NULL);
     double v; memcpy(&v, &bits, sizeof(v));
-    printf("%g\n", v);
+    char *text = nabu_interp_double_to_string(v);
+    printf("%s\n", text);
+    free(text);
     frame->has_result = 0;
 }
 
@@ -1000,20 +993,7 @@ static void native_object_toString(nabu_interp_frame_t *frame, void **args, int 
 
 static void native_string_valueOf_obj(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
-    void *v = (args != NULL) ? args[0] : NULL;
-    if (v == NULL) { frame->result = (void *)strdup("null"); frame->has_result = 1; return; }
-    { char bb[8]; const char *bt = nabu_box_text(v, bb); if (bt != NULL) { frame->result = (void *)strdup(bt); frame->has_result = 1; return; } }
-    /* if it's a char* string already */
-    int printable = 0;
-    if ((uintptr_t)v >= (1 << 20)) {
-        const char *s = (const char *)v;
-        printable = 1;
-        for (int i = 0; i < 8 && s[i]; i++) if ((unsigned char)s[i] < 32) { printable = 0; break; }
-        if (printable && s[0]) { frame->result = (void *)strdup(s); frame->has_result = 1; return; }
-    }
-    /* otherwise treat as int */
-    char buf[64]; snprintf(buf, sizeof(buf), "%d", (int)(intptr_t)v);
-    frame->result = (void *)strdup(buf);
+    frame->result = (void *)nabu_interp_object_to_string(args != NULL ? args[0] : NULL);
     frame->has_result = 1;
 }
 
@@ -2174,8 +2154,20 @@ static void native_sl_iterator(nabu_interp_frame_t *frame, void **args, int narg
     frame->has_result = 1;
 }
 
+/* Iterator.hasNext/next are natives for the iterator of a ServiceLoader; any other iterator runs its own method. */
+static int sl_delegate(nabu_interp_frame_t *frame, void **args, int nargs, const char *name, const char *desc) {
+    void *h = (args != NULL && nargs > 0) ? args[0] : NULL;
+    if (h == NULL || sl_find(h) != NULL) return 0;
+    const char *rt = ((uintptr_t)h >= 0x100000000ull && (uintptr_t)h < 0x800000000000ull) ? nabu_compiled_type_name(h) : NULL;
+    nabu_interp_method_t *t = rt != NULL ? nabu_interp_resolve_in_hierarchy(rt, name, desc, 0) : NULL;
+    if (t == NULL || t->code == NULL) return 0;
+    frame->result = nabu_interp_invoke(t, args, nargs);
+    frame->has_result = 1;
+    return 1;
+}
+
 static void native_sl_hasNext(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)nargs;
+    if (sl_delegate(frame, args, nargs, "hasNext", "()Z")) return;
     void *h = (args != NULL) ? args[0] : NULL;
     nabu_sl_state_t *s = sl_find(h);
     int r = (s && s->idx < s->count) ? 1 : 0;
@@ -2184,7 +2176,7 @@ static void native_sl_hasNext(nabu_interp_frame_t *frame, void **args, int nargs
 }
 
 static void native_sl_next(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)nargs;
+    if (sl_delegate(frame, args, nargs, "next", "()Ljava/lang/Object;")) return;
     void *h = (args != NULL) ? args[0] : NULL;
     nabu_sl_state_t *s = sl_find(h);
     if (s && s->idx < s->count) {
@@ -2788,6 +2780,207 @@ static void native_string_hashCode(nabu_interp_frame_t *frame, void **args, int 
     frame->has_result = 1;
 }
 
+/* ---- StringBuilder.append of the other types, Character, Math on doubles and more String methods ---- */
+
+static void sb_append_text(nabu_interp_frame_t *frame, void *obj, char *text) {
+    void *a[2] = { obj, (void *)text };
+    native_sb_append_str(frame, a, 2);
+}
+
+static void native_sb_append_char(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = (args != NULL) ? args[0] : NULL;
+    unsigned c = (nargs > 1) ? (unsigned)(intptr_t)args[1] & 0xffff : 0;
+    char tmp[8];
+    if (c < 0x80) { tmp[0] = (char)c; tmp[1] = 0; }
+    else if (c < 0x800) { tmp[0] = (char)(0xC0 | (c >> 6)); tmp[1] = (char)(0x80 | (c & 0x3F)); tmp[2] = 0; }
+    else { tmp[0] = (char)(0xE0 | (c >> 12)); tmp[1] = (char)(0x80 | ((c >> 6) & 0x3F)); tmp[2] = (char)(0x80 | (c & 0x3F)); tmp[3] = 0; }
+    sb_append_text(frame, obj, strdup(tmp));
+}
+
+static void native_sb_append_long(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = (args != NULL) ? args[0] : NULL;
+    long v = (nargs > 1) ? (long)(intptr_t)args[1] : 0;
+    char tmp[32]; snprintf(tmp, sizeof tmp, "%ld", v);
+    sb_append_text(frame, obj, strdup(tmp));
+}
+
+static void native_sb_append_bool(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = (args != NULL) ? args[0] : NULL;
+    int v = (nargs > 1) ? (int)(intptr_t)args[1] : 0;
+    sb_append_text(frame, obj, strdup(v ? "true" : "false"));
+}
+
+static void native_sb_append_double(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = (args != NULL) ? args[0] : NULL;
+    long bits = (nargs > 1) ? (long)(intptr_t)args[1] : 0;
+    double v; memcpy(&v, &bits, sizeof v);
+    sb_append_text(frame, obj, nabu_interp_double_to_string(v));
+}
+
+static void native_sb_append_float(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = (args != NULL) ? args[0] : NULL;
+    int bits = (nargs > 1) ? (int)(intptr_t)args[1] : 0;
+    float v; memcpy(&v, &bits, sizeof v);
+    sb_append_text(frame, obj, nabu_interp_float_to_string(v));
+}
+
+static void native_sb_append_obj(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = (args != NULL) ? args[0] : NULL;
+    sb_append_text(frame, obj, nabu_interp_object_to_string(nargs > 1 ? args[1] : NULL));
+}
+
+/* The text of a StringBuilder (NULL when the pointer is none). */
+char *nabu_interp_sb_text(void *obj) { return sb_get(obj); }
+
+#define NATIVE_RET_INT(frame, v) do { (frame)->result = (void *)(intptr_t)(v); (frame)->has_result = 1; } while (0)
+
+static void native_char_isDigit(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, c >= '0' && c <= '9'); }
+static void native_char_isLetter(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0xC0); }
+static void native_char_isLetterOrDigit(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0xC0); }
+static void native_char_isUpperCase(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, c >= 'A' && c <= 'Z'); }
+static void native_char_isLowerCase(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, c >= 'a' && c <= 'z'); }
+static void native_char_isWhitespace(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, c == ' ' || (c >= 9 && c <= 13) || (c >= 0x1C && c <= 0x1F)); }
+static void native_char_toUpperCase(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, (c >= 'a' && c <= 'z') ? c - 32 : c); }
+static void native_char_toLowerCase(nabu_interp_frame_t *frame, void **args, int nargs) { int c = nargs > 0 ? (int)(intptr_t)args[0] : 0; NATIVE_RET_INT(frame, (c >= 'A' && c <= 'Z') ? c + 32 : c); }
+
+static double arg_double(void **args, int i, int nargs) { long bits = (i < nargs) ? (long)(intptr_t)args[i] : 0; double v; memcpy(&v, &bits, sizeof v); return v; }
+static float arg_float(void **args, int i, int nargs) { int bits = (i < nargs) ? (int)(intptr_t)args[i] : 0; float v; memcpy(&v, &bits, sizeof v); return v; }
+static void ret_double(nabu_interp_frame_t *frame, double v) { long bits; memcpy(&bits, &v, sizeof bits); frame->result = (void *)(intptr_t)bits; frame->has_result = 1; }
+static void ret_float(nabu_interp_frame_t *frame, float v) { int bits; memcpy(&bits, &v, sizeof bits); frame->result = (void *)(intptr_t)bits; frame->has_result = 1; }
+
+static void native_math_abs_d(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, fabs(arg_double(args, 0, nargs))); }
+static void native_math_abs_f(nabu_interp_frame_t *frame, void **args, int nargs) { ret_float(frame, fabsf(arg_float(args, 0, nargs))); }
+static void native_math_max_d(nabu_interp_frame_t *frame, void **args, int nargs) { double a = arg_double(args, 0, nargs), b = arg_double(args, 1, nargs); ret_double(frame, (a != a || b != b) ? a + b : (a > b ? a : b)); }
+static void native_math_min_d(nabu_interp_frame_t *frame, void **args, int nargs) { double a = arg_double(args, 0, nargs), b = arg_double(args, 1, nargs); ret_double(frame, (a != a || b != b) ? a + b : (a < b ? a : b)); }
+static void native_math_max_f(nabu_interp_frame_t *frame, void **args, int nargs) { float a = arg_float(args, 0, nargs), b = arg_float(args, 1, nargs); ret_float(frame, (a != a || b != b) ? a + b : (a > b ? a : b)); }
+static void native_math_min_f(nabu_interp_frame_t *frame, void **args, int nargs) { float a = arg_float(args, 0, nargs), b = arg_float(args, 1, nargs); ret_float(frame, (a != a || b != b) ? a + b : (a < b ? a : b)); }
+static void native_math_max_l(nabu_interp_frame_t *frame, void **args, int nargs) { long a = nargs > 0 ? (long)(intptr_t)args[0] : 0, b = nargs > 1 ? (long)(intptr_t)args[1] : 0; frame->result = (void *)(intptr_t)(a > b ? a : b); frame->has_result = 1; }
+static void native_math_min_l(nabu_interp_frame_t *frame, void **args, int nargs) { long a = nargs > 0 ? (long)(intptr_t)args[0] : 0, b = nargs > 1 ? (long)(intptr_t)args[1] : 0; frame->result = (void *)(intptr_t)(a < b ? a : b); frame->has_result = 1; }
+static void native_math_sin(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, sin(arg_double(args, 0, nargs))); }
+static void native_math_cos(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, cos(arg_double(args, 0, nargs))); }
+static void native_math_tan(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, tan(arg_double(args, 0, nargs))); }
+static void native_math_exp(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, exp(arg_double(args, 0, nargs))); }
+static void native_math_log(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, log(arg_double(args, 0, nargs))); }
+static void native_math_log10(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, log10(arg_double(args, 0, nargs))); }
+static void native_math_cbrt(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, cbrt(arg_double(args, 0, nargs))); }
+static void native_math_atan2(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, atan2(arg_double(args, 0, nargs), arg_double(args, 2, nargs))); }
+static void native_math_hypot(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, hypot(arg_double(args, 0, nargs), arg_double(args, 2, nargs))); }
+
+static const char *arg_cstr(void **args, int i, int nargs) { return (i < nargs && args[i] != NULL) ? (const char *)args[i] : ""; }
+
+static void native_string_contains(nabu_interp_frame_t *frame, void **args, int nargs) {
+    char *needle = nabu_interp_object_to_string(nargs > 1 ? args[1] : NULL);
+    NATIVE_RET_INT(frame, strstr(arg_cstr(args, 0, nargs), needle) != NULL);
+    free(needle);
+}
+static void native_string_lastIndexOf_char(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *s = arg_cstr(args, 0, nargs);
+    const char *p = strrchr(s, nargs > 1 ? (int)(intptr_t)args[1] : 0);
+    NATIVE_RET_INT(frame, p != NULL ? (int)(p - s) : -1);
+}
+static void native_string_lastIndexOf_str(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *s = arg_cstr(args, 0, nargs), *t = arg_cstr(args, 1, nargs);
+    int best = -1;
+    size_t tl = strlen(t);
+    for (const char *p = s; (p = strstr(p, t)) != NULL; p++) { best = (int)(p - s); if (tl == 0 && !*p) break; }
+    NATIVE_RET_INT(frame, best);
+}
+static void native_string_compareTo(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const unsigned char *a = (const unsigned char *)arg_cstr(args, 0, nargs), *b = (const unsigned char *)arg_cstr(args, 1, nargs);
+    while (*a && *a == *b) { a++; b++; }
+    NATIVE_RET_INT(frame, (int)*a - (int)*b);
+}
+static void native_string_equalsIgnoreCase(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *a = arg_cstr(args, 0, nargs), *b = arg_cstr(args, 1, nargs);
+    int eq = nargs > 1 && args[1] != NULL;
+    for (; eq && (*a || *b); a++, b++) if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) eq = 0;
+    NATIVE_RET_INT(frame, eq);
+}
+static void native_string_repeat(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *s = arg_cstr(args, 0, nargs);
+    int n = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    size_t sl = strlen(s);
+    char *r = (char *)malloc(sl * (size_t)(n > 0 ? n : 0) + 1);
+    r[0] = 0;
+    for (int i = 0; i < n; i++) memcpy(r + sl * (size_t)i, s, sl + 1);
+    frame->result = r; frame->has_result = 1;
+}
+static void native_string_substring_from(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *s = arg_cstr(args, 0, nargs);
+    int from = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    int len = (int)strlen(s);
+    frame->result = strdup(from >= 0 && from <= len ? s + from : "");
+    frame->has_result = 1;
+}
+/* String.split for a literal separator ("," or a single escaped character), "\\s+" and "\s*,\s*" are not handled: the JDK's regex is not run here. */
+static void native_string_split(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *s = arg_cstr(args, 0, nargs);
+    const char *re = arg_cstr(args, 1, nargs);
+    char sep[8] = {0};
+    int ws = 0;
+    if (strcmp(re, "\\s+") == 0 || strcmp(re, "\\s") == 0 || strcmp(re, " +") == 0) ws = 1;
+    else if (re[0] == '\\' && re[1] && !re[2]) { sep[0] = re[1]; }
+    else { snprintf(sep, sizeof sep, "%s", re); }
+    size_t seplen = strlen(sep);
+    char **parts = NULL; int n = 0, cap = 0;
+    const char *p = s;
+    for (;;) {
+        const char *q;
+        size_t skip;
+        if (ws) { q = p; while (*q && !isspace((unsigned char)*q)) q++; if (!*q) q = NULL; skip = 1; if (q && (strcmp(re, "\\s+") == 0 || strcmp(re, " +") == 0)) { const char *r = q; while (isspace((unsigned char)*r)) r++; skip = (size_t)(r - q); } }
+        else { q = seplen > 0 ? strstr(p, sep) : NULL; skip = seplen; }
+        size_t len = q ? (size_t)(q - p) : strlen(p);
+        if (n >= cap) { cap = cap ? cap * 2 : 8; parts = (char **)realloc(parts, sizeof(char *) * (size_t)cap); }
+        parts[n] = (char *)malloc(len + 1); memcpy(parts[n], p, len); parts[n][len] = 0; n++;
+        if (!q) break;
+        p = q + skip;
+    }
+    while (n > 1 && parts[n - 1][0] == 0) n--;   /* trailing empty strings go */
+    if (n == 1 && parts[0][0] == 0 && s[0] != 0) n = 0;
+    void *arr = calloc(1, 8 + (size_t)(n > 0 ? n : 1) * sizeof(void *));
+    *(int *)arr = n;
+    for (int i = 0; i < n; i++) ((void **)((char *)arr + 8))[i] = parts[i];
+    free(parts);
+    frame->result = arr; frame->has_result = 1;
+}
+
+static void native_sb_length(nabu_interp_frame_t *frame, void **args, int nargs) {
+    char *cur = sb_get(nargs > 0 ? args[0] : NULL);
+    NATIVE_RET_INT(frame, cur ? (int)strlen(cur) : 0);
+}
+static void native_sb_charAt(nabu_interp_frame_t *frame, void **args, int nargs) {
+    char *cur = sb_get(nargs > 0 ? args[0] : NULL);
+    int i = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    NATIVE_RET_INT(frame, (cur && i >= 0 && i < (int)strlen(cur)) ? (unsigned char)cur[i] : 0);
+}
+static void native_sb_setLength(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = nargs > 0 ? args[0] : NULL;
+    char *cur = sb_get(obj);
+    int n = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    int len = cur ? (int)strlen(cur) : 0;
+    char *t = (char *)malloc((size_t)(n > len ? n : len) + 1);
+    if (cur) memcpy(t, cur, (size_t)len);
+    for (int i = len; i < n; i++) t[i] = 0;
+    t[n > 0 ? n : 0] = 0;
+    sb_set(obj, n > len ? (t[len] = 0, t) : t);
+    free(t);
+    frame->has_result = 0;
+}
+static void native_sb_deleteCharAt(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *obj = nargs > 0 ? args[0] : NULL;
+    char *cur = sb_get(obj);
+    int i = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    if (cur && i >= 0 && i < (int)strlen(cur)) { char *t = strdup(cur); memmove(t + i, t + i + 1, strlen(t + i + 1) + 1); sb_set(obj, t); free(t); }
+    frame->result = obj; frame->has_result = 1;
+}
+
+static void native_string_lastChars(nabu_interp_frame_t *frame, void **args, int nargs) {   /* isBlank */
+    const char *s = arg_cstr(args, 0, nargs);
+    int blank = 1;
+    for (; *s; s++) if (!isspace((unsigned char)*s)) { blank = 0; break; }
+    NATIVE_RET_INT(frame, blank);
+}
+
 static void register_builtins(void) {
     static int done = 0;
     if (done) return;
@@ -2802,13 +2995,55 @@ static void register_builtins(void) {
     register_native("java/lang/String", "valueOf", "(Ljava/lang/Object;)Ljava/lang/String;", native_string_valueOf_obj);
     register_native("java/lang/String", "valueOf", "(I)Ljava/lang/String;", native_integer_toString);
     /* StringBuilder */
+    register_native("java/lang/Character", "isDigit", "(C)Z", native_char_isDigit);
+    register_native("java/lang/Character", "isLetter", "(C)Z", native_char_isLetter);
+    register_native("java/lang/Character", "isLetterOrDigit", "(C)Z", native_char_isLetterOrDigit);
+    register_native("java/lang/Character", "isUpperCase", "(C)Z", native_char_isUpperCase);
+    register_native("java/lang/Character", "isLowerCase", "(C)Z", native_char_isLowerCase);
+    register_native("java/lang/Character", "isWhitespace", "(C)Z", native_char_isWhitespace);
+    register_native("java/lang/Character", "toUpperCase", "(C)C", native_char_toUpperCase);
+    register_native("java/lang/Character", "toLowerCase", "(C)C", native_char_toLowerCase);
+    register_native("java/lang/Math", "abs", "(D)D", native_math_abs_d);
+    register_native("java/lang/Math", "abs", "(F)F", native_math_abs_f);
+    register_native("java/lang/Math", "max", "(DD)D", native_math_max_d);
+    register_native("java/lang/Math", "min", "(DD)D", native_math_min_d);
+    register_native("java/lang/Math", "max", "(FF)F", native_math_max_f);
+    register_native("java/lang/Math", "min", "(FF)F", native_math_min_f);
+    register_native("java/lang/Math", "max", "(JJ)J", native_math_max_l);
+    register_native("java/lang/Math", "min", "(JJ)J", native_math_min_l);
+    register_native("java/lang/Math", "sin", "(D)D", native_math_sin);
+    register_native("java/lang/Math", "cos", "(D)D", native_math_cos);
+    register_native("java/lang/Math", "tan", "(D)D", native_math_tan);
+    register_native("java/lang/Math", "exp", "(D)D", native_math_exp);
+    register_native("java/lang/Math", "log", "(D)D", native_math_log);
+    register_native("java/lang/Math", "log10", "(D)D", native_math_log10);
+    register_native("java/lang/Math", "cbrt", "(D)D", native_math_cbrt);
+    register_native("java/lang/Math", "atan2", "(DD)D", native_math_atan2);
+    register_native("java/lang/Math", "hypot", "(DD)D", native_math_hypot);
+    register_native("java/lang/String", "contains", "(Ljava/lang/CharSequence;)Z", native_string_contains);
+    register_native("java/lang/String", "lastIndexOf", "(I)I", native_string_lastIndexOf_char);
+    register_native("java/lang/String", "lastIndexOf", "(Ljava/lang/String;)I", native_string_lastIndexOf_str);
+    register_native("java/lang/String", "compareTo", "(Ljava/lang/String;)I", native_string_compareTo);
+    register_native("java/lang/String", "equalsIgnoreCase", "(Ljava/lang/String;)Z", native_string_equalsIgnoreCase);
+    register_native("java/lang/String", "repeat", "(I)Ljava/lang/String;", native_string_repeat);
+    register_native("java/lang/String", "substring", "(I)Ljava/lang/String;", native_string_substring_from);
+    register_native("java/lang/String", "isBlank", "()Z", native_string_lastChars);
+    register_native("java/lang/StringBuilder", "length", "()I", native_sb_length);
+    register_native("java/lang/StringBuilder", "charAt", "(I)C", native_sb_charAt);
+    register_native("java/lang/StringBuilder", "setLength", "(I)V", native_sb_setLength);
+    register_native("java/lang/StringBuilder", "deleteCharAt", "(I)Ljava/lang/StringBuilder;", native_sb_deleteCharAt);
+    register_native("java/lang/String", "split", "(Ljava/lang/String;)[Ljava/lang/String;", native_string_split);
     register_native("java/lang/StringBuilder", "<init>", "()V", native_sb_init);
     register_native("java/lang/StringBuilder", "<init>", "(Ljava/lang/String;)V", native_sb_init_str);
     register_native("java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", native_sb_append_str);
     register_native("java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", native_sb_append_int);
-    register_native("java/lang/StringBuilder", "append", "(J)Ljava/lang/StringBuilder;", native_sb_append_int);
-    register_native("java/lang/StringBuilder", "append", "(C)Ljava/lang/StringBuilder;", native_sb_append_int);
-    register_native("java/lang/StringBuilder", "append", "(Ljava/lang/Object;)Ljava/lang/StringBuilder;", native_sb_append_str);
+    register_native("java/lang/StringBuilder", "append", "(J)Ljava/lang/StringBuilder;", native_sb_append_long);
+    register_native("java/lang/StringBuilder", "append", "(C)Ljava/lang/StringBuilder;", native_sb_append_char);
+    register_native("java/lang/StringBuilder", "append", "(Z)Ljava/lang/StringBuilder;", native_sb_append_bool);
+    register_native("java/lang/StringBuilder", "append", "(D)Ljava/lang/StringBuilder;", native_sb_append_double);
+    register_native("java/lang/StringBuilder", "append", "(F)Ljava/lang/StringBuilder;", native_sb_append_float);
+    register_native("java/lang/StringBuilder", "append", "(Ljava/lang/CharSequence;)Ljava/lang/StringBuilder;", native_sb_append_obj);
+    register_native("java/lang/StringBuilder", "append", "(Ljava/lang/Object;)Ljava/lang/StringBuilder;", native_sb_append_obj);
     register_native("java/lang/StringBuilder", "toString", "()Ljava/lang/String;", native_sb_toString);
     register_native("java/lang/StringBuilder", "ensureCapacity", "(I)V", native_sb_ensureCapacity);
     register_native("java/lang/StringBuilder", "capacity", "()I", native_sb_capacity);

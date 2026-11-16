@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <gc.h>
 #include "nabu_gc.h"
@@ -53,6 +54,46 @@ void nabu_gc_init(void) {
 
 __attribute__((constructor(101))) static void nabu_boehm_init(void) {
     nabu_gc_init();
+}
+
+/* NABU_GC_STATS=1: one line on stderr per collection (number, duration, heap size, live bytes after it). */
+static double nabu_gc_now_ms(void) {
+#ifdef _WIN32
+    LARGE_INTEGER f, c;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&c);
+    return (double) c.QuadPart * 1000.0 / (double) f.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double) ts.tv_sec * 1000.0 + (double) ts.tv_nsec / 1e6;
+#endif
+}
+extern size_t GC_get_prof_stats_unsafe(struct GC_prof_stats_s *, size_t); /* gc.h declares it only with GC_THREADS */
+static double nabu_gc_started_ms = 0;
+static void nabu_gc_on_event(GC_EventType e) {
+    if (e == GC_EVENT_START) {
+        nabu_gc_started_ms = nabu_gc_now_ms();
+    } else if (e == GC_EVENT_END) {
+        struct GC_prof_stats_s s;
+        GC_get_prof_stats_unsafe(&s, sizeof s); /* the collector holds its lock in the callback */
+        /* No stdio here: the world is stopped, and a thread that holds the lock of stderr would never let go of it. */
+        char line[200];
+        const int n = snprintf(line, sizeof line,
+                "[nabu/gc] #%lu %.1f ms heap %lu MB, allocated before %lu MB, reclaimed %lu MB\n",
+                (unsigned long) s.gc_no, nabu_gc_now_ms() - nabu_gc_started_ms,
+                (unsigned long) (s.heapsize_full >> 20), (unsigned long) (s.allocd_bytes_before_gc >> 20),
+                (unsigned long) (s.reclaimed_bytes_before_gc >> 20));
+#ifdef _WIN32
+        DWORD written;
+        WriteFile(GetStdHandle(STD_ERROR_HANDLE), line, (DWORD) n, &written, NULL);
+#else
+        if (write(2, line, (size_t) n) < 0) { /* nothing to do */ }
+#endif
+    }
+}
+__attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
+    if (getenv("NABU_GC_STATS") != NULL) GC_set_on_collection_event(nabu_gc_on_event);
 }
 
 static volatile size_t nabu_gc_alloc_bytes = 0;

@@ -128,17 +128,22 @@ void nabu_interp_register_field(const char *cls, const char *name, int index) {
     nabu_interp_register_field_ex(cls, name, index, NULL, 1);
 }
 
+/* A field of the class or, when it is not declared there, of a superclass (a subclass names the field through its own type). */
 int nabu_interp_field_index(const char *class_name, const char *field_name) {
-    for (int i = 0; i < field_count_g; i++) {
-        if (strcmp(fields[i].class_name, class_name) == 0 &&
-            strcmp(fields[i].name, field_name) == 0) {
-            return fields[i].index;
+    for (int depth = 0; class_name != NULL && depth < 64; depth++) {
+        for (int i = 0; i < field_count_g; i++) {
+            if (strcmp(fields[i].class_name, class_name) == 0 &&
+                strcmp(fields[i].name, field_name) == 0) {
+                return fields[i].index;
+            }
         }
+        class_name = nabu_class_super_name(class_name);
     }
     return -1;
 }
 
-int nabu_interp_field_count(const char *class_name) {
+/* The fields that the class declares itself. */
+static int own_field_count(const char *class_name) {
     int maxidx = -1;
     for (int i = 0; i < field_count_g; i++) {
         if (strcmp(fields[i].class_name, class_name) == 0) {
@@ -146,6 +151,16 @@ int nabu_interp_field_count(const char *class_name) {
         }
     }
     return maxidx + 1;
+}
+
+/* The slots of an object of the class: its own fields come after those of its superclasses. */
+int nabu_interp_field_count(const char *class_name) {
+    for (int depth = 0; class_name != NULL && depth < 64; depth++) {
+        int own = own_field_count(class_name);
+        if (own > 0) return own;
+        class_name = nabu_class_super_name(class_name);
+    }
+    return 0;
 }
 
 static void native_println_int(nabu_interp_frame_t *frame, void **args, int nargs) {
@@ -3048,6 +3063,12 @@ void nabu_register_interfaces(const char *class_name, char **ifaces, int count) 
     nabu_iface_count++;
 }
 
+/* The superclass of a loaded class (NULL for Object, interfaces and unknown classes). */
+const char *nabu_class_super_name(const char *name) {
+    nabu_hier_t *h = name != NULL ? hier_find(name) : NULL;
+    return h != NULL ? h->super_name : NULL;
+}
+
 int nabu_get_interface_count(const char *class_name) {
     for (int i = 0; i < nabu_iface_count; i++) {
         if (strcmp(nabu_iface_table[i].class_name, class_name) == 0) return nabu_iface_table[i].count;
@@ -3227,7 +3248,10 @@ static int nabu_classfile_load_bytes(unsigned char *buf, long sz, const char *pa
     /* Fields */
     int field_count = rd_u2(p); p += 2;
     /* Count existing fields for this class (for index assignment). */
-    int base_field_idx = nabu_interp_field_count(this_class_name);
+    /* The fields of the superclass come first in the object. */
+    if (super_name != NULL) nabu_classfile_load_class(super_name);
+    int base_field_idx = own_field_count(this_class_name);
+    if (base_field_idx == 0 && super_name != NULL) base_field_idx = nabu_interp_field_count(super_name);
     for (int i = 0; i < field_count; i++) {
         int faccess = rd_u2(p); p += 2;
         int fname_idx = rd_u2(p); p += 2;

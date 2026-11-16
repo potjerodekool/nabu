@@ -38,6 +38,7 @@ check BoxTest '6|5|true|true|true|x|8|4|2|flag=false zero=0 c=q s=null b=true'
 check ReflectBoxTest 'true|k|3|false|false|5|b|true'
 check ReflectInheritTest '8|derived|11|not declared|no such method'
 check JarLoadTest '42|from jar'
+check VirtualTest '6|27|54|27'
 # the method JIT (runtime/jit, needs cargo): the same output with and without it, and with it for the compiled calls
 if command -v cargo >/dev/null 2>&1; then
   (cd "$R/jit" && cargo build --release -q) || exit 1
@@ -48,6 +49,9 @@ if command -v cargo >/dev/null 2>&1; then
   out_jit=$(cd "$O" && timeout 60 ./test_run "$O/classes/JitObjTest.class" JitObjTest 2>&1)
   out_int=$(cd "$O" && NABU_JIT=0 timeout 60 ./test_run "$O/classes/JitObjTest.class" JitObjTest 2>&1)
   if [ "$out_jit" == "$out_int" ] && echo "$out_jit" | grep -q 'aioobe'; then echo "PASS JitObjTest"; else echo "FAIL JitObjTest"; echo "--- jit"; echo "$out_jit"; echo "--- interpreted"; echo "$out_int"; fail=1; fi
+  out_jit=$(cd "$O" && timeout 60 ./test_run "$O/classes/JitVirtTest.class" JitVirtTest 2>&1)
+  out_int=$(cd "$O" && NABU_JIT=0 timeout 60 ./test_run "$O/classes/JitVirtTest.class" JitVirtTest 2>&1)
+  if [ "$out_jit" == "$out_int" ] && [ -n "$out_jit" ]; then echo "PASS JitVirtTest"; else echo "FAIL JitVirtTest"; echo "--- jit"; echo "$out_jit"; echo "--- interpreted"; echo "$out_int"; fail=1; fi
   unset NABU_JIT_LIB NABU_JIT_THRESHOLD
 fi
 check WideParamsTest '3.75|115|1.5'

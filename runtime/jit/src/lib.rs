@@ -43,6 +43,11 @@ pub struct Host {
     pub throw_exc: extern "C" fn(kind: c_int),
     /// newarray: the array object (length at 0, elements from byte 8) of a primitive type code and a length.
     pub new_array: extern "C" fn(atype: c_int, count: c_int) -> *mut c_void,
+    /// The method named by an invokestatic (0xb8), invokespecial (0xb7) or invokevirtual (0xb6) of a class of the program,
+    /// with its descriptor; 0 when it is not one that can be compiled.
+    pub resolve_invoke: extern "C" fn(cp: *mut c_void, idx: c_int, op: c_int, method: *mut *mut c_void, desc: *mut c_char, cap: c_int) -> c_int,
+    /// invokevirtual from compiled code: the receiver is args[0]; non-zero when an exception is pending.
+    pub call_virtual: extern "C" fn(cp: *mut c_void, idx: c_int, args: *const i64, nargs: c_int, result: *mut i64) -> c_int,
 }
 
 struct Jit {
@@ -217,7 +222,7 @@ fn decode(code: &[u8]) -> Option<Vec<Insn>> {
             0x15..=0x19 | 0x36..=0x3a => (*code.get(pc + 1)? as i32, 2),
             0x84 => ((*code.get(pc + 1)? as i32) | ((*code.get(pc + 2)? as i8 as i32) << 8), 3),
             0x99..=0xa7 | 0xc6 | 0xc7 => (pc as i32 + s2(pc + 1)?, 3),
-            0xb8 => (u2(pc + 1)?, 3),
+            0xb6..=0xb8 => (u2(pc + 1)?, 3),
             _ => return None,
         };
         out.push(Insn { pc, op, a, next: pc + len });
@@ -557,15 +562,18 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
             pop_ty(st)?;
         }
         0xb1 => {}
-        0xb8 => {
+        0xb6..=0xb8 => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
-            if (host.resolve_static)(cp, insn.a, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
+            if (host.resolve_invoke)(cp, insn.a, insn.op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
                 return None;
             }
             let desc = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
             let (params, ret) = parse_desc(desc)?;
             for _ in 0..params.len() {
+                pop_ty(st)?;
+            }
+            if insn.op != 0xb8 {
                 pop_ty(st)?;
             }
             if let Some(r) = ret {
@@ -1335,15 +1343,15 @@ fn emit(
             b.ins().return_(&[z]);
             return Some(true);
         }
-        0xb8 => {
+        0xb6..=0xb8 => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
-            if (host.resolve_static)(cp, insn.a, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
+            if (host.resolve_invoke)(cp, insn.a, op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
                 return None;
             }
             let desc = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
             let (params, cret) = parse_desc(desc)?;
-            let n = params.len();
+            let n = params.len() + if op == 0xb8 { 0 } else { 1 };
             let args_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (n.max(1) * 8) as u32, 3));
             let res_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let mut vals: Vec<Value> = Vec::with_capacity(n);
@@ -1357,7 +1365,7 @@ fn emit(
                 b.ins().stack_store(ptr, raw, args_slot, (i * 8) as i32);
             }
             let a = b.ins().stack_addr(ptr, args_slot, 0);
-            if method == self_method {
+            if op == 0xb8 && method == self_method {
                 // a call of this very method: straight to the machine code, then look whether it left an exception
                 let call = b.ins().call(self_ref, &[a]);
                 let raw = b.inst_results(call)[0];
@@ -1379,18 +1387,33 @@ fn emit(
                 }
                 return Some(false);
             }
-            let m = b.ins().iconst(ptr, method as usize as i64);
             let count = b.ins().iconst(types::I32, n as i64);
             let r = b.ins().stack_addr(ptr, res_slot, 0);
-            let mut s = Signature::new(cc);
-            s.params.push(AbiParam::new(ptr));
-            s.params.push(AbiParam::new(ptr));
-            s.params.push(AbiParam::new(types::I32));
-            s.params.push(AbiParam::new(ptr));
-            s.returns.push(AbiParam::new(types::I32));
-            let sigref = b.import_signature(s);
-            let f = b.ins().iconst(ptr, call_fn);
-            let call = b.ins().call_indirect(sigref, f, &[m, a, count, r]);
+            let call = if op == 0xb6 {
+                let cpv = b.ins().iconst(ptr, cp as usize as i64);
+                let idxv = b.ins().iconst(types::I32, insn.a as i64);
+                let mut s = Signature::new(cc);
+                s.params.push(AbiParam::new(ptr));
+                s.params.push(AbiParam::new(types::I32));
+                s.params.push(AbiParam::new(ptr));
+                s.params.push(AbiParam::new(types::I32));
+                s.params.push(AbiParam::new(ptr));
+                s.returns.push(AbiParam::new(types::I32));
+                let sigref = b.import_signature(s);
+                let f = b.ins().iconst(ptr, host.call_virtual as usize as i64);
+                b.ins().call_indirect(sigref, f, &[cpv, idxv, a, count, r])
+            } else {
+                let m = b.ins().iconst(ptr, method as usize as i64);
+                let mut s = Signature::new(cc);
+                s.params.push(AbiParam::new(ptr));
+                s.params.push(AbiParam::new(ptr));
+                s.params.push(AbiParam::new(types::I32));
+                s.params.push(AbiParam::new(ptr));
+                s.returns.push(AbiParam::new(types::I32));
+                let sigref = b.import_signature(s);
+                let f = b.ins().iconst(ptr, call_fn);
+                b.ins().call_indirect(sigref, f, &[m, a, count, r])
+            };
             let status = b.inst_results(call)[0];
             let fail_blk = b.create_block();
             let cont_blk = b.create_block();

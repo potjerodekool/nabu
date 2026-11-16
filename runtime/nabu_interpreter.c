@@ -486,6 +486,8 @@ typedef struct {
     int (*resolve_field)(void *cp, int idx, int is_static, int64_t *out, char *kind);
     void (*throw_exc)(int kind);
     void *(*new_array)(int atype, int count);
+    int (*resolve_invoke)(void *cp, int idx, int op, void **method, char *desc, int cap);
+    int (*call_virtual)(void *cp, int idx, const int64_t *args, int nargs, int64_t *result);
 } nabu_jit_host_t;
 
 static int jit_cp_int(void *cpv, int idx, int32_t *out) {
@@ -577,6 +579,7 @@ static int jit_host_call(void *method, const int64_t *args, int nargs, int64_t *
     const char *p = strchr(t->desc, '(');
     p = p != NULL ? p + 1 : t->desc;
     int n = 0;
+    if ((t->access & 0x0008) == 0 && nargs > 0) { slots[0] = jit_unpack('L', args[0]); n = 1; }   /* this */
     for (char c; n < nargs && n < 64 && (c = jit_next_type(&p)) != 0; n++) slots[n] = jit_unpack(c, args[n]);
     void *r = nabu_interp_invoke(t, slots, n);
     const char *rd = strchr(t->desc, ')');
@@ -634,6 +637,73 @@ static void *jit_new_array(int atype, int count) {
     return arr;
 }
 
+/* A declaration of the method in the class or above it, abstract or not. */
+static nabu_interp_method_t *jit_find_declaration(const char *cls, const char *name, const char *desc, int depth) {
+    if (cls == NULL || depth > 40) return NULL;
+    nabu_interp_method_t *t = nabu_interp_find_method(cls, name, desc);
+    if (t != NULL) return t;
+    t = jit_find_declaration(nabu_class_super_name(cls), name, desc, depth + 1);
+    if (t != NULL) return t;
+    int ic = nabu_get_interface_count(cls);
+    char **ifs = ic > 0 ? nabu_get_interfaces(cls) : NULL;
+    for (int i = 0; ifs != NULL && i < ic; i++) {
+        t = jit_find_declaration(ifs[i], name, desc, depth + 1);
+        if (t != NULL) return t;
+    }
+    return NULL;
+}
+
+/* invokespecial and invokevirtual: the method that the instruction names, found in the class or above it. Only classes of the
+ * program (a JDK receiver can be anything); constructors stay interpreted. For invokevirtual the method found is the
+ * one of the static type, the call itself looks at the receiver (jit_call_virtual). */
+static int jit_resolve_invoke(void *cpv, int idx, int op, void **method, char *desc, int cap) {
+    if (op == 0xb8) return jit_resolve_static(cpv, idx, method, desc, cap);
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (cp == NULL || idx <= 0 || idx >= cp->count) return 0;
+    nabu_cp_entry *e = &cp->entries[idx];
+    if ((e->tag != 10 && e->tag != 11) || e->ref_nat <= 0 || e->ref_class <= 0) return 0;
+    const char *cname = nabu_cp_class_name(cp, e->ref_class);
+    const char *mname = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_name);
+    const char *mdesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
+    if (cname == NULL || mname == NULL || mdesc == NULL || mname[0] == '<' || is_jdk_class(cname)) return 0;
+    if (cname[0] == '[' || (int)strlen(mdesc) >= cap) return 0;
+    nabu_classfile_load_class(cname);
+    nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(cname, mname, mdesc, 0);
+    if (t == NULL && op == 0xb6) t = jit_find_declaration(cname, mname, mdesc, 0);   /* abstract: the receiver decides */
+    if (t == NULL || t->is_native || (t->access & 0x0008) != 0) return 0;
+    *method = t;
+    strcpy(desc, mdesc);
+    return 1;
+}
+
+/* A call-site cache for invokevirtual: (receiver type, call site) to the method of the receiver's class. */
+typedef struct { const void *type; const void *cp; int idx; nabu_interp_method_t *target; } jit_vcache_t;
+static jit_vcache_t jit_vcache[1024];
+
+static int jit_call_virtual(void *cpv, int idx, const int64_t *args, int nargs, int64_t *result) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    void *recv = nargs > 0 ? (void *)(intptr_t)args[0] : NULL;
+    if (recv == NULL) { jit_host_throw_exc(1); return 1; }
+    const void *type = ((const void *const *)recv)[0];
+    unsigned h = (unsigned)(((uintptr_t)type >> 4) ^ ((uintptr_t)cp >> 3) ^ (unsigned)idx * 2654435761u) & 1023u;
+    jit_vcache_t *c = &jit_vcache[h];
+    nabu_interp_method_t *t = (c->type == type && c->cp == cp && c->idx == idx) ? c->target : NULL;
+    if (t == NULL) {
+        nabu_cp_entry *e = &cp->entries[idx];
+        const char *mname = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_name);
+        const char *mdesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
+        const char *rt = nabu_compiled_type_name(recv);
+        if (rt != NULL) t = nabu_interp_resolve_in_hierarchy(rt, mname, mdesc, 0);
+        if (t == NULL) {
+            fprintf(stderr, "jit: no method %s%s for a receiver of type %s\n", mname, mdesc, rt != NULL ? rt : "?");
+            jit_host_throw_exc(1);
+            return 1;
+        }
+        c->type = type; c->cp = cp; c->idx = idx; c->target = t;
+    }
+    return jit_host_call(t, args, nargs, result);
+}
+
 static int jit_state = 0;   /* 0 not tried, 1 loaded, -1 not available */
 static void *(*jit_compile_fn)(const uint8_t *, size_t, const char *, int, int, void *, void *) = NULL;
 
@@ -652,7 +722,8 @@ static int jit_load(void) {
     if (init == NULL || jit_compile_fn == NULL) return 0;
     static nabu_jit_host_t host = { jit_cp_int, jit_cp_long, jit_cp_float, jit_cp_double, jit_resolve_static,
                                     jit_host_call, jit_host_throw_arith, &interp_pending_exception,
-                                    jit_resolve_field, jit_host_throw_exc, jit_new_array };
+                                    jit_resolve_field, jit_host_throw_exc, jit_new_array,
+                                    jit_resolve_invoke, jit_call_virtual };
     if (init(&host) != 0) return 0;
     jit_state = 1;
     return 1;
@@ -793,6 +864,50 @@ static int has_loop(nabu_interp_method_t *m) {
         if (((op >= 0x99 && op <= 0xa7) || op == 0xc6 || op == 0xc7) && m->code[i + 1] >= 0x80) return 1;
     }
     return 0;
+}
+
+/* A method of a class, its superclasses or (default methods) its interfaces: the first one that has code or is native. */
+nabu_interp_method_t *nabu_interp_resolve_in_hierarchy(const char *cls, const char *name, const char *desc, int depth) {
+    if (cls == NULL || depth > 40) return NULL;
+    nabu_interp_method_t *t = nabu_interp_find_method(cls, name, desc);
+    if (t != NULL && (t->code != NULL || t->is_native)) return t;
+    t = nabu_interp_resolve_in_hierarchy(nabu_class_super_name(cls), name, desc, depth + 1);
+    if (t != NULL) return t;
+    int ic = nabu_get_interface_count(cls);
+    char **ifs = ic > 0 ? nabu_get_interfaces(cls) : NULL;
+    for (int i = 0; ifs != NULL && i < ic; i++) {
+        t = nabu_interp_resolve_in_hierarchy(ifs[i], name, desc, depth + 1);
+        if (t != NULL) return t;
+    }
+    return NULL;
+}
+
+/* invokevirtual picks the method of the receiver's class (an override), invokespecial and an unfound method walk up from
+ * the class that the instruction names (super.m(), an inherited method). Only for classes of the program: the JDK's
+ * receivers can be anything, an identity boxed int as well. */
+static nabu_interp_method_t *resolve_invoke_target(nabu_interp_frame_t *f, nabu_cp *cp, int idx, int op, nabu_interp_method_t *cur) {
+    nabu_cp_entry *e = &cp->entries[idx];
+    if ((e->tag != 10 && e->tag != 11) || e->ref_class <= 0 || e->ref_nat <= 0) return cur;
+    const char *cname = nabu_cp_class_name(cp, e->ref_class);
+    const char *mname = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_name);
+    const char *mdesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
+    if (cname == NULL || mname == NULL || mdesc == NULL || is_jdk_class(cname)) return cur;
+    if (op == 0xb6) {
+        int pc = count_params(mdesc);
+        if (f->stack_top > pc) {
+            void *recv = f->stack[f->stack_top - 1 - pc];
+            const char *rt = recv != NULL ? nabu_compiled_type_name(recv) : NULL;
+            if (rt != NULL && (cur == NULL || cur->class_name == NULL || strcmp(rt, cur->class_name) != 0)) {
+                nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, mname, mdesc, 0);
+                if (t != NULL) return t;
+            }
+        }
+    }
+    if (cur == NULL || (cur->code == NULL && !cur->is_native)) {
+        nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(cname, mname, mdesc, 0);
+        if (t != NULL) return t;
+    }
+    return cur;
 }
 
 void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
@@ -1511,6 +1626,9 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                             }
                         }
                     }
+                }
+                if ((op == 0xb6 || op == 0xb7) && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
+                    target = resolve_invoke_target(f, m->const_pool, idx, op, target);
                 }
                 if (target == NULL) {
                     {

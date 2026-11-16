@@ -120,6 +120,8 @@ int nabu_classfile_load_class(const char *internal_name);
 
 /* Interface registry (defined in nabu_classfile.c). */
 void nabu_register_interfaces(const char *class_name, char **ifaces, int count);
+const char *nabu_class_super_name(const char *class_name);
+nabu_interp_method_t *nabu_interp_resolve_in_hierarchy(const char *cls, const char *name, const char *desc, int depth);
 int nabu_get_interface_count(const char *class_name);
 char **nabu_get_interfaces(const char *class_name);
 

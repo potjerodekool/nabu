@@ -36,6 +36,7 @@ static inline long J_D2L(double v) { return v != v ? 0 : v >= 922337203685477580
 static void jit_host_throw_arith_i(void);
 static void *interp_new_object(const char *cname);
 static int interp_instanceof(void *obj, const char *cname);
+static int exception_is(void *exc, const char *tname);
 /* NABU_TRACE_EXC=1 names the method and the index of an array exception */
 static void interp_array_dbg(void *arr, int idx, nabu_interp_method_t *m, int pc) {
     if (getenv("NABU_TRACE_EXC")) fprintf(stderr, "array exception: %s.%s%s pc=%d index=%d length=%d\n", m->class_name, m->name, m->desc, pc, idx, arr ? *(int *)arr : -1);
@@ -538,6 +539,8 @@ typedef struct {
     void *(*new_object)(void *cp, int idx);
     void *(*ldc_ref)(void *cp, int idx);
     void (*throw_obj)(void *obj);
+    int (*exc_match)(void *cp, int type_idx);
+    void *(*exc_take)(void);
 } nabu_jit_host_t;
 
 static int jit_cp_int(void *cpv, int idx, int32_t *out) {
@@ -686,7 +689,7 @@ static void jit_host_throw_exc(int kind) {
 
 static void *jit_new_array(int atype, int count) {
     int esize = 1;
-    switch (atype) { case 5: case 9: esize = 2; break; case 6: case 10: esize = 4; break; case 7: case 11: esize = 8; break; default: esize = 1; break; }
+    switch (atype) { case 5: case 9: esize = 2; break; case 6: case 10: esize = 4; break; case 7: case 11: case 12: esize = 8; break; default: esize = 1; break; }
     void *arr = calloc(1, 8 + (size_t)(count > 0 ? count : 0) * esize);
     if (arr != NULL) { *(int *)arr = count; ((int *)arr)[1] = esize; }
     return arr;
@@ -718,6 +721,14 @@ static int jit_resolve_invoke(void *cpv, int idx, int op, void **method, char *d
     nabu_cp *cp = (nabu_cp *)cpv;
     if (cp == NULL || idx <= 0 || idx >= cp->count) return 0;
     nabu_cp_entry *e = &cp->entries[idx];
+    if (op == 0xba) {   /* invokedynamic (string concatenation, lambdas): the interpreter does it */
+        if (e->tag != 18 || e->ref_nat <= 0) return 0;
+        const char *idesc = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_desc);
+        if (idesc == NULL || (int)strlen(idesc) >= cap) return 0;
+        strcpy(desc, idesc);
+        *method = NULL;
+        return 4;
+    }
     if ((e->tag != 10 && e->tag != 11) || e->ref_nat <= 0 || e->ref_class <= 0) return 0;
     const char *cname = nabu_cp_class_name(cp, e->ref_class);
     const char *mname = nabu_cp_utf8(cp, cp->entries[e->ref_nat].nat_name);
@@ -762,7 +773,7 @@ static nabu_interp_method_t *jit_synth(nabu_cp *cp, int idx, int op, const char 
     p = p != NULL ? p + 1 : mdesc;
     char types[64];
     int nt = 0;
-    if (op != 0xb8) types[nt++] = 'L';
+    if (op != 0xb8 && op != 0xba) types[nt++] = 'L';
     for (char ch; nt < 60 && (ch = jit_next_type(&p)) != 0; ) types[nt++] = ch;
     for (int i = 0; i < nt; i++) {
         char ch = types[i];
@@ -772,6 +783,7 @@ static nabu_interp_method_t *jit_synth(nabu_cp *cp, int idx, int op, const char 
     }
     code[n++] = (uint8_t)op; code[n++] = (uint8_t)(idx >> 8); code[n++] = (uint8_t)idx;
     if (op == 0xb9) { code[n++] = (uint8_t)slot; code[n++] = 0; }
+    else if (op == 0xba) { code[n++] = 0; code[n++] = 0; }
     const char *rd = strchr(mdesc, ')');
     char rc = rd != NULL ? rd[1] : 'V';
     code[n++] = rc == 'V' ? 0xb1 : rc == 'J' ? 0xad : rc == 'F' ? 0xae : rc == 'D' ? 0xaf : (rc == 'L' || rc == '[') ? 0xb0 : 0xac;
@@ -779,7 +791,7 @@ static nabu_interp_method_t *jit_synth(nabu_cp *cp, int idx, int op, const char 
     m->class_name = strdup("jit/Synth");
     m->name = strdup("synth");
     m->desc = strdup(mdesc);
-    m->access = op == 0xb8 ? 0x0008 : 0;
+    m->access = (op == 0xb8 || op == 0xba) ? 0x0008 : 0;
     m->code = (uint8_t *)memcpy(malloc((size_t)n), code, (size_t)n);
     m->code_len = n;
     m->max_locals = slot + 1;
@@ -848,8 +860,17 @@ static void *jit_ldc_ref(void *cpv, int idx) {
 
 static void jit_throw_obj(void *obj) { interp_pending_exception = obj; }
 
+/* A catch of compiled code: does the pending exception match the catch type, and take it. */
+static int jit_exc_match(void *cpv, int type_idx) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    if (type_idx == 0) return 1;
+    const char *tname = (cp != NULL && type_idx > 0 && type_idx < cp->count) ? nabu_cp_class_name(cp, type_idx) : NULL;
+    return tname == NULL || exception_is(interp_pending_exception, tname);
+}
+static void *jit_exc_take(void) { void *e = interp_pending_exception; interp_pending_exception = NULL; return e; }
+
 static int jit_state = 0;   /* 0 not tried, 1 loaded, -1 not available */
-static void *(*jit_compile_fn)(const uint8_t *, size_t, const char *, int, int, void *, void *) = NULL;
+static void *(*jit_compile_fn)(const uint8_t *, size_t, const char *, int, int, void *, void *, int, const int *, const int *, const int *, const int *) = NULL;
 
 static int jit_load(void) {
     if (jit_state != 0) return jit_state > 0;
@@ -862,13 +883,13 @@ static int jit_load(void) {
     if (handle == NULL) handle = dlopen("libnabu_jit.so", RTLD_NOW | RTLD_LOCAL);
     if (handle == NULL) return 0;
     int (*init)(const nabu_jit_host_t *) = (int (*)(const nabu_jit_host_t *))dlsym(handle, "nabu_jit_init");
-    jit_compile_fn = (void *(*)(const uint8_t *, size_t, const char *, int, int, void *, void *))dlsym(handle, "nabu_jit_compile");
+    jit_compile_fn = (void *(*)(const uint8_t *, size_t, const char *, int, int, void *, void *, int, const int *, const int *, const int *, const int *))dlsym(handle, "nabu_jit_compile");
     if (init == NULL || jit_compile_fn == NULL) return 0;
     static nabu_jit_host_t host = { jit_cp_int, jit_cp_long, jit_cp_float, jit_cp_double, jit_resolve_static,
                                     jit_host_call, jit_host_throw_arith, &interp_pending_exception,
                                     jit_resolve_field, jit_host_throw_exc, jit_new_array,
                                     jit_resolve_invoke, jit_call_virtual, jit_call_interface, jit_call_synth,
-                                    jit_new_object, jit_ldc_ref, jit_throw_obj };
+                                    jit_new_object, jit_ldc_ref, jit_throw_obj, jit_exc_match, jit_exc_take };
     if (init(&host) != 0) return 0;
     jit_state = 1;
     return 1;
@@ -877,10 +898,11 @@ static int jit_load(void) {
 
 /* Compiles a method to machine code, or NULL when there is no JIT or it does not understand the method. */
 void *nabu_jit_try_compile(nabu_interp_method_t *m) {
-    if (m == NULL || m->code == NULL || m->code_len == 0 || m->is_native || m->exc_count > 0) return NULL;
+    if (m == NULL || m->code == NULL || m->code_len == 0 || m->is_native) return NULL;
 #ifndef _WIN32
     if (!jit_load() || m->desc == NULL || m->class_name == NULL || is_jdk_class(m->class_name)) return NULL;   /* the JDK relies on the interpreter's lenient null arrays */
-    void *code = jit_compile_fn(m->code, (size_t)m->code_len, m->desc, (m->access & 0x0008) != 0, m->max_locals, m->const_pool, m);
+    void *code = jit_compile_fn(m->code, (size_t)m->code_len, m->desc, (m->access & 0x0008) != 0, m->max_locals, m->const_pool, m,
+                                  m->exc_count, m->exc_start_pc, m->exc_end_pc, m->exc_handler_pc, m->exc_type_idx);
     if (getenv("NABU_JIT_TRACE") != NULL) fprintf(stderr, "jit: %s.%s%s %s\n", m->class_name, m->name, m->desc, code != NULL ? "compiled" : "not compiled");
     return code;
 #else
@@ -1166,6 +1188,15 @@ static int class_is_a(const char *cls, const char *target, int depth) {
     char **ifs = ic > 0 ? nabu_get_interfaces(cls) : NULL;
     for (int i = 0; ifs != NULL && i < ic; i++) if (class_is_a(ifs[i], target, depth + 1)) return 1;
     return 0;
+}
+
+/* Whether an exception is an instance of a catch type: the registered type chain, then the class hierarchy. */
+static int exception_is(void *exc, const char *tname) {
+    if (exc == NULL || tname == NULL) return 0;
+    for (nabu_type_info *cur = ((nabu_object *)exc)->type; cur != NULL; cur = cur->super_type)
+        if (cur->name && strcmp(cur->name, tname) == 0) return 1;
+    const char *rt = interp_type_name(exc);
+    return rt != NULL && class_is_a(rt, tname, 0);
 }
 
 /* instanceof for the objects of the interpreter, its closures and its Strings (a char *). */
@@ -1618,6 +1649,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                                 if (cur->name && strcmp(cur->name, tname) == 0) { match = 1; break; }
                                 cur = cur->super_type;
                             }
+                            if (!match) match = exception_is(exc, tname);   /* a user exception's superclasses are in the class hierarchy */
                         }
                     }
                     if (match) {

@@ -58,6 +58,10 @@ pub struct Host {
     pub ldc_ref: extern "C" fn(cp: *mut c_void, idx: c_int) -> *mut c_void,
     /// athrow: makes the object the pending exception.
     pub throw_obj: extern "C" fn(obj: *mut c_void),
+    /// Whether the pending exception is caught by the catch type at a constant pool index (0 catches everything).
+    pub exc_match: extern "C" fn(cp: *mut c_void, type_idx: c_int) -> c_int,
+    /// The pending exception, which is no longer pending afterwards.
+    pub exc_take: extern "C" fn() -> *mut c_void,
 }
 
 struct Jit {
@@ -211,10 +215,30 @@ struct Insn {
     op: u8,
     a: i32,
     next: usize,
+    sw: usize,
 }
 
-fn decode(code: &[u8]) -> Option<Vec<Insn>> {
+/// The targets of a tableswitch or lookupswitch (absolute pcs) and its default.
+struct SwitchInfo {
+    default: usize,
+    cases: Vec<(i32, usize)>,
+}
+
+/// An entry of the exception table.
+#[derive(Clone, Copy, Debug)]
+struct Handler {
+    start: usize,
+    end: usize,
+    pc: usize,
+    catch_idx: i32,
+}
+
+fn decode(code: &[u8]) -> Option<(Vec<Insn>, Vec<SwitchInfo>)> {
     let mut out = Vec::new();
+    let mut switches: Vec<SwitchInfo> = Vec::new();
+    let rd4 = |q: usize| -> Option<i32> {
+        Some(((*code.get(q)? as u32) << 24 | (*code.get(q + 1)? as u32) << 16 | (*code.get(q + 2)? as u32) << 8 | *code.get(q + 3)? as u32) as i32)
+    };
     let mut pc = 0usize;
     let u2 = |p: usize| -> Option<i32> { Some((((*code.get(p)? as u16) << 8) | *code.get(p + 1)? as u16) as i32) };
     let s2 = |p: usize| -> Option<i32> { Some(u2(p)? as u16 as i16 as i32) };
@@ -230,17 +254,79 @@ fn decode(code: &[u8]) -> Option<Vec<Insn>> {
             0x12 => (*code.get(pc + 1)? as i32, 2),
             0x13 | 0x14 => (u2(pc + 1)?, 3),
             0x15..=0x19 | 0x36..=0x3a => (*code.get(pc + 1)? as i32, 2),
-            0x84 => ((*code.get(pc + 1)? as i32) | ((*code.get(pc + 2)? as i8 as i32) << 8), 3),
+            0x84 => ((*code.get(pc + 1)? as i32) | ((*code.get(pc + 2)? as i8 as i32) << 16), 3),
+            0xc4 => {
+                // wide: a load, a store or an iinc with a 16-bit index
+                let wop = *code.get(pc + 1)?;
+                let idx = u2(pc + 2)?;
+                if wop == 0x84 {
+                    let delta = s2(pc + 4)?;
+                    out.push(Insn { pc, op: 0x84, a: idx | (delta << 16), next: pc + 6, sw: 0 });
+                    pc += 6;
+                    continue;
+                } else if matches!(wop, 0x15..=0x19 | 0x36..=0x3a) {
+                    out.push(Insn { pc, op: wop, a: idx, next: pc + 4, sw: 0 });
+                    pc += 4;
+                    continue;
+                }
+                return None;
+            }
+            0xbd => (u2(pc + 1)?, 3),
             0x99..=0xa7 | 0xc6 | 0xc7 => (pc as i32 + s2(pc + 1)?, 3),
             0xb6..=0xb8 | 0xbb | 0xc0 => (u2(pc + 1)?, 3),
-            0xb9 => (u2(pc + 1)?, 5),
-            0xbf => (0, 1),
-            _ => return None,
+            0xb9 | 0xba => (u2(pc + 1)?, 5),
+            0xbf | 0xc2 | 0xc3 => (0, 1),
+            0xaa | 0xab => {
+                let mut p = pc + 1;
+                while p % 4 != 0 {
+                    p += 1;
+                }
+                let default = (pc as i32 + rd4(p)?) as usize;
+                p += 4;
+                let mut cases = Vec::new();
+                if op == 0xaa {
+                    let lo = rd4(p)?;
+                    let hi = rd4(p + 4)?;
+                    p += 8;
+                    if hi < lo || (hi as i64 - lo as i64) > 20000 {
+                        return None;
+                    }
+                    for k in lo..=hi {
+                        cases.push((k, (pc as i32 + rd4(p)?) as usize));
+                        p += 4;
+                    }
+                } else {
+                    let n = rd4(p)?;
+                    p += 4;
+                    if !(0..=20000).contains(&n) {
+                        return None;
+                    }
+                    for _ in 0..n {
+                        let key = rd4(p)?;
+                        let off = rd4(p + 4)?;
+                        p += 8;
+                        cases.push((key, (pc as i32 + off) as usize));
+                    }
+                }
+                switches.push(SwitchInfo { default, cases });
+                (0, p - pc)
+            }
+            _ => {
+                if std::env::var("NABU_JIT_TRACE").is_ok() {
+                    eprintln!("jit: opcode 0x{:02x} at pc {} is not supported", op, pc);
+                }
+                return None;
+            }
         };
-        out.push(Insn { pc, op, a, next: pc + len });
+        let sw = if op == 0xaa || op == 0xab { switches.len() - 1 } else { 0 };
+        out.push(Insn { pc, op, a, next: pc + len, sw });
         pc += len;
     }
-    Some(out)
+    Some((out, switches))
+}
+
+fn is_switch(op: u8) -> bool {
+    matches!(op, 0xaa | 0xab)
 }
 
 fn is_branch(op: u8) -> bool {
@@ -248,7 +334,7 @@ fn is_branch(op: u8) -> bool {
 }
 
 fn ends_block(op: u8) -> bool {
-    matches!(op, 0xa7 | 0xac..=0xb1 | 0xbf)
+    matches!(op, 0xa7 | 0xac..=0xb1 | 0xbf | 0xaa | 0xab)
 }
 
 /// The types of the operand stack at the start of every block, found by running over the code once; None when the code is
@@ -257,12 +343,18 @@ fn stack_types(
     insns: &[Insn],
     index: &BTreeMap<usize, usize>,
     leaders: &BTreeSet<usize>,
+    switches: &[SwitchInfo],
+    handlers: &[Handler],
     host: &Host,
     cp: *mut c_void,
 ) -> Option<BTreeMap<usize, Vec<Ty>>> {
     let mut entry: BTreeMap<usize, Vec<Ty>> = BTreeMap::new();
     let mut work = vec![0usize];
     entry.insert(0, Vec::new());
+    for h in handlers {   // a handler starts with the exception on the stack
+        entry.insert(h.pc, vec![Ty::A]);
+        work.push(h.pc);
+    }
     let mut done: BTreeSet<usize> = BTreeSet::new();
     let mut note = |entry: &mut BTreeMap<usize, Vec<Ty>>, work: &mut Vec<usize>, pc: usize, st: &Vec<Ty>| -> Option<()> {
         match entry.get(&pc) {
@@ -284,6 +376,14 @@ fn stack_types(
         loop {
             let insn = insns[i];
             apply_types(&insn, &mut stack, host, cp)?;
+            if is_switch(insn.op) {
+                let info = &switches[insn.sw];
+                note(&mut entry, &mut work, info.default, &stack)?;
+                for (_, t) in &info.cases {
+                    note(&mut entry, &mut work, *t, &stack)?;
+                }
+                break;
+            }
             if is_branch(insn.op) {
                 note(&mut entry, &mut work, insn.a as usize, &stack)?;
             }
@@ -361,7 +461,7 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
             pop_ty(st)?;
             st.push(I);
         }
-        0xbc => {
+        0xbc | 0xbd => {
             pop_ty(st)?;
             st.push(A);
         }
@@ -579,11 +679,11 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
         0xbb => {
             st.push(A);
         }
-        0xbf => {
+        0xbf | 0xc2 | 0xc3 | 0xaa | 0xab => {
             pop_ty(st)?;
         }
         0xc0 => {}
-        0xb6..=0xb9 => {
+        0xb6..=0xba => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
             if (host.resolve_invoke)(cp, insn.a, insn.op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
@@ -594,7 +694,7 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
             for _ in 0..params.len() {
                 pop_ty(st)?;
             }
-            if insn.op != 0xb8 {
+            if insn.op != 0xb8 && insn.op != 0xba {
                 pop_ty(st)?;
             }
             if let Some(r) = ret {
@@ -619,6 +719,11 @@ pub unsafe extern "C" fn nabu_jit_compile(
     max_locals: c_int,
     cp: *mut c_void,
     self_method: *mut c_void,
+    exc_count: c_int,
+    exc_start: *const c_int,
+    exc_end: *const c_int,
+    exc_handler: *const c_int,
+    exc_type: *const c_int,
 ) -> *mut c_void {
     if code.is_null() || desc.is_null() || len == 0 || len > 16384 {
         return std::ptr::null_mut();
@@ -636,19 +741,28 @@ pub unsafe extern "C" fn nabu_jit_compile(
         Some(j) => j,
         None => return std::ptr::null_mut(),
     };
-    match compile(jit, code, desc, is_static != 0, max_locals.max(0) as usize, cp, self_method) {
+    let mut handlers = Vec::new();
+    for i in 0..exc_count.max(0) as usize {
+        handlers.push(Handler {
+            start: *exc_start.add(i) as usize,
+            end: *exc_end.add(i) as usize,
+            pc: *exc_handler.add(i) as usize,
+            catch_idx: *exc_type.add(i),
+        });
+    }
+    match compile(jit, code, desc, is_static != 0, max_locals.max(0) as usize, cp, self_method, handlers) {
         Some(p) => p as *mut c_void,
         None => std::ptr::null_mut(),
     }
 }
 
-fn compile(jit: &mut Jit, code: &[u8], desc: &str, is_static: bool, max_locals: usize, cp: *mut c_void, self_method: *mut c_void) -> Option<*const u8> {
+fn compile(jit: &mut Jit, code: &[u8], desc: &str, is_static: bool, max_locals: usize, cp: *mut c_void, self_method: *mut c_void, handlers: Vec<Handler>) -> Option<*const u8> {
     let (mut params, ret) = parse_desc(desc)?;
     if !is_static {
         params.insert(0, Ty::A);
     }
     let host = jit.host;
-    let insns = decode(code)?;
+    let (insns, switches) = decode(code)?;
     let index: BTreeMap<usize, usize> = insns.iter().enumerate().map(|(i, x)| (x.pc, i)).collect();
     // leaders: the start, the targets of branches and what follows a branch or a return
     let mut leaders: BTreeSet<usize> = BTreeSet::new();
@@ -660,11 +774,26 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, is_static: bool, max_locals: 
             }
             leaders.insert(insn.a as usize);
         }
+        if is_switch(insn.op) {
+            let info = &switches[insn.sw];
+            for t in std::iter::once(&info.default).chain(info.cases.iter().map(|c| &c.1)) {
+                if !index.contains_key(t) {
+                    return None;
+                }
+                leaders.insert(*t);
+            }
+        }
         if is_branch(insn.op) || ends_block(insn.op) {
             leaders.insert(insn.next);
         }
     }
-    let entry_types = stack_types(&insns, &index, &leaders, &host, cp)?;
+    for h in &handlers {
+        if !index.contains_key(&h.pc) {
+            return None;
+        }
+        leaders.insert(h.pc);
+    }
+    let entry_types = stack_types(&insns, &index, &leaders, &switches, &handlers, &host, cp)?;
 
     let ptr = jit.module.target_config().pointer_type();
     let cc = jit.module.target_config().default_call_conv;
@@ -721,6 +850,15 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, is_static: bool, max_locals: 
         let throw_exc_fn = host.throw_exc as usize as i64;
         let new_array_fn = host.new_array as usize as i64;
 
+        let ex = ExcCtx {
+            handlers,
+            blocks: &blocks,
+            switches: &switches,
+            match_fn: host.exc_match as usize as i64,
+            take_fn: host.exc_take as usize as i64,
+            cp: cp as usize as i64,
+            cur_pc: std::cell::Cell::new(0),
+        };
         for (&start, &blk) in &blocks {
             b.switch_to_block(blk);
             let mut stack: Vec<Value> = b.block_params(blk).to_vec();
@@ -733,7 +871,7 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, is_static: bool, max_locals: 
             loop {
                 let insn = insns[i];
                 let done = emit(
-                    &mut b, &insn, &mut stack, &mut var, &blocks, &host, cp, ret, throw_fn, call_fn, drem_fn, ptr, cc, self_method, self_ref, pending_addr, &mut refs, throw_exc_fn, new_array_fn,
+                    &mut b, &insn, &mut stack, &mut var, &blocks, &host, cp, ret, throw_fn, call_fn, drem_fn, ptr, cc, self_method, self_ref, pending_addr, &mut refs, throw_exc_fn, new_array_fn, &ex,
                 )?;
                 if done {
                     break;
@@ -785,8 +923,57 @@ fn zero_of(b: &mut FunctionBuilder, ret: Option<Ty>) -> Value {
     b.ins().iconst(types::I64, 0)
 }
 
+/// What leaving a method with an exception needs: the handlers that may catch it.
+struct ExcCtx<'a> {
+    handlers: Vec<Handler>,
+    blocks: &'a BTreeMap<usize, cranelift_codegen::ir::Block>,
+    switches: &'a [SwitchInfo],
+    match_fn: i64,
+    take_fn: i64,
+    cp: i64,
+    cur_pc: std::cell::Cell<usize>,
+}
+
+/// An exception is pending: go to the handler of the instruction being compiled that catches it, or leave the method.
+fn exc_exit(b: &mut FunctionBuilder, ex: &ExcCtx, ptr: Type, cc: CallConv) {
+    let pc = ex.cur_pc.get();
+    let covering: Vec<Handler> = ex.handlers.iter().copied().filter(|h| pc >= h.start && pc < h.end).collect();
+    for h in covering {
+        let target = match ex.blocks.get(&h.pc) {
+            Some(t) => *t,
+            None => continue,
+        };
+        let take_blk = if h.catch_idx == 0 { None } else { Some(b.create_block()) };
+        let next_blk = b.create_block();
+        if let Some(tb) = take_blk {
+            let mut s = Signature::new(cc);
+            s.params.push(AbiParam::new(ptr));
+            s.params.push(AbiParam::new(types::I32));
+            s.returns.push(AbiParam::new(types::I32));
+            let sigref = b.import_signature(s);
+            let f = b.ins().iconst(ptr, ex.match_fn);
+            let cpv = b.ins().iconst(ptr, ex.cp);
+            let idx = b.ins().iconst(types::I32, h.catch_idx as i64);
+            let call = b.ins().call_indirect(sigref, f, &[cpv, idx]);
+            let matched = b.inst_results(call)[0];
+            b.ins().brif(matched, tb, &[], next_blk, &[]);
+            b.switch_to_block(tb);
+        }
+        let mut s = Signature::new(cc);
+        s.returns.push(AbiParam::new(ptr));
+        let sigref = b.import_signature(s);
+        let f = b.ins().iconst(ptr, ex.take_fn);
+        let call = b.ins().call_indirect(sigref, f, &[]);
+        let e = b.inst_results(call)[0];
+        b.ins().jump(target, &[e.into()]);
+        b.switch_to_block(next_blk);
+    }
+    let z = b.ins().iconst(types::I64, 0);
+    b.ins().return_(&[z]);
+}
+
 /// Leaves the method with an exception pending when `fail` is non-zero.
-fn throw_if(b: &mut FunctionBuilder, fail: Value, kind: i64, ptr: Type, cc: CallConv, throw_exc_fn: i64) {
+fn throw_if(b: &mut FunctionBuilder, fail: Value, kind: i64, ptr: Type, cc: CallConv, throw_exc_fn: i64, ex: &ExcCtx) {
     let fail_blk = b.create_block();
     let ok_blk = b.create_block();
     b.set_cold_block(fail_blk);
@@ -798,22 +985,21 @@ fn throw_if(b: &mut FunctionBuilder, fail: Value, kind: i64, ptr: Type, cc: Call
     let f = b.ins().iconst(ptr, throw_exc_fn);
     let k = b.ins().iconst(types::I32, kind);
     b.ins().call_indirect(sigref, f, &[k]);
-    let z = b.ins().iconst(types::I64, 0);
-    b.ins().return_(&[z]);
+    exc_exit(b, ex, ptr, cc);
     b.switch_to_block(ok_blk);
 }
 
-fn null_check(b: &mut FunctionBuilder, obj: Value, ptr: Type, cc: CallConv, throw_exc_fn: i64) {
+fn null_check(b: &mut FunctionBuilder, obj: Value, ptr: Type, cc: CallConv, throw_exc_fn: i64, ex: &ExcCtx) {
     let isnull = b.ins().icmp_imm_s(IntCC::Equal, obj, 0);
-    throw_if(b, isnull, 1, ptr, cc, throw_exc_fn);
+    throw_if(b, isnull, 1, ptr, cc, throw_exc_fn, ex);
 }
 
 /// The address of element `idx` of an array (null and bounds checked): the length is at byte 0, the elements from byte 8.
-fn array_addr(b: &mut FunctionBuilder, arr: Value, idx: Value, size: i64, ptr: Type, cc: CallConv, throw_exc_fn: i64) -> Value {
-    null_check(b, arr, ptr, cc, throw_exc_fn);
+fn array_addr(b: &mut FunctionBuilder, arr: Value, idx: Value, size: i64, ptr: Type, cc: CallConv, throw_exc_fn: i64, ex: &ExcCtx) -> Value {
+    null_check(b, arr, ptr, cc, throw_exc_fn, ex);
     let len = b.ins().load(types::I32, MemFlagsData::trusted(), arr, 0);
     let bad = b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
-    throw_if(b, bad, 2, ptr, cc, throw_exc_fn);
+    throw_if(b, bad, 2, ptr, cc, throw_exc_fn, ex);
     let wide_idx = b.ins().uextend(types::I64, idx);
     let off = b.ins().imul_imm_s(wide_idx, size);
     let base = b.ins().iadd(arr, off);
@@ -842,9 +1028,27 @@ fn emit(
     refs: &mut BTreeSet<Value>,
     throw_exc_fn: i64,
     new_array_fn: i64,
+    ex: &ExcCtx,
 ) -> Option<bool> {
     let op = insn.op;
+    ex.cur_pc.set(insn.pc);
     match op {
+        0xc2 | 0xc3 => {
+            st.pop()?;   // monitorenter / monitorexit: one thread at a time
+        }
+        0xaa | 0xab => {
+            let key = st.pop()?;
+            if !st.is_empty() {
+                return None;
+            }
+            let info = &ex.switches[insn.sw];
+            let mut sw = cranelift_frontend::Switch::new();
+            for (k, t) in &info.cases {
+                sw.set_entry(*k as u32 as u128, *ex.blocks.get(t)?);
+            }
+            sw.emit(b, key, *ex.blocks.get(&info.default)?);
+            return Some(true);
+        }
         0x00 => {}
         0x01 => {
             let v = b.ins().iconst(types::I64, 0);
@@ -854,7 +1058,7 @@ fn emit(
         0x2e..=0x35 => {
             let idx = st.pop()?;
             let arr = st.pop()?;
-            let addr = array_addr(b, arr, idx, [4, 8, 4, 8, 8, 1, 2, 2][(op - 0x2e) as usize], ptr, cc, throw_exc_fn);
+            let addr = array_addr(b, arr, idx, [4, 8, 4, 8, 8, 1, 2, 2][(op - 0x2e) as usize], ptr, cc, throw_exc_fn, ex);
             let fl = MemFlagsData::trusted();
             let v = match op {
                 0x2e => b.ins().load(types::I32, fl, addr, 0),
@@ -876,7 +1080,7 @@ fn emit(
             let val = st.pop()?;
             let idx = st.pop()?;
             let arr = st.pop()?;
-            let addr = array_addr(b, arr, idx, [4, 8, 4, 8, 8, 1, 2, 2][(op - 0x4f) as usize], ptr, cc, throw_exc_fn);
+            let addr = array_addr(b, arr, idx, [4, 8, 4, 8, 8, 1, 2, 2][(op - 0x4f) as usize], ptr, cc, throw_exc_fn, ex);
             let fl = MemFlagsData::trusted();
             match op {
                 0x4f..=0x53 => {
@@ -892,11 +1096,11 @@ fn emit(
         }
         0xbe => {
             let arr = st.pop()?;
-            null_check(b, arr, ptr, cc, throw_exc_fn);
+            null_check(b, arr, ptr, cc, throw_exc_fn, ex);
             let len = b.ins().load(types::I32, MemFlagsData::trusted(), arr, 0);
             st.push(len);
         }
-        0xbc => {
+        0xbc | 0xbd => {
             let count = st.pop()?;
             let mut s = Signature::new(cc);
             s.params.push(AbiParam::new(types::I32));
@@ -904,7 +1108,7 @@ fn emit(
             s.returns.push(AbiParam::new(ptr));
             let sigref = b.import_signature(s);
             let f = b.ins().iconst(ptr, new_array_fn);
-            let at = b.ins().iconst(types::I32, insn.a as i64);
+            let at = b.ins().iconst(types::I32, if op == 0xbd { 12 } else { insn.a as i64 });
             let call = b.ins().call_indirect(sigref, f, &[at, count]);
             let r = b.inst_results(call)[0];
             refs.insert(r);
@@ -931,7 +1135,7 @@ fn emit(
                 }
                 0xb4 => {
                     let obj = st.pop()?;
-                    null_check(b, obj, ptr, cc, throw_exc_fn);
+                    null_check(b, obj, ptr, cc, throw_exc_fn, ex);
                     let raw = b.ins().load(types::I64, fl, obj, slot as i32);
                     let v = from_slot(b, raw, t);
                     if t == Ty::A {
@@ -942,7 +1146,7 @@ fn emit(
                 _ => {
                     let v = st.pop()?;
                     let obj = st.pop()?;
-                    null_check(b, obj, ptr, cc, throw_exc_fn);
+                    null_check(b, obj, ptr, cc, throw_exc_fn, ex);
                     let raw = to_slot(b, v, t);
                     b.ins().store(fl, raw, obj, slot as i32);
                 }
@@ -1171,8 +1375,7 @@ fn emit(
             let sigref = b.import_signature(sig);
             let f = b.ins().iconst(ptr, throw_fn);
             b.ins().call_indirect(sigref, f, &[]);
-            let z = b.ins().iconst(types::I64, 0);
-            b.ins().return_(&[z]);
+            exc_exit(b, ex, ptr, cc);
             b.switch_to_block(ok_blk);
             let m1 = b.ins().icmp_imm_s(IntCC::Equal, d, -1);
             b.ins().brif(m1, neg_blk, &[], norm_blk, &[]);
@@ -1228,8 +1431,8 @@ fn emit(
             st.push(r);
         }
         0x84 => {
-            let slot = (insn.a & 0xff) as usize;
-            let delta = (insn.a >> 8) as i64;
+            let slot = (insn.a & 0xffff) as usize;
+            let delta = (insn.a >> 16) as i64;
             let x = var(b, slot, Ty::I);
             let v = b.use_var(x);
             let n = b.ins().iadd_imm_s(v, delta);
@@ -1391,12 +1594,11 @@ fn emit(
             let sigref = b.import_signature(s);
             let f = b.ins().iconst(ptr, host.throw_obj as usize as i64);
             b.ins().call_indirect(sigref, f, &[obj]);
-            let z = b.ins().iconst(types::I64, 0);
-            b.ins().return_(&[z]);
+            exc_exit(b, ex, ptr, cc);
             return Some(true);
         }
         0xc0 => {}
-        0xb6..=0xb9 => {
+        0xb6..=0xba => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
             let kind = (host.resolve_invoke)(cp, insn.a, op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int);
@@ -1405,7 +1607,7 @@ fn emit(
             }
             let desc = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
             let (params, cret) = parse_desc(desc)?;
-            let n = params.len() + if op == 0xb8 { 0 } else { 1 };
+            let n = params.len() + if op == 0xb8 || op == 0xba { 0 } else { 1 };
             if kind == 5 {
                 // java/lang/Object.<init>: drop the receiver
                 st.pop()?;
@@ -1434,8 +1636,7 @@ fn emit(
                 let cont_blk = b.create_block();
                 b.ins().brif(pend, fail_blk, &[], cont_blk, &[]);
                 b.switch_to_block(fail_blk);
-                let z = b.ins().iconst(types::I64, 0);
-                b.ins().return_(&[z]);
+                exc_exit(b, ex, ptr, cc);
                 b.switch_to_block(cont_blk);
                 if let Some(rt) = cret {
                     let v = from_slot(b, raw, rt);
@@ -1494,8 +1695,7 @@ fn emit(
             let cont_blk = b.create_block();
             b.ins().brif(status, fail_blk, &[], cont_blk, &[]);
             b.switch_to_block(fail_blk);
-            let z = b.ins().iconst(types::I64, 0);
-            b.ins().return_(&[z]);
+            exc_exit(b, ex, ptr, cc);
             b.switch_to_block(cont_blk);
             if let Some(rt) = cret {
                 let raw = b.ins().stack_load(ptr, types::I64, res_slot, 0);

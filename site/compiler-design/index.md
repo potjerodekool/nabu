@@ -87,7 +87,7 @@ For the LLVM backend, the `BytecodeReachabilityCompiler` (`compiler/…/backend/
 
 The IR module is handed to a registered `Backend` which emits class files. See the [Backends]({{ site.baseurl }}/backends/) section for the details of each backend.
 
-- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23`.
+- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V25`.
 - The default **ASM backend** is slot-based (JVM local-variable-slot addressed) and validated via `CheckClassAdapter`.
 
 ## Module layout

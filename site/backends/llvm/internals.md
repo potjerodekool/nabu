@@ -15,6 +15,8 @@ This page explains how the LLVM backend is built, for people who want to work on
 | `compiler-api/…/backend/ir/` | the IR, IR generation from source, SSA and the optimizer |
 | `runtime/nabu_runtime.c`, `nabu_runtime.h` | the C runtime: object model, exceptions, GC hooks, strings, reflection |
 | `runtime/jcl_lite.c` | C implementations of the VM-bound parts of the class library |
+| `runtime/gc_boehm.c`, `gc_none.c` | the collectors: `GC_init` settings, statistics, the allocation profile |
+| `runtime/nabu_interpreter.c`, `nabu_classfile.c`, `runtime/jit/` | the optional bytecode interpreter and its Cranelift JIT, see [Bytecode interpreter and JIT]({{ site.baseurl }}/backends/llvm/interpreter/) |
 
 The runtime sources are bundled into the plugin jar under `nabu/runtime/` and compiled into every executable at link time.
 
@@ -89,6 +91,16 @@ The header is 16 bytes (`{ ptr type, i32 monitor, i32 thread }`). The vtable and
 - **Function names** are `<owner>_<method>`, with an overload suffix (`$I32`, `$P5036ee31`, …) derived from the parameter types (`FnKeys`). Constructors are `<owner>_init`, static initializers `<owner>_<clinit>`.
 - **Types.** References are `ptr`. `boolean` is `i1`; `byte`, `short` and `char` are `i8`/`i16`. `char` is marked *unsigned* in the IR (`IRType.CHAR`), so it widens with zero extension (JLS 5.1.2) while `short` sign-extends.
 - **Strings** use the JDK's own `String` layout (a byte array plus a `coder`, Latin-1 or UTF-16), so compiled JDK code operates on them directly. String literals are emitted as constant `String` objects.
+
+## Layout details
+
+- **One data layout.** The sizes of the object structs and the offsets of their fields are computed with a single LLVM data layout string (`ClassLayouts.DATA_LAYOUT`) that aligns a 64-bit integer to 8 bytes. With the empty layout string a `long` or `double` after an `int` got an offset 4 bytes too low, which showed up as wrong `Unsafe.objectFieldOffset` values and reflection results. `-Dnabu.checkLayout=true` lists the classes that were given too little room.
+- **Atomic field updaters.** `AtomicIntegerFieldUpdater`, `AtomicLongFieldUpdater` and `AtomicReferenceFieldUpdater` are classes the JVM generates at run time. `FieldUpdaterRewriter` generates them ahead of time with a `compareAndSet` that uses `Unsafe` on the field offset, so it is atomic. A plain read-compare-write there lets two threads both win, which is what lent one pooled database connection to two threads.
+- **Dead fields.** `FieldReachability` leaves out the fields that nothing reads or writes. A field that a function names through `getDeclaredField`, `objectFieldOffset`, a field updater or `findVarHandle` is kept. `-Dnabu.deadFields=false` switches this off.
+
+## The optimizer
+
+Before LLVM sees the program, the IR of the whole closure goes through the optimizer (`Optimizer.optimizeAll` in `compiler-api/…/backend/ir/`, with the passes in `ir/optimize/`): inlining, branch simplification, removal of unreachable blocks, constant folding, copy propagation, value numbering and dead code elimination, and a stack allocation of objects that do not escape (escape analysis). A function with a `try` keeps its handler blocks even though they have no predecessor in the control flow graph. The passes can be switched off one by one with `-Dnabu.opt.<pass>=false`, and `-Dnabu.stackAlloc=false` and `-Dnabu.optimizeClosure=false` switch off the stack allocation and the optimizer of the closure as a whole; that is the way to find out which pass causes a wrong result. On x86, branches are aligned against the JCC erratum of Intel processors for programs of up to 2000 modules (`-Dnabu.alignBranches=false` switches it off).
 
 ## Start-up
 

@@ -7,7 +7,7 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 
 ## Compiler (all backends)
 
-- **Java language level.** Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.
+- **Java language level.** Java sources are parsed with a Java 25 grammar and `--release` checks the level (17 to 25). Not everything the parser reads is compiled yet: a record pattern in `instanceof` is an error in a position such as a method argument. See [Java Interop]({{ site.baseurl }}/languages/java/#release).
 - **Kotlin** support is experimental: only top-level class declarations are handled.
 - The **Java backend** (ClassFile API) needs Java 24 or later to run.
 
@@ -26,6 +26,15 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 - **Linux** (Ubuntu on WSL2, gcc and `libgc-dev`, built with `-Djavacpp.platform=linux-x86_64`) runs the whole integration test suite (`ThreadsE2eIT` included). Stack traces have file and line numbers there too (read from the `.debug_line` section of the executable). Linux on aarch64 (Ubuntu 24.04 on a GitHub Actions runner, manual workflow `native-linux-arm.yml`, `-Djavacpp.platform=linux-arm64`) also passes all of `ThreadsE2eIT` (72 tests, none skipped), also with three test programs at once (5 runs in a row). 
 - **macOS** (Apple Silicon) is tested only on a GitHub Actions runner (clang, `brew install bdw-gc`; the manual workflow `native-macos.yml`), not on a Mac of our own. There all of `ThreadsE2eIT` passes (71 of 72 tests; one is skipped because it needs the line tables), also with three test programs at once on the 3 cores of the runner (5 runs in a row). Stack traces have no file and line numbers (the Mach-O line tables are not read), and the frames of methods that LLVM inlined into another one are not shown separately. Virtual threads run on continuations on macOS too, as on the other systems (`NABU_CONTINUATIONS=0` gives every virtual thread a native thread).
 - **MSVC** is not supported: the exception handling needs DWARF/LSDA unwind data, which the MSVC runtime does not provide.
+
+### Open world, interpreter and JIT
+
+These are experimental, see [Open world]({{ site.baseurl }}/backends/llvm/open-world/) and [Bytecode interpreter and JIT]({{ site.baseurl }}/backends/llvm/interpreter/).
+
+- **The bridge is narrow.** A compiled program can only call a static `int method(int, int)` of a class that is loaded at run time; strings, arrays and objects cannot cross it.
+- **The JDK in the interpreter is partial.** It runs through natives and, where a directory with the JDK classes is given, through JDK bytecode; collections, streams, `BigInteger`, `LocalDate` and `Random` work, regular expressions and the parts of the JDK that work on the byte array of a `String` do not.
+- **The JIT** exists on Linux and macOS only (not Windows), needs the library `libnabu_jit` (built with `cargo`), compiles methods of the program but no JDK classes, and does not compile `jsr`/`ret` or `multianewarray`.
+- **One thread.** The interpreter runs one thread at a time.
 
 ### Run time
 

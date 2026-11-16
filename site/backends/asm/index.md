@@ -26,7 +26,7 @@ Support classes in `backend/jvm/`:
 
 ## Key characteristics
 
-- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23` (`MAXIMAL_VERSION`).
+- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V25` (`MAXIMAL_VERSION`).
 - Uses `COMPUTE_MAXS | COMPUTE_FRAMES`. Every basic block starts with a prologue that gives all slots that are not live-in a default value, so ASM can compute consistent stack map frames.
 - Output is validated via `CheckClassAdapter`.
 - String concatenation is lowered to `invokedynamic` with `StringConcatFactory.makeConcatWithConstants` (modern javac-equivalent).

@@ -10,7 +10,7 @@ Writing a compiler is a complex task that takes a lot of time and usually requir
 ## What can you do with Nabu?
 
 - **Compile the Nabu language** to JVM bytecode. Nabu is a programming language whose syntax is based on Java and Kotlin.
-- **Compile Java.** Nabu and Java sources can be mixed in a single project, call each other, and are compiled by Nabu together. The Java parser supports Java 20. Nabu compiles real-world Java libraries such as [picocli]({{ site.baseurl }}/examples/picocli-demo/).
+- **Use Java.** Nabu and Java sources can be mixed in a single project and call each other. The Java parser reads Java up to 25, and `--release` (17 to 25) checks the language level. By default `javac` compiles the Java sources; with `--compile-language-support` Nabu compiles them too, which it does for real-world Java libraries such as [picocli]({{ site.baseurl }}/examples/picocli-demo/).
 - **Write DSLs.** The compiler supports domain-specific languages (DSLs) so you can write code that is more readable and maintainable for a specific domain. See [DSL support]({{ site.baseurl }}/plugins/dsl-support/) for an example with JPA.
 - **Target multiple backends.** Besides the standard ASM backend (JVM bytecode), there are experimental backends for the JDK ClassFile API and for [LLVM]({{ site.baseurl }}/backends/llvm/), which produces native executables without a JVM.
 - **Add your own language.** The compiler is extended via plugins. Provide a language parser that parses source code and builds an AST, and the compiler does the rest.

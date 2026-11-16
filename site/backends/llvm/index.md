@@ -29,6 +29,7 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
 - **Your sources** go through the normal Nabu frontend and IR generation, the same as for the JVM backends.
 - **The JDK and your libraries are compiled too.** The backend does not ship its own Java class library. Starting from your code and from the classes in the reflection configuration (see [Reflection](#reflection)), it follows every method that can be reached and compiles the **real bytecode** of those methods to the same IR: OpenJDK classes from the JDK, library classes from the jars on the classpath. You do not need the sources of a library. A one-line "hello world" pulls in about 3,200 JDK classes.
 - **A small C runtime** provides what Java code cannot do itself: the object header and type information, exceptions, garbage collection hooks, monitors, string and number helpers, reflection metadata and the VM-level parts of `java.lang` (for example `Class`, `System.arraycopy` and `Unsafe`). It is compiled and linked into every executable.
+- **Optionally a bytecode interpreter** is linked into the runtime (`-Dnabu.interpreter=true`), so that the executable can also load classes that were not part of the build: see [Open world]({{ site.baseurl }}/backends/llvm/open-world/).
 - **LLVM** (through the Bytedeco Java bindings, inside the compiler process) turns the IR into an optimized object file, and the platform C compiler links it with the runtime.
 
 ## Compiler options
@@ -90,14 +91,18 @@ Without a `main` method only the `.ll` and object files are written.
 | Platform | Toolchain | Status |
 |---|---|---|
 | Windows x64 | MinGW-w64 `gcc` (SEH) | supported, verified |
-| Linux x64 | `gcc` | supported by the code, not verified |
-| macOS x64 / ARM64 | `clang` | supported by the code, not verified |
+| Linux x64 | `gcc`, `libgc` | verified: the integration tests pass under WSL2 |
+| Linux arm64 | `gcc`, `libgc` | verified on a GitHub Actions runner (the manual workflow `native-linux-arm.yml`) |
+| macOS ARM64 | `clang`, `brew install bdw-gc` | verified on a GitHub Actions runner (`native-macos.yml`), without file and line numbers in stack traces |
 | Windows x64 MSVC | — | not supported (no DWARF/LSDA unwinding in the MSVC runtime) |
 
 ## More
 
 - [Installing the LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/)
 - [Example: a picocli command-line app]({{ site.baseurl }}/examples/picocli-demo/)
+- [Runtime tuning and diagnostics]({{ site.baseurl }}/backends/llvm/runtime/): the environment variables of the runtime, the Boehm settings, and measured performance
+- [Open world]({{ site.baseurl }}/backends/llvm/open-world/): load classes that were not part of the build (experimental)
+- [Bytecode interpreter and JIT]({{ site.baseurl }}/backends/llvm/interpreter/): what the interpreter and the Cranelift JIT can do (experimental)
 - [Internals]({{ site.baseurl }}/backends/llvm/internals/): how the backend is built, for contributors
 - [Troubleshooting]({{ site.baseurl }}/backends/llvm/troubleshooting/)
 - [Known limitations]({{ site.baseurl }}/limitations/)

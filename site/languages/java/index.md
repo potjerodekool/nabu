@@ -3,7 +3,7 @@ layout: page
 title: Java Interop
 ---
 
-The Nabu compiler provides **Java interoperability out of the box**. Java 20 is supported, and Nabu and Java sources can be mixed in a single project.
+The Nabu compiler provides **Java interoperability out of the box**. Java sources are read up to Java 25, and Nabu and Java sources can be mixed in a single project.
 
 ## What works
 
@@ -22,7 +22,7 @@ Nabu can still compile the Java sources of a language support itself, together w
 
 ## Reference language level
 
-The reference language level for the frontend is **Java 20** (JLS SE 20). Interop and mixed input languages support both Nabu and Java 20 features.
+The Java grammar of the frontend is **Java 25** (`Java25Parser.g4`). Which version a program may use is chosen with `--release`, see below.
 
 ## Release
 

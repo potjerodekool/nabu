@@ -32,7 +32,7 @@ The compiler can parse and mix multiple input languages in a single project:
 | Language | Status | Details |
 |---|---|---|
 | **Nabu** | Native, full support | The compiler's own language, based on Java + Kotlin syntax |
-| **Java** (up to 20) | Supported | Java sources are parsed with a Java 20 grammar and compiled by Nabu, mixed with Nabu sources. Large real-world code such as picocli compiles and runs. |
+| **Java** (up to 25) | Supported | Java sources are parsed with a Java 25 grammar. By default Nabu only reads them, so a `.nabu` file can use their classes and `javac` compiles them; with `--compile-language-support` Nabu compiles them too. Large real-world code such as picocli compiles and runs that way. |
 | **Kotlin** | Experimental | Grammar and language support exist; only top-level class declarations are handled |
 
 ## Supported backends

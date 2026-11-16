@@ -554,28 +554,54 @@ static uint32_t nabu_name_hash(const char *s) {
 }
 
 void nabu_register_type_infos(const void *table, int32_t count) {
-    nabu_compiled_types = (const nabu_type_info *const *)table;
-    nabu_compiled_type_count = count;
-    uint32_t size = 16;
-    while (size < (uint32_t)count * 2u) size <<= 1;
-    int32_t *index = (int32_t *)malloc(sizeof(int32_t) * size);
-    if (index == NULL) return;
-    for (uint32_t i = 0; i < size; i++) index[i] = -1;
-    for (int32_t i = 0; i < count; i++) {
-        const nabu_type_info *ti = nabu_compiled_types[i];
-        if (ti == NULL || ti->name == NULL) continue;
-        uint32_t h = nabu_name_hash(ti->name) & (size - 1);
-        while (index[h] >= 0) {
-            if (strcmp(nabu_compiled_types[index[h]]->name, ti->name) == 0) break; /* the first one wins, as the scan did */
-            h = (h + 1) & (size - 1);
-        }
-        if (index[h] < 0) index[h] = i;
+    /* A class that the program only extends (never creates itself) has no entry in the table, but its type info exists:
+     * it is the super_type of its subclasses. It must be found by name too (Class.getDeclaredField of java.util.Random,
+     * which SecureRandom extends), so the superclasses of the table's classes are added behind the table. */
+    const nabu_type_info *const *given = (const nabu_type_info *const *)table;
+    int32_t capacity = count + count / 2 + 64;
+    const nabu_type_info **all = (const nabu_type_info **)malloc(sizeof(void *) * (size_t)capacity);
+    if (all == NULL) {
+        nabu_compiled_types = given;
+        nabu_compiled_type_count = count;
+        return;
     }
+    memcpy(all, given, sizeof(void *) * (size_t)count);
+    uint32_t size = 16;
+    while (size < (uint32_t)capacity * 2u) size <<= 1;
+    int32_t *index = (int32_t *)malloc(sizeof(int32_t) * size);
+    if (index == NULL) {
+        free(all);
+        nabu_compiled_types = given;
+        nabu_compiled_type_count = count;
+        return;
+    }
+    for (uint32_t i = 0; i < size; i++) index[i] = -1;
+    int32_t n = count;
+    for (int32_t i = 0; i < n; i++) {
+        const nabu_type_info *ti = all[i];
+        for (int depth = 0; ti != NULL && depth < 64; depth++, ti = ti->super_type) {
+            if (ti->name == NULL) break;
+            uint32_t h = nabu_name_hash(ti->name) & (size - 1);
+            int found = 0;
+            while (index[h] >= 0) {
+                if (strcmp(all[index[h]]->name, ti->name) == 0) { found = 1; break; } /* the first one wins, as the scan did */
+                h = (h + 1) & (size - 1);
+            }
+            if (found) {
+                if (depth > 0) break;   /* a superclass that is known: its own superclasses were handled with it */
+                continue;
+            }
+            if (depth == 0) { index[h] = i; continue; }
+            if (n >= capacity) break;
+            all[n] = ti;
+            index[h] = n;
+            n++;
+        }
+    }
+    nabu_compiled_types = (const nabu_type_info *const *)all;
+    nabu_compiled_type_count = n;
     nabu_type_index_size = size;
     nabu_type_index = index;
-
-    /* Lever 1 fase 2: backfill via nabu_type_info_for op bestaande cache-entries
-     * is niet meer nodig; nabu_set_object_vtable/itable doen dat al. */
 }
 
 int32_t nabu_compiled_type_count_for_trace(void) { return nabu_compiled_type_count; }

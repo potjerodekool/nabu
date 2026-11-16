@@ -3427,8 +3427,16 @@ if (argVal == null) continue;
 
         // JLS ├âÔÇÜ├é┬º15.9: qualified instance creation (`ansi.new Text(...)`) ├â┬ó├óÔÇÜ┬¼├óÔé¼┬Ø
         // de geselecteerde expressie is de enclosing instance.
+        // The qualifier is only an enclosing instance when the class is an inner class that needs one: in
+        // `new ColorScheme.Builder(x)` (a static nested class) `ColorScheme.` is a type name, and evaluating it as a
+        // value loaded this$0 of an enclosing instance that the current class does not have (picocli).
+        TypeElement qualifiedTarget = null;
+        if (classMirror instanceof io.github.potjerodekool.nabu.type.DeclaredType qualifiedDeclared) {
+            qualifiedTarget = qualifiedDeclared.asTypeElement();
+        }
         IRValue qualifiedOuterValue = null;
-        if (newClass.getName() instanceof FieldAccessExpressionTree fieldNameAccess) {
+        if (newClass.getName() instanceof FieldAccessExpressionTree fieldNameAccess
+                && qualifiedTarget != null && needsOuterInstance(qualifiedTarget)) {
             qualifiedOuterValue = acceptTree(fieldNameAccess.getSelected(), builder);
         }
 

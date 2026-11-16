@@ -95,6 +95,34 @@ class FrontendGapsRunTest {
     }
 
     @Test
+    void qualifiedNameOfAStaticNestedClassIsNotAnEnclosingInstance() throws Exception {
+        // picocli: Help.<init> did `new ColorScheme.Builder(x)`; `ColorScheme.` is a type name, and was evaluated as
+        // a value: a load of this$0 of Help, a static class that has none (NoSuchFieldError at run time).
+        assertEquals("5 7", run("""
+                        Outer.Help help = new Outer.Help(5);
+                        return help.scheme.value + " " + help.other;""",
+                """
+                    public static class Outer {
+                        public static class Help {
+                            final ColorScheme scheme;
+                            final int other = 7;
+                            Help(int value) {
+                                this.scheme = new ColorScheme.Builder(value).build();
+                            }
+                            public static class ColorScheme {
+                                final int value;
+                                ColorScheme(int value) { this.value = value; }
+                                public static class Builder {
+                                    final int value;
+                                    Builder(int value) { this.value = value; }
+                                    ColorScheme build() { return new ColorScheme(value); }
+                                }
+                            }
+                        }
+                    }"""));
+    }
+
+    @Test
     void shiftOperators() throws Exception {
         assertEquals("40 -3 536870910 1 -4294967296 4611686018427387903", run("""
                         int a = 5 << 3;

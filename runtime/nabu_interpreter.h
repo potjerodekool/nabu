@@ -69,6 +69,8 @@ typedef struct nabu_interp_method {
     int deoptimized;
     /* 0 not known yet, 1 a JDK class (null stays lenient), 2 a class of the program (null is a NullPointerException). */
     int null_mode;
+    /* Per pc: which of the top stack entries are long or double at pop2/dup2 (found on first use). */
+    unsigned char *wide_masks;
     /* Registratie in de globale tabel. */
     int id;
     struct nabu_interp_method *next;

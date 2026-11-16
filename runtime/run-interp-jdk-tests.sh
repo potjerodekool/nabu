@@ -39,6 +39,9 @@ check ReflectBoxTest 'true|k|3|false|false|5|b|true'
 check ReflectInheritTest '8|derived|11|not declared|no such method'
 check JarLoadTest '42|from jar'
 check VirtualTest '6|27|54|27'
+java_out=$(cd "$O" && java -cp classes WideStackTest 2>&1)
+wide_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/WideStackTest.class" WideStackTest 2>&1)
+if [ "$java_out" == "$wide_out" ]; then echo "PASS WideStackTest"; else echo "FAIL WideStackTest"; diff <(echo "$java_out") <(echo "$wide_out"); fail=1; fi
 # the same output as the JVM for the core operations (instanceof, toString in concatenation, doubles, Character, Math, String)
 java_out=$(cd "$O" && java -cp classes CoreOpsTest 2>&1)
 core_out=$(cd "$O" && timeout 60 ./test_run "$O/classes/CoreOpsTest.class" CoreOpsTest 2>&1)

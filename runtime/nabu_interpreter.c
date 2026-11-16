@@ -1147,6 +1147,224 @@ static int interp_instanceof(void *obj, const char *cname) {
     return 0;
 }
 
+/* ---- Which stack entries are long or double ----
+ * The interpreter stack has one slot per value, so pop2, dup_x2, dup2, dup2_x1 and dup2_x2 must know whether the values on top are
+ * of the wide kind (long, double). That is a property of the bytecode, found once per method by following every path and keeping
+ * only the kind of each entry: for these instructions the mask has bit i set when entry i from the top is wide. */
+
+#define WIDE_MAX_STACK 256
+
+static int desc_return_wide(const char *desc) {
+    const char *r = desc != NULL ? strchr(desc, ')') : NULL;
+    return r != NULL && (r[1] == 'J' || r[1] == 'D');
+}
+static int desc_return_void(const char *desc) {
+    const char *r = desc != NULL ? strchr(desc, ')') : NULL;
+    return r != NULL && r[1] == 'V';
+}
+
+/* The effect of one instruction on the kinds of the stack (1 normal, 2 wide); returns the length of the instruction, or 0 when
+ * it is not known. next[] gets the successors (up to 2 + switch targets are handled by the caller through `*jumps`). */
+static int wide_effect(nabu_interp_method_t *m, int pc, unsigned char *st, int *sp, int *succ, int *nsucc, unsigned char *masks) {
+    const unsigned char *c = m->code;
+    int op = c[pc];
+    int len = 1;
+    *nsucc = 0;
+#define PUSH1() do { st[(*sp)++] = 1; } while (0)
+#define PUSH2() do { st[(*sp)++] = 2; } while (0)
+#define POP(n) do { *sp -= (n); if (*sp < 0) return 0; } while (0)
+    int top = *sp;
+    switch (op) {
+        case 0x00: break;
+        case 0x01: case 0x02: case 0x03: case 0x04: case 0x05: case 0x06: case 0x07: case 0x08: PUSH1(); break;
+        case 0x09: case 0x0a: PUSH2(); break;
+        case 0x0b: case 0x0c: case 0x0d: PUSH1(); break;
+        case 0x0e: case 0x0f: PUSH2(); break;
+        case 0x10: len = 2; PUSH1(); break;
+        case 0x11: len = 3; PUSH1(); break;
+        case 0x12: len = 2; PUSH1(); break;
+        case 0x13: len = 3; PUSH1(); break;
+        case 0x14: len = 3; PUSH2(); break;
+        case 0x15: case 0x17: case 0x19: len = 2; PUSH1(); break;
+        case 0x16: case 0x18: len = 2; PUSH2(); break;
+        case 0x1a: case 0x1b: case 0x1c: case 0x1d: PUSH1(); break;
+        case 0x1e: case 0x1f: case 0x20: case 0x21: PUSH2(); break;
+        case 0x22: case 0x23: case 0x24: case 0x25: PUSH1(); break;
+        case 0x26: case 0x27: case 0x28: case 0x29: PUSH2(); break;
+        case 0x2a: case 0x2b: case 0x2c: case 0x2d: PUSH1(); break;
+        case 0x2e: case 0x30: case 0x32: case 0x33: case 0x34: case 0x35: POP(2); PUSH1(); break;
+        case 0x2f: case 0x31: POP(2); PUSH2(); break;
+        case 0x36: case 0x37: case 0x38: case 0x39: case 0x3a: len = 2; POP(1); break;
+        case 0x4f: case 0x50: case 0x51: case 0x52: case 0x53: case 0x54: case 0x55: case 0x56: POP(3); break;
+        case 0x57: POP(1); break;
+        case 0x58: case 0x5a: case 0x5b: case 0x5c: case 0x5d: case 0x5e: {
+            /* the kinds of the top entries, for the interpreter */
+            unsigned char mk = 0;
+            for (int i = 0; i < 4 && i < top; i++) if (st[top - 1 - i] == 2) mk |= (unsigned char)(1u << i);
+            masks[pc] = mk;
+            int v1w = top > 0 && st[top - 1] == 2, v2w = top > 1 && st[top - 2] == 2, v3w = top > 2 && st[top - 3] == 2;
+            unsigned char a = top > 0 ? st[top - 1] : 1, b = top > 1 ? st[top - 2] : 1, cc = top > 2 ? st[top - 3] : 1, d = top > 3 ? st[top - 4] : 1;
+            if (op == 0x58) { if (v1w) POP(1); else POP(2); }
+            else if (op == 0x5a) { POP(2); st[(*sp)++] = a; st[(*sp)++] = b; st[(*sp)++] = a; }
+            else if (op == 0x5b) {   /* dup_x2 */
+                if (v2w) { POP(2); st[(*sp)++] = a; st[(*sp)++] = b; st[(*sp)++] = a; }
+                else { POP(3); st[(*sp)++] = a; st[(*sp)++] = cc; st[(*sp)++] = b; st[(*sp)++] = a; }
+            } else if (op == 0x5c) {   /* dup2 */
+                if (v1w) { st[(*sp)++] = a; } else { st[(*sp)++] = b; st[(*sp)++] = a; }
+            } else if (op == 0x5d) {   /* dup2_x1 */
+                if (v1w) { POP(2); st[(*sp)++] = a; st[(*sp)++] = b; st[(*sp)++] = a; }
+                else { POP(3); st[(*sp)++] = b; st[(*sp)++] = a; st[(*sp)++] = cc; st[(*sp)++] = b; st[(*sp)++] = a; }
+            } else {   /* dup2_x2 */
+                if (v1w && v2w) { POP(2); st[(*sp)++] = a; st[(*sp)++] = b; st[(*sp)++] = a; }
+                else if (v1w && !v2w) { POP(3); st[(*sp)++] = a; st[(*sp)++] = cc; st[(*sp)++] = b; st[(*sp)++] = a; }
+                else if (!v1w && v3w) { POP(3); st[(*sp)++] = b; st[(*sp)++] = a; st[(*sp)++] = cc; st[(*sp)++] = b; st[(*sp)++] = a; }
+                else { POP(4); st[(*sp)++] = b; st[(*sp)++] = a; st[(*sp)++] = d; st[(*sp)++] = cc; st[(*sp)++] = b; st[(*sp)++] = a; }
+            }
+            break;
+        }
+        case 0x59: if (top < 1) return 0; st[(*sp)++] = st[top - 1]; break;
+        case 0x5f: if (top < 2) return 0; { unsigned char t = st[top - 1]; st[top - 1] = st[top - 2]; st[top - 2] = t; } break;
+        case 0x84: len = 3; break;
+        case 0x85: POP(1); PUSH2(); break;
+        case 0x86: POP(1); PUSH1(); break;
+        case 0x87: POP(1); PUSH2(); break;
+        case 0x88: case 0x89: POP(1); PUSH1(); break;
+        case 0x8a: POP(1); PUSH2(); break;
+        case 0x8b: POP(1); PUSH1(); break;
+        case 0x8c: case 0x8d: POP(1); PUSH2(); break;
+        case 0x8e: POP(1); PUSH1(); break;
+        case 0x8f: POP(1); PUSH2(); break;
+        case 0x90: case 0x91: case 0x92: case 0x93: POP(1); PUSH1(); break;
+        case 0x94: case 0x95: case 0x96: case 0x97: case 0x98: POP(2); PUSH1(); break;
+        case 0x74: case 0x76: case 0x75: case 0x77: break;   /* neg keeps the kind */
+        default:
+            if (op >= 0x60 && op <= 0x73) { int kind = (op - 0x60) & 3; POP(2); if (kind == 1 || kind == 3) PUSH2(); else PUSH1(); }   /* i l f d */
+            else if (op >= 0x78 && op <= 0x7d) { POP(2); if ((op - 0x78) & 1) PUSH2(); else PUSH1(); }                             /* shifts: i l */
+            else if (op >= 0x7e && op <= 0x83) { POP(2); if ((op - 0x7e) & 1) PUSH2(); else PUSH1(); }                             /* and or xor */
+            else if ((op >= 0x99 && op <= 0x9e) || op == 0xc6 || op == 0xc7) {
+                len = 3; POP(1);
+                succ[(*nsucc)++] = pc + (int16_t)((c[pc + 1] << 8) | c[pc + 2]);
+                succ[(*nsucc)++] = pc + 3;
+                return len;
+            } else if ((op >= 0x9f && op <= 0xa6)) {
+                len = 3; POP(2);
+                succ[(*nsucc)++] = pc + (int16_t)((c[pc + 1] << 8) | c[pc + 2]);
+                succ[(*nsucc)++] = pc + 3;
+                return len;
+            } else if (op == 0xa7) {
+                succ[(*nsucc)++] = pc + (int16_t)((c[pc + 1] << 8) | c[pc + 2]);
+                return 3;
+            } else if (op == 0xc8) {
+                succ[(*nsucc)++] = pc + (int32_t)(((uint32_t)c[pc + 1] << 24) | ((uint32_t)c[pc + 2] << 16) | ((uint32_t)c[pc + 3] << 8) | c[pc + 4]);
+                return 5;
+            } else if (op == 0xaa || op == 0xab) {
+                POP(1);
+                int p = pc + 1;
+                while (p % 4 != 0) p++;
+#define RD4(q) ((int32_t)(((uint32_t)c[q] << 24) | ((uint32_t)c[(q) + 1] << 16) | ((uint32_t)c[(q) + 2] << 8) | c[(q) + 3]))
+                int def = RD4(p); p += 4;
+                succ[(*nsucc)++] = pc + def;
+                if (op == 0xaa) {
+                    int lo = RD4(p), hi = RD4(p + 4); p += 8;
+                    for (int i = 0; i <= hi - lo && *nsucc < 60; i++, p += 4) succ[(*nsucc)++] = pc + RD4(p);
+                } else {
+                    int np = RD4(p); p += 4;
+                    for (int i = 0; i < np && *nsucc < 60; i++, p += 8) succ[(*nsucc)++] = pc + RD4(p + 4);
+                }
+                return p - pc;
+            } else if (op >= 0xac && op <= 0xb1) {
+                return op == 0xb1 ? 1 : 1;   /* a return: no successor */
+            } else if (op == 0xb2 || op == 0xb3 || op == 0xb4 || op == 0xb5) {
+                len = 3;
+                int idx = (c[pc + 1] << 8) | c[pc + 2];
+                int w = 0;
+                if (m->const_pool != NULL && idx > 0 && idx < m->const_pool->count && m->const_pool->entries[idx].ref_nat > 0) {
+                    const char *fd = nabu_cp_utf8(m->const_pool, m->const_pool->entries[m->const_pool->entries[idx].ref_nat].nat_desc);
+                    w = fd != NULL && (fd[0] == 'J' || fd[0] == 'D');
+                }
+                if (op == 0xb2) { if (w) PUSH2(); else PUSH1(); }
+                else if (op == 0xb3) POP(1);
+                else if (op == 0xb4) { POP(1); if (w) PUSH2(); else PUSH1(); }
+                else POP(2);
+            } else if (op >= 0xb6 && op <= 0xba) {
+                len = (op == 0xb9 || op == 0xba) ? 5 : 3;
+                int idx = (c[pc + 1] << 8) | c[pc + 2];
+                const char *md = NULL;
+                if (m->const_pool != NULL && idx > 0 && idx < m->const_pool->count && m->const_pool->entries[idx].ref_nat > 0)
+                    md = nabu_cp_utf8(m->const_pool, m->const_pool->entries[m->const_pool->entries[idx].ref_nat].nat_desc);
+                if (md == NULL) return 0;
+                POP(count_params(md) + (op == 0xb8 || op == 0xba ? 0 : 1));
+                if (!desc_return_void(md)) { if (desc_return_wide(md)) PUSH2(); else PUSH1(); }
+            } else if (op == 0xbb) { len = 3; PUSH1(); }
+            else if (op == 0xbc) { len = 2; POP(1); PUSH1(); }
+            else if (op == 0xbd) { len = 3; POP(1); PUSH1(); }
+            else if (op == 0xbe) { POP(1); PUSH1(); }
+            else if (op == 0xbf) { return 1; }
+            else if (op == 0xc0) { len = 3; }
+            else if (op == 0xc1) { len = 3; POP(1); PUSH1(); }
+            else if (op == 0xc2 || op == 0xc3) { POP(1); }
+            else if (op == 0xc4) {
+                int wop = c[pc + 1];
+                len = wop == 0x84 ? 6 : 4;
+                if (wop == 0x16 || wop == 0x18) PUSH2();
+                else if (wop >= 0x15 && wop <= 0x19) PUSH1();
+                else if (wop >= 0x36 && wop <= 0x3a) POP(1);
+            } else if (op == 0xc5) { len = 4; POP(c[pc + 3]); PUSH1(); }
+            else return 0;
+    }
+    succ[(*nsucc)++] = pc + len;
+    return len;
+#undef PUSH1
+#undef PUSH2
+#undef POP
+}
+
+/* The kinds of the top stack entries at each pop2/dup instruction of a method: masks[pc]. Computed once; NULL-free (zeros) when the
+ * analysis does not understand the method, in which case the instructions behave as for ints. */
+static unsigned char *wide_masks_of(nabu_interp_method_t *m) {
+    if (m->wide_masks != NULL) return m->wide_masks;
+    int n = m->code_len;
+    unsigned char *masks = (unsigned char *)calloc((size_t)(n > 0 ? n : 1), 1);
+    m->wide_masks = masks;
+    if (m->code == NULL || n <= 0) return masks;
+    unsigned char *seen = (unsigned char *)calloc((size_t)n, 1);
+    int *work = (int *)malloc(sizeof(int) * (size_t)(n + 64));
+    int wn = 0;
+    /* the stack at each instruction is kept as a small array per pc that is reached: n * 64 bytes at most */
+    typedef struct { unsigned char depth; unsigned char k[63]; } wstate_t;
+    wstate_t *states = (wstate_t *)calloc((size_t)n, sizeof(wstate_t));
+    unsigned char *has = seen;
+    work[wn++] = 0;
+    has[0] = 1;
+    states[0].depth = 0;
+    for (int e = 0; e < m->exc_count; e++) {   /* handlers start with the exception on the stack */
+        int h = m->exc_handler_pc[e];
+        if (h >= 0 && h < n && !has[h]) { has[h] = 1; states[h].depth = 1; states[h].k[0] = 1; work[wn++] = h; }
+    }
+    int guard = 0;
+    while (wn > 0 && guard++ < 200000) {
+        int pc = work[--wn];
+        unsigned char cur[WIDE_MAX_STACK];
+        int sp = states[pc].depth;
+        memcpy(cur, states[pc].k, (size_t)sp);
+        int succ[64], ns = 0;
+        int len = wide_effect(m, pc, cur, &sp, succ, &ns, masks);
+        if (len == 0 || sp > 62) continue;
+        for (int i = 0; i < ns; i++) {
+            int t = succ[i];
+            if (t < 0 || t >= n) continue;
+            if (!has[t]) {
+                has[t] = 1;
+                states[t].depth = (unsigned char)sp;
+                memcpy(states[t].k, cur, (size_t)sp);
+                if (wn < n + 60) work[wn++] = t;
+            }
+        }
+    }
+    free(states); free(seen); free(work);
+    return masks;
+}
+
 /* A new object of a class: the class is loaded first so that the number of fields is right. */
 static void *interp_new_object(const char *cname) {
     if (cname != NULL) nabu_classfile_load_class(cname);
@@ -1556,21 +1774,47 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 break;
             }
             case 0x57: pop(f); break;
-            case 0x58: pop(f); break; /* our longs/ints are one slot */
+            case 0x58: {   /* pop2: one long or double, or two others */
+                if (wide_masks_of(m)[f->pc - 1] & 1) pop(f); else { pop(f); pop(f); }
+                break;
+            }
             case 0x59: { void *v = f->stack[f->stack_top-1]; push(f, v); break; }
             case 0x5a: { /* dup_x1: ..., a, b → ..., b, a, b */
                 void *v1 = pop(f); void *v2 = pop(f);
                 push(f, v1); push(f, v2); push(f, v1);
                 break;
             }
-            case 0x5b: { /* dup_x2: ..., a, b, c → ..., c, a, b, c */
-                void *v1 = pop(f); void *v2 = pop(f); void *v3 = pop(f);
-                push(f, v1); push(f, v3); push(f, v2); push(f, v1);
+            case 0x5b: { /* dup_x2: ..., a, b, c → ..., c, a, b, c (b a long: ..., b, c → c, b, c) */
+                unsigned char mk = wide_masks_of(m)[f->pc - 1];
+                void *v1 = pop(f); void *v2 = pop(f);
+                if (mk & 2) { push(f, v1); push(f, v2); push(f, v1); }
+                else { void *v3 = pop(f); push(f, v1); push(f, v3); push(f, v2); push(f, v1); }
                 break;
             }
-            case 0x5c: { /* dup2: ..., a, b → ..., a, b, a, b */
+            case 0x5c: { /* dup2: a long or double, or the two values on top */
+                unsigned char mk = wide_masks_of(m)[f->pc - 1];
+                void *v1 = pop(f);
+                if (mk & 1) { push(f, v1); push(f, v1); }
+                else { void *v2 = pop(f); push(f, v2); push(f, v1); push(f, v2); push(f, v1); }
+                break;
+            }
+            case 0x5d: { /* dup2_x1 */
+                unsigned char mk = wide_masks_of(m)[f->pc - 1];
                 void *v1 = pop(f); void *v2 = pop(f);
-                push(f, v2); push(f, v1); push(f, v2); push(f, v1);
+                if (mk & 1) { push(f, v1); push(f, v2); push(f, v1); }
+                else { void *v3 = pop(f); push(f, v2); push(f, v1); push(f, v3); push(f, v2); push(f, v1); }
+                break;
+            }
+            case 0x5e: { /* dup2_x2 */
+                unsigned char mk = wide_masks_of(m)[f->pc - 1];
+                void *v1 = pop(f); void *v2 = pop(f);
+                if ((mk & 1) && (mk & 2)) { push(f, v1); push(f, v2); push(f, v1); }
+                else if (mk & 1) { void *v3 = pop(f); push(f, v1); push(f, v3); push(f, v2); push(f, v1); }
+                else {
+                    void *v3 = pop(f);
+                    if (mk & 4) { push(f, v2); push(f, v1); push(f, v3); push(f, v2); push(f, v1); }
+                    else { void *v4 = pop(f); push(f, v2); push(f, v1); push(f, v4); push(f, v3); push(f, v2); push(f, v1); }
+                }
                 break;
             }
             case 0x5f: { /* swap: ..., a, b → ..., b, a */

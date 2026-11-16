@@ -61,10 +61,61 @@ final class FieldReachability {
                         result.scan(instruction);
                     }
                 }
+                // A field named by a string literal (Class.getDeclaredField("seed"), Unsafe.objectFieldOffset, a field
+                // updater): the program reaches it by name, so it stays in the struct even when no code reads it
+                // (java.util.Random.seed, when only SecureRandom's overrides are in the program).
+                boolean byName = false;
+                for (final var block : function.blocks()) {
+                    for (final IRInstruction instruction : block.instructions()) {
+                        if (instruction instanceof IRInstruction.Call call && namesAField(call.function())) {
+                            byName = true;
+                        }
+                    }
+                }
+                if (byName) {
+                    for (final var block : function.blocks()) {
+                        for (final IRInstruction instruction : block.instructions()) {
+                            result.collectStrings(instruction);
+                        }
+                    }
+                }
             }
             // an initializer of a field (constant values) is not a read
         }
         return result;
+    }
+
+    /** Whether a call (by its function name) looks a field up by the name that it is given. */
+    private static boolean namesAField(final String function) {
+        return function != null && (function.contains("getDeclaredField") || function.endsWith("Class_getField")
+                || function.contains("objectFieldOffset") || function.contains("newUpdater")
+                || function.contains("findVarHandle"));
+    }
+
+    /** Every string literal below the node counts as the name of a field that is read. */
+    private void collectStrings(final Object node) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof IRValue.ConstString constant) {
+            readNames.add(constant.value());
+            return;
+        }
+        if (node instanceof List<?> list) {
+            for (final Object each : list) {
+                collectStrings(each);
+            }
+            return;
+        }
+        if (node.getClass().isRecord()) {
+            for (final Method accessor : accessorsOf(node.getClass())) {
+                try {
+                    collectStrings(accessor.invoke(node));
+                } catch (final ReflectiveOperationException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        }
     }
 
     private void scan(final IRInstruction instruction) {

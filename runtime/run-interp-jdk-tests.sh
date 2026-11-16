@@ -45,6 +45,9 @@ if command -v cargo >/dev/null 2>&1; then
   out_jit=$(cd "$O" && timeout 60 ./test_run "$O/classes/JitTest.class" JitTest 2>&1)
   out_int=$(cd "$O" && NABU_JIT=0 timeout 60 ./test_run "$O/classes/JitTest.class" JitTest 2>&1)
   if [ "$out_jit" == "$out_int" ] && echo "$out_jit" | grep -q 'div0'; then echo "PASS JitTest"; else echo "FAIL JitTest"; echo "--- jit"; echo "$out_jit"; echo "--- interpreted"; echo "$out_int"; fail=1; fi
+  out_jit=$(cd "$O" && timeout 60 ./test_run "$O/classes/JitObjTest.class" JitObjTest 2>&1)
+  out_int=$(cd "$O" && NABU_JIT=0 timeout 60 ./test_run "$O/classes/JitObjTest.class" JitObjTest 2>&1)
+  if [ "$out_jit" == "$out_int" ] && echo "$out_jit" | grep -q 'aioobe'; then echo "PASS JitObjTest"; else echo "FAIL JitObjTest"; echo "--- jit"; echo "$out_jit"; echo "--- interpreted"; echo "$out_int"; fail=1; fi
   unset NABU_JIT_LIB NABU_JIT_THRESHOLD
 fi
 check WideParamsTest '3.75|115|1.5'

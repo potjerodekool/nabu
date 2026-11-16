@@ -36,6 +36,13 @@ pub struct Host {
     pub throw_arith: extern "C" fn(),
     /// The address of the interpreter's pending exception (non-null after a call that threw).
     pub pending: *const *mut c_void,
+    /// A field named by a getfield/putfield (is_static = 0: out = byte offset in the object) or getstatic/putstatic
+    /// (out = address of its 64-bit slot); `kind` gets the first character of the field descriptor. 0 when unknown.
+    pub resolve_field: extern "C" fn(cp: *mut c_void, idx: c_int, is_static: c_int, out: *mut i64, kind: *mut c_char) -> c_int,
+    /// Makes an exception pending: 1 NullPointerException, 2 ArrayIndexOutOfBoundsException.
+    pub throw_exc: extern "C" fn(kind: c_int),
+    /// newarray: the array object (length at 0, elements from byte 8) of a primitive type code and a length.
+    pub new_array: extern "C" fn(atype: c_int, count: c_int) -> *mut c_void,
 }
 
 struct Jit {
@@ -54,14 +61,24 @@ enum Ty {
     J,
     F,
     D,
+    A,
 }
 
 fn clty(t: Ty) -> Type {
     match t {
         Ty::I => types::I32,
-        Ty::J => types::I64,
+        Ty::J | Ty::A => types::I64,
         Ty::F => types::F32,
         Ty::D => types::F64,
+    }
+}
+
+/// The type of a value: a reference is an i64 that was marked as one.
+fn tov(b: &FunctionBuilder, refs: &BTreeSet<Value>, v: Value) -> Ty {
+    if refs.contains(&v) {
+        Ty::A
+    } else {
+        ty_of(b.func.dfg.value_type(v))
     }
 }
 
@@ -81,19 +98,60 @@ fn wide(t: Ty) -> bool {
     matches!(t, Ty::J | Ty::D)
 }
 
-/// (parameters, return type) of a descriptor that only has primitive types; None when it has others.
+/// (parameters, return type) of a method descriptor; a reference of any class or array type is `Ty::A`.
 fn parse_desc(desc: &str) -> Option<(Vec<Ty>, Option<Ty>)> {
     let rest = desc.strip_prefix('(')?;
     let close = rest.find(')')?;
     let mut params = Vec::new();
-    for c in rest[..close].chars() {
-        params.push(prim(c)?);
+    let mut it = rest[..close].chars().peekable();
+    while let Some(t) = next_type(&mut it)? {
+        params.push(t);
     }
-    let ret = match rest[close + 1..].chars().next()? {
-        'V' => None,
-        c => Some(prim(c)?),
-    };
+    let mut r = rest[close + 1..].chars().peekable();
+    let ret = if r.peek() == Some(&'V') { None } else { next_type(&mut r)? };
     Some((params, ret))
+}
+
+/// The next type of a descriptor: Ok(None) at the end.
+fn next_type(it: &mut std::iter::Peekable<std::str::Chars>) -> Option<Option<Ty>> {
+    let c = match it.next() {
+        None => return Some(None),
+        Some(c) => c,
+    };
+    match c {
+        'L' => {
+            for x in it.by_ref() {
+                if x == ';' {
+                    return Some(Some(Ty::A));
+                }
+            }
+            None
+        }
+        '[' => {
+            while it.peek() == Some(&'[') {
+                it.next();
+            }
+            if it.peek() == Some(&'L') {
+                for x in it.by_ref() {
+                    if x == ';' {
+                        break;
+                    }
+                }
+            } else {
+                it.next();
+            }
+            Some(Some(Ty::A))
+        }
+        c => Some(Some(prim(c)?)),
+    }
+}
+
+/// The type of a field descriptor.
+fn field_ty(c: char) -> Option<Ty> {
+    match c {
+        'L' | '[' => Some(Ty::A),
+        c => prim(c),
+    }
 }
 
 fn prim(c: char) -> Option<Ty> {
@@ -148,15 +206,17 @@ fn decode(code: &[u8]) -> Option<Vec<Insn>> {
     while pc < code.len() {
         let op = code[pc];
         let (a, len) = match op {
-            0x00 | 0x02..=0x0f | 0x1a..=0x2d | 0x3b..=0x4e | 0x57..=0x5f | 0x60..=0x83 | 0x85..=0x98 => (0, 1),
-            0xac..=0xaf | 0xb1 => (0, 1),
+            0x00..=0x0f | 0x1a..=0x35 | 0x3b..=0x56 | 0x57..=0x5f | 0x60..=0x83 | 0x85..=0x98 => (0, 1),
+            0xac..=0xb1 | 0xbe => (0, 1),
+            0xbc => (*code.get(pc + 1)? as i32, 2),
+            0xb2..=0xb5 => (u2(pc + 1)?, 3),
             0x10 => (*code.get(pc + 1)? as i8 as i32, 2),
             0x11 => (s2(pc + 1)?, 3),
             0x12 => (*code.get(pc + 1)? as i32, 2),
             0x13 | 0x14 => (u2(pc + 1)?, 3),
-            0x15..=0x18 | 0x36..=0x39 => (*code.get(pc + 1)? as i32, 2),
+            0x15..=0x19 | 0x36..=0x3a => (*code.get(pc + 1)? as i32, 2),
             0x84 => ((*code.get(pc + 1)? as i32) | ((*code.get(pc + 2)? as i8 as i32) << 8), 3),
-            0x99..=0xa4 | 0xa7 => (pc as i32 + s2(pc + 1)?, 3),
+            0x99..=0xa7 | 0xc6 | 0xc7 => (pc as i32 + s2(pc + 1)?, 3),
             0xb8 => (u2(pc + 1)?, 3),
             _ => return None,
         };
@@ -167,11 +227,11 @@ fn decode(code: &[u8]) -> Option<Vec<Insn>> {
 }
 
 fn is_branch(op: u8) -> bool {
-    matches!(op, 0x99..=0xa4 | 0xa7)
+    matches!(op, 0x99..=0xa7 | 0xc6 | 0xc7)
 }
 
 fn ends_block(op: u8) -> bool {
-    matches!(op, 0xa7 | 0xac..=0xaf | 0xb1)
+    matches!(op, 0xa7 | 0xac..=0xb1)
 }
 
 /// The types of the operand stack at the start of every block, found by running over the code once; None when the code is
@@ -211,7 +271,7 @@ fn stack_types(
                 note(&mut entry, &mut work, insn.a as usize, &stack)?;
             }
             if is_branch(insn.op) || ends_block(insn.op) {
-                if is_branch(insn.op) && insn.op != 0xa7 {
+                if insn.op != 0xa7 && is_branch(insn.op) {
                     note(&mut entry, &mut work, insn.next, &stack)?;
                 }
                 break;
@@ -226,6 +286,16 @@ fn stack_types(
     Some(entry)
 }
 
+/// The type and the slot (offset or address) of a field.
+fn field_kind(host: &Host, cp: *mut c_void, idx: i32, is_static: bool) -> Option<(Ty, i64)> {
+    let mut out = 0i64;
+    let mut kind: c_char = 0;
+    if (host.resolve_field)(cp, idx, is_static as c_int, &mut out, &mut kind) == 0 {
+        return None;
+    }
+    Some((field_ty(kind as u8 as char)?, out))
+}
+
 fn pop_ty(stack: &mut Vec<Ty>) -> Option<Ty> {
     stack.pop()
 }
@@ -235,6 +305,70 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
     use Ty::*;
     match insn.op {
         0x00 => {}
+        0x01 => st.push(A),
+        0x19 | 0x2a..=0x2d => st.push(A),
+        0x3a | 0x4b..=0x4e => {
+            pop_ty(st)?;
+        }
+        0x2e | 0x33..=0x35 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(I);
+        }
+        0x2f => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(J);
+        }
+        0x30 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(F);
+        }
+        0x31 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(D);
+        }
+        0x32 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            st.push(A);
+        }
+        0x4f..=0x56 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+            pop_ty(st)?;
+        }
+        0xbe => {
+            pop_ty(st)?;
+            st.push(I);
+        }
+        0xbc => {
+            pop_ty(st)?;
+            st.push(A);
+        }
+        0xb2 | 0xb4 => {
+            let t = field_kind(host, cp, insn.a, insn.op == 0xb2)?.0;
+            if insn.op == 0xb4 {
+                pop_ty(st)?;
+            }
+            st.push(t);
+        }
+        0xb3 | 0xb5 => {
+            field_kind(host, cp, insn.a, insn.op == 0xb3)?;
+            pop_ty(st)?;
+            if insn.op == 0xb5 {
+                pop_ty(st)?;
+            }
+        }
+        0xc6 | 0xc7 => {
+            pop_ty(st)?;
+        }
+        0xa5 | 0xa6 => {
+            pop_ty(st)?;
+            pop_ty(st)?;
+        }
         0x02..=0x08 | 0x10 | 0x11 => st.push(I),
         0x09 | 0x0a => st.push(J),
         0x0b..=0x0d => st.push(F),
@@ -419,7 +553,7 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
             pop_ty(st)?;
         }
         0xa7 => {}
-        0xac..=0xaf => {
+        0xac..=0xb0 => {
             pop_ty(st)?;
         }
         0xb1 => {}
@@ -457,7 +591,7 @@ pub unsafe extern "C" fn nabu_jit_compile(
     cp: *mut c_void,
     self_method: *mut c_void,
 ) -> *mut c_void {
-    if code.is_null() || desc.is_null() || is_static == 0 || len == 0 || len > 16384 {
+    if code.is_null() || desc.is_null() || len == 0 || len > 16384 {
         return std::ptr::null_mut();
     }
     let desc = match CStr::from_ptr(desc).to_str() {
@@ -473,14 +607,17 @@ pub unsafe extern "C" fn nabu_jit_compile(
         Some(j) => j,
         None => return std::ptr::null_mut(),
     };
-    match compile(jit, code, desc, max_locals.max(0) as usize, cp, self_method) {
+    match compile(jit, code, desc, is_static != 0, max_locals.max(0) as usize, cp, self_method) {
         Some(p) => p as *mut c_void,
         None => std::ptr::null_mut(),
     }
 }
 
-fn compile(jit: &mut Jit, code: &[u8], desc: &str, max_locals: usize, cp: *mut c_void, self_method: *mut c_void) -> Option<*const u8> {
-    let (params, ret) = parse_desc(desc)?;
+fn compile(jit: &mut Jit, code: &[u8], desc: &str, is_static: bool, max_locals: usize, cp: *mut c_void, self_method: *mut c_void) -> Option<*const u8> {
+    let (mut params, ret) = parse_desc(desc)?;
+    if !is_static {
+        params.insert(0, Ty::A);
+    }
     let host = jit.host;
     let insns = decode(code)?;
     let index: BTreeMap<usize, usize> = insns.iter().enumerate().map(|(i, x)| (x.pc, i)).collect();
@@ -527,6 +664,7 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, max_locals: usize, cp: *mut c
             }
             blocks.insert(pc, blk);
         }
+        let mut refs: BTreeSet<Value> = BTreeSet::new();
         let mut vars: BTreeMap<(usize, Ty), Variable> = BTreeMap::new();
         let mut var = |b: &mut FunctionBuilder, slot: usize, t: Ty| -> Variable {
             *vars.entry((slot, t)).or_insert_with(|| b.declare_var(clty(t)))
@@ -538,6 +676,9 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, max_locals: usize, cp: *mut c
         for (i, t) in params.iter().enumerate() {
             let raw = b.ins().load(types::I64, MemFlagsData::trusted(), args, (i * 8) as i32);
             let v = from_slot(&mut b, raw, *t);
+            if *t == Ty::A {
+                refs.insert(v);
+            }
             let x = var(&mut b, slot, *t);
             b.def_var(x, v);
             slot += if wide(*t) { 2 } else { 1 };
@@ -548,15 +689,22 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, max_locals: usize, cp: *mut c
         let throw_fn = host.throw_arith as usize as i64;
         let call_fn = host.call as usize as i64;
         let drem_fn = jit_drem as usize as i64;
+        let throw_exc_fn = host.throw_exc as usize as i64;
+        let new_array_fn = host.new_array as usize as i64;
 
         for (&start, &blk) in &blocks {
             b.switch_to_block(blk);
             let mut stack: Vec<Value> = b.block_params(blk).to_vec();
+            for (v, t) in stack.iter().zip(&entry_types[&start]) {
+                if *t == Ty::A {
+                    refs.insert(*v);
+                }
+            }
             let mut i = index[&start];
             loop {
                 let insn = insns[i];
                 let done = emit(
-                    &mut b, &insn, &mut stack, &mut var, &blocks, &host, cp, ret, throw_fn, call_fn, drem_fn, ptr, cc, self_method, self_ref, pending_addr,
+                    &mut b, &insn, &mut stack, &mut var, &blocks, &host, cp, ret, throw_fn, call_fn, drem_fn, ptr, cc, self_method, self_ref, pending_addr, &mut refs, throw_exc_fn, new_array_fn,
                 )?;
                 if done {
                     break;
@@ -582,7 +730,7 @@ fn compile(jit: &mut Jit, code: &[u8], desc: &str, max_locals: usize, cp: *mut c
 fn to_slot(b: &mut FunctionBuilder, v: Value, t: Ty) -> Value {
     match t {
         Ty::I => b.ins().sextend(types::I64, v),
-        Ty::J => v,
+        Ty::J | Ty::A => v,
         Ty::F => {
             let bits = b.ins().bitcast(types::I32, MemFlagsData::new(), v);
             b.ins().uextend(types::I64, bits)
@@ -594,7 +742,7 @@ fn to_slot(b: &mut FunctionBuilder, v: Value, t: Ty) -> Value {
 fn from_slot(b: &mut FunctionBuilder, raw: Value, t: Ty) -> Value {
     match t {
         Ty::I => b.ins().ireduce(types::I32, raw),
-        Ty::J => raw,
+        Ty::J | Ty::A => raw,
         Ty::F => {
             let bits = b.ins().ireduce(types::I32, raw);
             b.ins().bitcast(types::F32, MemFlagsData::new(), bits)
@@ -606,6 +754,41 @@ fn from_slot(b: &mut FunctionBuilder, raw: Value, t: Ty) -> Value {
 fn zero_of(b: &mut FunctionBuilder, ret: Option<Ty>) -> Value {
     let _ = ret;
     b.ins().iconst(types::I64, 0)
+}
+
+/// Leaves the method with an exception pending when `fail` is non-zero.
+fn throw_if(b: &mut FunctionBuilder, fail: Value, kind: i64, ptr: Type, cc: CallConv, throw_exc_fn: i64) {
+    let fail_blk = b.create_block();
+    let ok_blk = b.create_block();
+    b.set_cold_block(fail_blk);
+    b.ins().brif(fail, fail_blk, &[], ok_blk, &[]);
+    b.switch_to_block(fail_blk);
+    let mut s = Signature::new(cc);
+    s.params.push(AbiParam::new(types::I32));
+    let sigref = b.import_signature(s);
+    let f = b.ins().iconst(ptr, throw_exc_fn);
+    let k = b.ins().iconst(types::I32, kind);
+    b.ins().call_indirect(sigref, f, &[k]);
+    let z = b.ins().iconst(types::I64, 0);
+    b.ins().return_(&[z]);
+    b.switch_to_block(ok_blk);
+}
+
+fn null_check(b: &mut FunctionBuilder, obj: Value, ptr: Type, cc: CallConv, throw_exc_fn: i64) {
+    let isnull = b.ins().icmp_imm_s(IntCC::Equal, obj, 0);
+    throw_if(b, isnull, 1, ptr, cc, throw_exc_fn);
+}
+
+/// The address of element `idx` of an array (null and bounds checked): the length is at byte 0, the elements from byte 8.
+fn array_addr(b: &mut FunctionBuilder, arr: Value, idx: Value, size: i64, ptr: Type, cc: CallConv, throw_exc_fn: i64) -> Value {
+    null_check(b, arr, ptr, cc, throw_exc_fn);
+    let len = b.ins().load(types::I32, MemFlagsData::trusted(), arr, 0);
+    let bad = b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
+    throw_if(b, bad, 2, ptr, cc, throw_exc_fn);
+    let wide_idx = b.ins().uextend(types::I64, idx);
+    let off = b.ins().imul_imm_s(wide_idx, size);
+    let base = b.ins().iadd(arr, off);
+    b.ins().iadd_imm_s(base, 8)
 }
 
 /// Emits one instruction; Some(true) when the block is finished by it.
@@ -627,11 +810,134 @@ fn emit(
     self_method: *mut c_void,
     self_ref: cranelift_codegen::ir::FuncRef,
     pending_addr: i64,
+    refs: &mut BTreeSet<Value>,
+    throw_exc_fn: i64,
+    new_array_fn: i64,
 ) -> Option<bool> {
     let op = insn.op;
-    let ty_of_v = |b: &FunctionBuilder, v: Value| ty_of(b.func.dfg.value_type(v));
     match op {
         0x00 => {}
+        0x01 => {
+            let v = b.ins().iconst(types::I64, 0);
+            refs.insert(v);
+            st.push(v);
+        }
+        0x2e..=0x35 => {
+            let idx = st.pop()?;
+            let arr = st.pop()?;
+            let addr = array_addr(b, arr, idx, [4, 8, 4, 8, 8, 1, 2, 2][(op - 0x2e) as usize], ptr, cc, throw_exc_fn);
+            let fl = MemFlagsData::trusted();
+            let v = match op {
+                0x2e => b.ins().load(types::I32, fl, addr, 0),
+                0x2f => b.ins().load(types::I64, fl, addr, 0),
+                0x30 => b.ins().load(types::F32, fl, addr, 0),
+                0x31 => b.ins().load(types::F64, fl, addr, 0),
+                0x32 => {
+                    let v = b.ins().load(types::I64, fl, addr, 0);
+                    refs.insert(v);
+                    v
+                }
+                0x33 => b.ins().sload8(types::I32, fl, addr, 0),
+                0x34 => b.ins().uload16(types::I32, fl, addr, 0),
+                _ => b.ins().sload16(types::I32, fl, addr, 0),
+            };
+            st.push(v);
+        }
+        0x4f..=0x56 => {
+            let val = st.pop()?;
+            let idx = st.pop()?;
+            let arr = st.pop()?;
+            let addr = array_addr(b, arr, idx, [4, 8, 4, 8, 8, 1, 2, 2][(op - 0x4f) as usize], ptr, cc, throw_exc_fn);
+            let fl = MemFlagsData::trusted();
+            match op {
+                0x4f..=0x53 => {
+                    b.ins().store(fl, val, addr, 0);
+                }
+                0x54 => {
+                    b.ins().istore8(fl, val, addr, 0);
+                }
+                _ => {
+                    b.ins().istore16(fl, val, addr, 0);
+                }
+            }
+        }
+        0xbe => {
+            let arr = st.pop()?;
+            null_check(b, arr, ptr, cc, throw_exc_fn);
+            let len = b.ins().load(types::I32, MemFlagsData::trusted(), arr, 0);
+            st.push(len);
+        }
+        0xbc => {
+            let count = st.pop()?;
+            let mut s = Signature::new(cc);
+            s.params.push(AbiParam::new(types::I32));
+            s.params.push(AbiParam::new(types::I32));
+            s.returns.push(AbiParam::new(ptr));
+            let sigref = b.import_signature(s);
+            let f = b.ins().iconst(ptr, new_array_fn);
+            let at = b.ins().iconst(types::I32, insn.a as i64);
+            let call = b.ins().call_indirect(sigref, f, &[at, count]);
+            let r = b.inst_results(call)[0];
+            refs.insert(r);
+            st.push(r);
+        }
+        0xb2..=0xb5 => {
+            let (t, slot) = field_kind(host, cp, insn.a, op == 0xb2 || op == 0xb3)?;
+            let fl = MemFlagsData::trusted();
+            match op {
+                0xb2 => {
+                    let addr = b.ins().iconst(ptr, slot);
+                    let raw = b.ins().load(types::I64, fl, addr, 0);
+                    let v = from_slot(b, raw, t);
+                    if t == Ty::A {
+                        refs.insert(v);
+                    }
+                    st.push(v);
+                }
+                0xb3 => {
+                    let v = st.pop()?;
+                    let raw = to_slot(b, v, t);
+                    let addr = b.ins().iconst(ptr, slot);
+                    b.ins().store(fl, raw, addr, 0);
+                }
+                0xb4 => {
+                    let obj = st.pop()?;
+                    null_check(b, obj, ptr, cc, throw_exc_fn);
+                    let raw = b.ins().load(types::I64, fl, obj, slot as i32);
+                    let v = from_slot(b, raw, t);
+                    if t == Ty::A {
+                        refs.insert(v);
+                    }
+                    st.push(v);
+                }
+                _ => {
+                    let v = st.pop()?;
+                    let obj = st.pop()?;
+                    null_check(b, obj, ptr, cc, throw_exc_fn);
+                    let raw = to_slot(b, v, t);
+                    b.ins().store(fl, raw, obj, slot as i32);
+                }
+            }
+        }
+        0xc6 | 0xc7 => {
+            let v = st.pop()?;
+            let c = b.ins().icmp_imm_s(if op == 0xc6 { IntCC::Equal } else { IntCC::NotEqual }, v, 0);
+            let target = blocks[&(insn.a as usize)];
+            let next = *blocks.get(&insn.next)?;
+            let args: Vec<BlockArg> = st.iter().map(|v| (*v).into()).collect();
+            b.ins().brif(c, target, &args, next, &args);
+            return Some(true);
+        }
+        0xa5 | 0xa6 => {
+            let r = st.pop()?;
+            let l = st.pop()?;
+            let c = b.ins().icmp(if op == 0xa5 { IntCC::Equal } else { IntCC::NotEqual }, l, r);
+            let target = blocks[&(insn.a as usize)];
+            let next = *blocks.get(&insn.next)?;
+            let args: Vec<BlockArg> = st.iter().map(|v| (*v).into()).collect();
+            b.ins().brif(c, target, &args, next, &args);
+            return Some(true);
+        }
         0x02..=0x08 => {
             let v = b.ins().iconst(types::I32, (op as i64) - 3);
             st.push(v);
@@ -676,30 +982,35 @@ fn emit(
             };
             st.push(v);
         }
-        0x15..=0x18 | 0x1a..=0x29 => {
+        0x15..=0x19 | 0x1a..=0x2d => {
             let (t, slot) = match op {
                 0x15 => (Ty::I, insn.a as usize),
                 0x16 => (Ty::J, insn.a as usize),
                 0x17 => (Ty::F, insn.a as usize),
                 0x18 => (Ty::D, insn.a as usize),
+                0x19 => (Ty::A, insn.a as usize),
                 _ => {
                     let n = (op - 0x1a) as usize;
-                    ([Ty::I, Ty::J, Ty::F, Ty::D][n / 4], n % 4)
+                    ([Ty::I, Ty::J, Ty::F, Ty::D, Ty::A][n / 4], n % 4)
                 }
             };
             let x = var(b, slot, t);
             let v = b.use_var(x);
+            if t == Ty::A {
+                refs.insert(v);
+            }
             st.push(v);
         }
-        0x36..=0x39 | 0x3b..=0x4a => {
+        0x36..=0x3a | 0x3b..=0x4e => {
             let (t, slot) = match op {
                 0x36 => (Ty::I, insn.a as usize),
                 0x37 => (Ty::J, insn.a as usize),
                 0x38 => (Ty::F, insn.a as usize),
                 0x39 => (Ty::D, insn.a as usize),
+                0x3a => (Ty::A, insn.a as usize),
                 _ => {
                     let n = (op - 0x3b) as usize;
-                    ([Ty::I, Ty::J, Ty::F, Ty::D][n / 4], n % 4)
+                    ([Ty::I, Ty::J, Ty::F, Ty::D, Ty::A][n / 4], n % 4)
                 }
             };
             let v = st.pop()?;
@@ -711,7 +1022,7 @@ fn emit(
         }
         0x58 => {
             let v = st.pop()?;
-            if !wide(ty_of_v(b, v)) {
+            if !wide(tov(b, refs, v)) {
                 st.pop()?;
             }
         }
@@ -727,7 +1038,7 @@ fn emit(
         0x5b => {
             let a = st.pop()?;
             let c = st.pop()?;
-            if wide(ty_of_v(b, c)) {
+            if wide(tov(b, refs, c)) {
                 st.extend([a, c, a]);
             } else {
                 let d = st.pop()?;
@@ -736,7 +1047,7 @@ fn emit(
         }
         0x5c => {
             let a = *st.last()?;
-            if wide(ty_of_v(b, a)) {
+            if wide(tov(b, refs, a)) {
                 st.push(a);
             } else {
                 let c = *st.get(st.len().checked_sub(2)?)?;
@@ -745,7 +1056,7 @@ fn emit(
         }
         0x5d => {
             let a = st.pop()?;
-            if wide(ty_of_v(b, a)) {
+            if wide(tov(b, refs, a)) {
                 let c = st.pop()?;
                 st.extend([a, c, a]);
             } else {
@@ -756,9 +1067,9 @@ fn emit(
         }
         0x5e => {
             let a = st.pop()?;
-            if wide(ty_of_v(b, a)) {
+            if wide(tov(b, refs, a)) {
                 let c = st.pop()?;
-                if wide(ty_of_v(b, c)) {
+                if wide(tov(b, refs, c)) {
                     st.extend([a, c, a]);
                 } else {
                     let d = st.pop()?;
@@ -767,7 +1078,7 @@ fn emit(
             } else {
                 let c = st.pop()?;
                 let d = st.pop()?;
-                if wide(ty_of_v(b, d)) {
+                if wide(tov(b, refs, d)) {
                     st.extend([c, a, d, c, a]);
                 } else {
                     let e = st.pop()?;
@@ -1009,9 +1320,9 @@ fn emit(
             b.ins().jump(target, &args);
             return Some(true);
         }
-        0xac..=0xaf => {
+        0xac..=0xb0 => {
             let v = st.pop()?;
-            let t = ty_of_v(b, v);
+            let t = tov(b, refs, v);
             if Some(t) != ret {
                 return None;
             }
@@ -1041,7 +1352,7 @@ fn emit(
             }
             vals.reverse();
             for (i, v) in vals.iter().enumerate() {
-                let t = ty_of_v(b, *v);
+                let t = tov(b, refs, *v);
                 let raw = to_slot(b, *v, t);
                 b.ins().stack_store(ptr, raw, args_slot, (i * 8) as i32);
             }
@@ -1061,6 +1372,9 @@ fn emit(
                 b.switch_to_block(cont_blk);
                 if let Some(rt) = cret {
                     let v = from_slot(b, raw, rt);
+                    if rt == Ty::A {
+                        refs.insert(v);
+                    }
                     st.push(v);
                 }
                 return Some(false);
@@ -1088,6 +1402,9 @@ fn emit(
             if let Some(rt) = cret {
                 let raw = b.ins().stack_load(ptr, types::I64, res_slot, 0);
                 let v = from_slot(b, raw, rt);
+                if rt == Ty::A {
+                    refs.insert(v);
+                }
                 st.push(v);
             }
         }

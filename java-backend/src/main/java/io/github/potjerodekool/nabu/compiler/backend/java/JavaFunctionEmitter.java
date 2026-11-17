@@ -100,6 +100,8 @@ class JavaFunctionEmitter {
                     code.goto_(getOrCreateLabel(branch.targetLabel()));
             case IRInstruction.Cast cast -> emitCast(cast);
             case IRInstruction.CondBranch condBranch -> emitCondBranch(condBranch);
+            case IRInstruction.TableSwitch tableSwitch -> emitTableSwitch(tableSwitch);
+            case IRInstruction.LookupSwitch lookupSwitch -> emitLookupSwitch(lookupSwitch);
             case IRInstruction.IndirectCall indirectCall -> emitIndirectCall(indirectCall);
             case IRInstruction.InstanceOf instanceOf -> emitInstanceOf(instanceOf);
             case IRInstruction.Throw throwInst -> emitThrow(throwInst);
@@ -708,6 +710,27 @@ class JavaFunctionEmitter {
     // -------------------------------------------------------
     // Control-flow
     // -------------------------------------------------------
+
+    private void emitTableSwitch(final IRInstruction.TableSwitch tableSwitch) {
+        final var cases = new java.util.ArrayList<java.lang.classfile.instruction.SwitchCase>();
+        for (int i = 0; i < tableSwitch.caseLabels().size(); i++) {
+            cases.add(java.lang.classfile.instruction.SwitchCase.of(tableSwitch.low() + i,
+                    getOrCreateLabel(tableSwitch.caseLabels().get(i))));
+        }
+        emitValue(tableSwitch.selector());
+        code.tableswitch(tableSwitch.low(), tableSwitch.high(), getOrCreateLabel(tableSwitch.defaultLabel()), cases);
+    }
+
+    private void emitLookupSwitch(final IRInstruction.LookupSwitch lookupSwitch) {
+        final var cases = new java.util.ArrayList<java.lang.classfile.instruction.SwitchCase>();
+        for (int i = 0; i < lookupSwitch.keys().size(); i++) {
+            cases.add(java.lang.classfile.instruction.SwitchCase.of(lookupSwitch.keys().get(i),
+                    getOrCreateLabel(lookupSwitch.caseLabels().get(i))));
+        }
+        cases.sort(java.util.Comparator.comparingInt(java.lang.classfile.instruction.SwitchCase::caseValue));
+        emitValue(lookupSwitch.selector());
+        code.lookupswitch(getOrCreateLabel(lookupSwitch.defaultLabel()), cases);
+    }
 
     private void emitCondBranch(final IRInstruction.CondBranch condBranch) {
         final var trueLabel = getOrCreateLabel(condBranch.trueLabel());

@@ -1553,6 +1553,106 @@ int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
     *file = r->file;
     return r->line;
 }
+
+/* ---- NABU_PROFILE=<file>: a sampling profiler for the executable itself (Windows) ----
+ * A thread of the runtime stops every thread of the process in turn about every 2 ms, reads where it stands (the
+ * instruction pointer only: the compiled code has no frame pointers to walk) and lets it go. Every 5 seconds the
+ * counts per function are written to <file>, the largest first. Samples in system DLLs (waiting in the kernel,
+ * sockets) are counted as "[system]"; the sampling thread allocates nothing while another thread is stopped. */
+#include <tlhelp32.h>
+#define NABU_PROF_MAX_THREADS 256
+#define NABU_PROF_MAX_SAMPLES 4000000
+static uintptr_t *nabu_prof_samples;
+static size_t nabu_prof_count;
+
+static int nabu_prof_cmp(const void *a, const void *b) {
+    uintptr_t x = *(const uintptr_t *)a, y = *(const uintptr_t *)b;
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+static void nabu_prof_write(const char *path) {
+    size_t n = nabu_prof_count;
+    uintptr_t *copy = (uintptr_t *)malloc((n + 1) * sizeof(uintptr_t));
+    if (copy == NULL) return;
+    memcpy(copy, nabu_prof_samples, n * sizeof(uintptr_t));
+    qsort(copy, n, sizeof(uintptr_t), nabu_prof_cmp);
+    typedef struct { const char *name; size_t count; } entry;
+    entry *entries = (entry *)calloc(n + 1, sizeof(entry));
+    size_t entry_count = 0;
+    size_t system = 0;
+    for (size_t i = 0; i < n; i++) {
+        const char *name = copy[i] < nabu_image_end ? nabu_frame_name(copy[i]) : NULL;
+        if (copy[i] >= nabu_image_end) { system++; continue; }
+        if (name == NULL) name = "?";
+        if (entry_count > 0 && strcmp(entries[entry_count - 1].name, name) == 0) entries[entry_count - 1].count++;
+        else { entries[entry_count].name = name; entries[entry_count].count = 1; entry_count++; }
+    }
+    /* the same function can come from separate runs of addresses: merge by name with a simple pass over a sorted copy */
+    for (size_t i = 0; i < entry_count; i++) {
+        for (size_t j = i + 1; j < entry_count; j++) {
+            if (entries[j].count > entries[i].count) { entry t = entries[i]; entries[i] = entries[j]; entries[j] = t; }
+        }
+        if (i > 400) break;
+    }
+    FILE *f = fopen(path, "w");
+    if (f != NULL) {
+        fprintf(f, "samples %zu, system dlls (waiting, kernel) %zu, in the program %zu\n", n, system, n - system);
+        for (size_t i = 0; i < entry_count && i < 400; i++) fprintf(f, "%zu %s\n", entries[i].count, entries[i].name);
+        fclose(f);
+    }
+    free(entries);
+    free(copy);
+}
+
+static DWORD WINAPI nabu_prof_thread(LPVOID arg) {
+    const char *path = (const char *) arg;
+    nabu_ensure_symbols();
+    HANDLE handles[NABU_PROF_MAX_THREADS];
+    int handle_count = 0;
+    const DWORD pid = GetCurrentProcessId(), self = GetCurrentThreadId();
+    ULONGLONG last_refresh = 0, last_write = GetTickCount64();
+    for (;;) {
+        const ULONGLONG now = GetTickCount64();
+        if (now - last_refresh > 200) {
+            for (int i = 0; i < handle_count; i++) CloseHandle(handles[i]);
+            handle_count = 0;
+            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            if (snap != INVALID_HANDLE_VALUE) {
+                THREADENTRY32 te;
+                te.dwSize = sizeof te;
+                for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+                    if (te.th32OwnerProcessID != pid || te.th32ThreadID == self || handle_count >= NABU_PROF_MAX_THREADS) continue;
+                    HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
+                    if (h != NULL) handles[handle_count++] = h;
+                }
+                CloseHandle(snap);
+            }
+            last_refresh = now;
+        }
+        for (int i = 0; i < handle_count; i++) {
+            if (SuspendThread(handles[i]) == (DWORD) -1) continue;
+            CONTEXT ctx;
+            ctx.ContextFlags = CONTEXT_CONTROL;
+            const BOOL ok = GetThreadContext(handles[i], &ctx);
+            ResumeThread(handles[i]);
+            if (ok && nabu_prof_count < NABU_PROF_MAX_SAMPLES) nabu_prof_samples[nabu_prof_count++] = (uintptr_t) ctx.Rip;
+        }
+        if (now - last_write > 5000) {
+            nabu_prof_write(path);
+            last_write = now;
+        }
+        Sleep(2);
+    }
+    return 0;
+}
+
+__attribute__((constructor(120))) static void nabu_prof_start(void) {
+    const char *path = getenv("NABU_PROFILE");
+    if (path == NULL || path[0] == '\0') return;
+    nabu_prof_samples = (uintptr_t *) malloc((size_t) NABU_PROF_MAX_SAMPLES * sizeof(uintptr_t));
+    if (nabu_prof_samples == NULL) return;
+    CreateThread(NULL, 0, nabu_prof_thread, (LPVOID) path, 0, NULL);
+}
 #else
 #include <dlfcn.h>
 const char *nabu_frame_name(uintptr_t addr) {
@@ -2210,14 +2310,30 @@ static void nabu_throw_cce(const char *actual, const char *wanted) {
 
 /* A checked cast to a class: obj if it is an instance of the class (or null), else ClassCastException. Only an
  * object of a compiled class can fail: an object the C runtime made, or a class the program does not know, passes. */
+/* Casts to a class that succeeded, per (class of the object, wanted class), direct mapped: a hit skips the check that the
+ * object is of a compiled class and the walk up the superclasses. An entry says "this class may be cast to that one",
+ * which holds for every object of the class. */
+typedef struct { const void *type; const void *wanted; } nabu_class_cast_entry;
+static nabu_class_cast_entry nabu_class_cast_cache[1024];
+
 void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
     if (obj == NULL || wanted == NULL) return obj;
     /* the usual case, without any lookups: the object is of exactly the class that is asked */
-    if (((const nabu_type_info *const *) obj)[0] == wanted) return obj;
+    const nabu_type_info *own = ((const nabu_type_info *const *) obj)[0];
+    if (own == wanted) return obj;
+    nabu_class_cast_entry *entry = &nabu_class_cast_cache[(((uintptr_t) own >> 4) ^ ((uintptr_t) wanted >> 3)) & 1023];
+    if (own != NULL && __atomic_load_n(&entry->type, __ATOMIC_ACQUIRE) == (const void *) own
+            && __atomic_load_n(&entry->wanted, __ATOMIC_ACQUIRE) == (const void *) wanted) return obj;
     const char *actual = nabu_compiled_type_name(obj);
     if (actual == NULL) return obj;
     for (const nabu_type_info *t = ((nabu_object *) obj)->type; t != NULL; t = t->super_type) {
-        if (t == wanted) return obj;
+        if (t == wanted) {
+            /* two stores are not one: a reader that sees the new type with the old wanted class just misses */
+            __atomic_store_n(&entry->wanted, (const void *) NULL, __ATOMIC_RELEASE);
+            __atomic_store_n(&entry->type, (const void *) own, __ATOMIC_RELEASE);
+            __atomic_store_n(&entry->wanted, (const void *) wanted, __ATOMIC_RELEASE);
+            return obj;
+        }
     }
     if (nabu_instanceof(obj, wanted->name)) return obj;
     nabu_throw_cce(actual, wanted->name);

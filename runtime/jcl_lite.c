@@ -80,6 +80,14 @@ static void jcl_sleep_ms(int64_t ms) {
 
 
 typedef struct { int kind; char *v; } s_str;
+/* The state of a Class object (K_CLASSOBJ): the name, like s_str, and what the Class functions derive from the name, found
+ * once (a Class object is made once per class). The flags are -1 for a class the program does not list. */
+typedef struct {
+    int kind; char *v;
+    int32_t flags; int8_t flags_known;
+    int8_t enum_known; const void *enum_entry;
+    int8_t super_known; void *super;
+} s_class;
 typedef struct { int kind; int t; union { int32_t i; int64_t j; double d; float f; int16_t c; } v; } s_box;
 typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
 typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
@@ -339,34 +347,60 @@ static uint32_t jcl_class_slot(void **table, uint32_t cap, const char *iname) {
 
 static void *jcl_class_unlocked(const char *iname);
 
-/* The table grows and gets new entries from every thread: one at a time. */
-static void *jcl_class(const char *iname) {
-    nabu_rt_lock();
-    void *found = jcl_class_unlocked(iname);
-    nabu_rt_unlock();
-    return found;
-}
-
-static void *jcl_class_unlocked(const char *iname) {
-    if (iname == NULL) iname = "";
-    /* Eén Class-object per klasse, ongeacht de naamvorm: "pkg.Cls",
-     * "pkg/Cls" en "Lpkg/Cls;" interneren naar de interne vorm "pkg/Cls"
-     * (arrays houden hun descriptor, met slashes). Anders zijn
-     * Class-vergelijkingen (picocli's isNonDefault) onterecht ongelijk. */
-    char canon[512];
+/* One Class object per class, whatever the form of the name: "pkg.Cls", "pkg/Cls" and "Lpkg/Cls;" give the internal form
+ * "pkg/Cls" (arrays keep their descriptor, with slashes). Otherwise comparisons of classes (picocli's isNonDefault) are wrong. */
+static const char *jcl_canon_class_name(const char *iname, char *canon, size_t cap) {
+    if (iname == NULL) return "";
     size_t len = strlen(iname);
-    if (len > 2 && len < sizeof canon && iname[0] == 'L' && iname[len - 1] == ';') {
+    if (len > 2 && len < cap && iname[0] == 'L' && iname[len - 1] == ';') {
         memcpy(canon, iname + 1, len - 2);
         canon[len - 2] = '\0';
         iname = canon;
         len -= 2;
-    } else if (len < sizeof canon && strchr(iname, '.') != NULL) {
+    } else if (len < cap && strchr(iname, '.') != NULL) {
         memcpy(canon, iname, len + 1);
         iname = canon;
     }
     if (iname == canon) {
         for (size_t i = 0; i < len; i++) if (canon[i] == '.') canon[i] = '/';
     }
+    return iname;
+}
+
+/* A Class object that exists already, found without the lock: the table only grows (a new table is published before its
+ * size, and the old one stays valid), and an entry is written after the object is complete. A miss is not final. */
+static void *jcl_class_find_unlocked(const char *iname) {
+    const uint32_t cap = __atomic_load_n(&jcl_class_cap, __ATOMIC_ACQUIRE);
+    void **table = (void **) __atomic_load_n(&jcl_class_table, __ATOMIC_ACQUIRE);
+    if (table == NULL || cap == 0) return NULL;
+    uint32_t h = 2166136261u;
+    for (const unsigned char *c = (const unsigned char *)iname; *c; c++) h = (h ^ *c) * 16777619u;
+    uint32_t i = h & (cap - 1);
+    for (uint32_t probes = 0; probes < cap; probes++) {
+        void *e = __atomic_load_n(&table[i], __ATOMIC_ACQUIRE);
+        if (e == NULL) return NULL;
+        s_str *st = (s_str *)nabu_jcl_state(e);
+        if (strcmp(st->v, iname) == 0) return e;
+        i = (i + 1) & (cap - 1);
+    }
+    return NULL;
+}
+
+static void *jcl_class(const char *iname) {
+    char canon[512];
+    const char *name = jcl_canon_class_name(iname, canon, sizeof canon);
+    void *found = jcl_class_find_unlocked(name);
+    if (found != NULL) return found;
+    /* The table grows and gets new entries from every thread: one at a time. */
+    nabu_rt_lock();
+    found = jcl_class_unlocked(iname);
+    nabu_rt_unlock();
+    return found;
+}
+
+static void *jcl_class_unlocked(const char *iname) {
+    char canon[512];
+    iname = jcl_canon_class_name(iname, canon, sizeof canon);
     if (jcl_class_table != NULL) {
         void *found = jcl_class_table[jcl_class_slot(jcl_class_table, jcl_class_cap, iname)];
         if (found != NULL) return found;
@@ -381,10 +415,10 @@ static void *jcl_class_unlocked(const char *iname) {
                 table[jcl_class_slot(table, cap, n)] = jcl_class_table[i];
             }
         }
-        jcl_class_table = table;
-        jcl_class_cap = cap;
+        __atomic_store_n(&jcl_class_table, table, __ATOMIC_RELEASE);   /* the table first, then its size */
+        __atomic_store_n(&jcl_class_cap, cap, __ATOMIC_RELEASE);
     }
-    s_str *st = (s_str *)jcl_alloc(sizeof(s_str));
+    s_class *st = (s_class *)jcl_alloc(sizeof(s_class));
     st->kind = K_CLASSOBJ;
     st->v = jcl_dup(iname);
     void *obj = jcl_alloc(48 + 8);
@@ -404,9 +438,14 @@ static void *jcl_class_unlocked(const char *iname) {
         }
     }
     nabu_jcl_set_state(obj, st);
-    jcl_class_table[jcl_class_slot(jcl_class_table, jcl_class_cap, iname)] = obj;
+    __atomic_store_n(&jcl_class_table[jcl_class_slot(jcl_class_table, jcl_class_cap, iname)], obj, __ATOMIC_RELEASE);
     jcl_class_n++;
     return obj;
+}
+
+/* The state of a Class object, or NULL for anything else. */
+static s_class *jcl_class_state(void *self) {
+    return (s_class *)jcl_state_kind(self, K_CLASSOBJ);
 }
 
 /* Class-literal (`X.class`, ldc van een Type) uit gecompileerde code. De
@@ -796,8 +835,26 @@ BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self))
 }
 static const char *jcl_compiled_type_name(const void *p) { return nabu_compiled_type_name(p); }
 
+/* getClass() is asked all the time (Spring and Hibernate hash and compare classes): the Class object of a type info, in
+ * a table of records that never change once published (the type info is the key, so a stale entry cannot be wrong). */
+typedef struct { uintptr_t type; void *cls; } jcl_getclass_rec;
+static jcl_getclass_rec *volatile jcl_getclass_cache[4096];
+
+static void jcl_getclass_remember(void *self, void *cls) {
+    const uintptr_t type = ((const uintptr_t *)self)[0];
+    jcl_getclass_rec *rec = (jcl_getclass_rec *)jcl_alloc(sizeof(jcl_getclass_rec));
+    rec->type = type;
+    rec->cls = cls;
+    __atomic_store_n(&jcl_getclass_cache[(type >> 4) & 4095], rec, __ATOMIC_RELEASE);
+}
+
 BIND(void *, jcl_java_lang_Object_getClass, "java.lang.Object_getClass", (void *self)) {
     if (self == NULL) return jcl_class("");
+    {
+        const uintptr_t type = ((const uintptr_t *)self)[0];
+        const jcl_getclass_rec *rec = type >= 4096 ? __atomic_load_n(&jcl_getclass_cache[(type >> 4) & 4095], __ATOMIC_ACQUIRE) : NULL;
+        if (rec != NULL && rec->type == type) return rec->cls;
+    }
     if (nabu_is_jstring(self)) return jcl_class("java/lang/String");
     if (!nabu_jcl_is_object(self)) {
         /* Een door de backend gecompileerd object: zijn type-info is een
@@ -808,11 +865,15 @@ BIND(void *, jcl_java_lang_Object_getClass, "java.lang.Object_getClass", (void *
             const char *array = jcl_typed_array_name(self);
             if (array != NULL) return jcl_class(array);
         }
-        return jcl_class(compiled != NULL ? compiled : "java/lang/String");
+        void *cls = jcl_class(compiled != NULL ? compiled : "java/lang/String");
+        if (compiled != NULL) jcl_getclass_remember(self, cls);
+        return cls;
     }
     nabu_object *h = (nabu_object *)self;
     nabu_type_info *ti = (nabu_type_info *)h->type;
-    return jcl_class(ti != NULL && ti->name != NULL ? ti->name : "");
+    void *cls = jcl_class(ti != NULL && ti->name != NULL ? ti->name : "");
+    if (ti != NULL && ti->name != NULL) jcl_getclass_remember(self, cls);
+    return cls;
 }
 BIND(int32_t, jcl_java_lang_Object_hashCode, "java.lang.Object_hashCode", (void *self)) {
     if (self == NULL) return 0;
@@ -3258,11 +3319,15 @@ extern const nabu_enum_entry nabu_enum_table[];
 extern const int32_t nabu_enum_count;
 
 static const nabu_enum_entry *jcl_enum_entry(void *cls) {
+    s_class *cs = jcl_class_state(cls);
+    if (cs != NULL && __atomic_load_n(&cs->enum_known, __ATOMIC_ACQUIRE)) return (const nabu_enum_entry *)cs->enum_entry;
     const char *n = jcl_str(cls);
+    const nabu_enum_entry *found = NULL;
     for (int32_t i = 0; i < nabu_enum_count; i++) {
-        if (strcmp(nabu_enum_table[i].name, n) == 0) return &nabu_enum_table[i];
+        if (strcmp(nabu_enum_table[i].name, n) == 0) { found = &nabu_enum_table[i]; break; }
     }
-    return NULL;
+    if (cs != NULL) { cs->enum_entry = found; __atomic_store_n(&cs->enum_known, 1, __ATOMIC_RELEASE); }
+    return found;
 }
 BIND(void *, jcl_java_lang_Class_getEnumConstants, "java.lang.Class_getEnumConstants", (void *self)) {
     const nabu_enum_entry *e = jcl_enum_entry(self);
@@ -3361,7 +3426,15 @@ static int32_t jcl_class_flags(void *self);
  * (dat is altijd java/lang/Class, met Object als super: getSuperclass gaf dan
  * Object.class terug, ook voor Object.class zelf, en picocli's
  * `while (cls != null) cls = cls.getSuperclass()` liep eindeloos). */
+static void *jcl_class_getSuperclass_compute(void *self);
 BIND(void *, jcl_java_lang_Class_getSuperclass, "java.lang.Class_getSuperclass", (void *self)) {
+    s_class *cs = jcl_class_state(self);
+    if (cs != NULL && __atomic_load_n(&cs->super_known, __ATOMIC_ACQUIRE)) return cs->super;
+    void *result = jcl_class_getSuperclass_compute(self);
+    if (cs != NULL) { cs->super = result; __atomic_store_n(&cs->super_known, 1, __ATOMIC_RELEASE); }
+    return result;
+}
+static void *jcl_class_getSuperclass_compute(void *self) {
     static const char *const primitives[] = {
         "boolean", "byte", "char", "short", "int", "long", "float", "double", "void"
     };
@@ -3420,7 +3493,31 @@ static void jcl_array_element_name(const char *array, char *out, size_t size, in
     memcpy(out, p, len);
     out[len] = 0;
 }
+static int jcl_class_isAssignableFrom_compute(void *self, void *o);
+/* Answers per pair of Class objects (they are made once and live for the whole run), in a table where an entry is written
+ * under a sequence number: a reader that sees the number change retries. */
+typedef struct { volatile uint32_t seq; void *target; void *from; int answer; } jcl_assignable_entry;
+static jcl_assignable_entry jcl_assignable_cache[2048];
+
 BIND(int, jcl_java_lang_Class_isAssignableFrom, "java.lang.Class_isAssignableFrom", (void *self, void *o)) {
+    if (self == o) return 1;
+    jcl_assignable_entry *e = &jcl_assignable_cache[(((uintptr_t)self >> 4) * 31u + ((uintptr_t)o >> 4)) & 2047];
+    uint32_t before = __atomic_load_n(&e->seq, __ATOMIC_ACQUIRE);
+    if (before != 0 && (before & 1) == 0 && e->target == self && e->from == o) {
+        int answer = e->answer;
+        if (__atomic_load_n(&e->seq, __ATOMIC_ACQUIRE) == before) return answer;
+    }
+    int answer = jcl_class_isAssignableFrom_compute(self, o);
+    if (jcl_class_state(self) != NULL && jcl_class_state(o) != NULL) {
+        uint32_t cur = __atomic_load_n(&e->seq, __ATOMIC_RELAXED);
+        if ((cur & 1) == 0 && __atomic_compare_exchange_n(&e->seq, &cur, cur + 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+            e->target = self; e->from = o; e->answer = answer;
+            __atomic_store_n(&e->seq, cur + 2, __ATOMIC_RELEASE);
+        }
+    }
+    return answer;
+}
+static int jcl_class_isAssignableFrom_compute(void *self, void *o) {
     const char *target = jcl_str(self), *from = jcl_str(o);
     if (strcmp(target, from) == 0) return 1;
     if (from[0] == '[') {
@@ -3466,11 +3563,15 @@ static int32_t jcl_class_flags(void *self) {
         }
         nabu_rt_unlock();
     }
+    s_class *cs = jcl_class_state(self);
+    if (cs != NULL && cs->flags_known) return cs->flags;
     nabu_class_flag key = { jcl_str(self), 0 };
     const nabu_class_flag *k = &key;
     const nabu_class_flag **hit = (const nabu_class_flag **)bsearch(&k, jcl_flags_sorted,
             (size_t)nabu_class_flag_count, sizeof *jcl_flags_sorted, jcl_flag_cmp);
-    return hit != NULL ? (*hit)->flags : -1;
+    const int32_t flags = hit != NULL ? (*hit)->flags : -1;
+    if (cs != NULL) { cs->flags = flags; __atomic_store_n(&cs->flags_known, 1, __ATOMIC_RELEASE); }
+    return flags;
 }
 BIND(int, jcl_java_lang_Class_isInterface, "java.lang.Class_isInterface", (void *self)) {
     int32_t f = jcl_class_flags(self);

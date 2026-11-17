@@ -2823,14 +2823,78 @@ public class InstructionEmitter {
             fn = LLVMAddFunction(castMod, "nabu_checkcast_class", fnType);
             LLVMSetLinkage(fn, LLVMExternalLinkage);
         }
+        // Inline: null, or an object of exactly this class, passes without a call; the runtime sees the rest.
+        final LLVMBasicBlockRef slowBB = castFastPath(value, layout.typeInfoGlobal, null);
         final PointerPointer<Pointer> args = new PointerPointer<>(2);
         args.put(0, value);
         args.put(1, layout.typeInfoGlobal);
-        final LLVMValueRef checked = emitCallOrInvoke("nabu_checkcast_class", fnType, fn, args, 2, null);
+        emitCallOrInvoke("nabu_checkcast_class", fnType, fn, args, 2, null);
+        castJoin(slowBB);
         Reference.reachabilityFence(params);
         Reference.reachabilityFence(args);
-        return checked;
+        return value;
     }
+
+    /** The join block of the inline cast in progress (see {@link #castFastPath}). */
+    private LLVMBasicBlockRef castJoinBB;
+
+    /**
+     * The inline part of a checked cast: null, an object whose type is {@code expectedType} (a type info), or with a
+     * {@code cacheSlot} (an i64 global) an object whose type was the last one this cast passed, jumps to the join
+     * block. The builder is left in the block with the call of the runtime; {@link #castJoin} closes it. New blocks
+     * belong to the try region of the current one.
+     */
+    private LLVMBasicBlockRef castFastPath(final LLVMValueRef value, final LLVMValueRef expectedType,
+                                           final LLVMValueRef cacheSlot) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final String handler = getHandlerLabel();
+        final LLVMBasicBlockRef checkBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("cast.check"));
+        final LLVMBasicBlockRef slowBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("cast.slow"));
+        final LLVMBasicBlockRef joinBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("cast.done"));
+        if (handler != null) {
+            continuationHandlers.put(checkBB, handler);
+            continuationHandlers.put(slowBB, handler);
+            continuationHandlers.put(joinBB, handler);
+        }
+        final LLVMValueRef isNull = LLVMBuildICmp(builder, LLVMIntEQ, value, LLVMConstNull(ptrType), "");
+        LLVMBuildCondBr(builder, isNull, joinBB, checkBB);
+        LLVMPositionBuilderAtEnd(builder, checkBB);
+        final LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                classLayouts.objectHeaderType(), value, ClassLayouts.HEADER_SLOT_TYPE, "");
+        final LLVMValueRef actualType = LLVMBuildLoad2(builder, ptrType, typeSlot, "");
+        final LLVMValueRef expected;
+        if (cacheSlot != null) {
+            final LLVMValueRef seen = LLVMBuildLoad2(builder, LLVMInt64TypeInContext(ctx), cacheSlot, "");
+            LLVMSetOrdering(seen, LLVMAtomicOrderingMonotonic);
+            LLVMSetAlignment(seen, 8);
+            expected = LLVMBuildIntToPtr(builder, seen, ptrType, "");
+        } else {
+            expected = expectedType;
+        }
+        final LLVMValueRef same = LLVMBuildICmp(builder, LLVMIntEQ, actualType, expected, "");
+        LLVMBuildCondBr(builder, same, joinBB, slowBB);
+        LLVMPositionBuilderAtEnd(builder, slowBB);
+        castJoinBB = joinBB;
+        if (cacheSlot != null) {
+            castSeenType = actualType;
+        }
+        return slowBB;
+    }
+
+    /** The type the inline cast loaded, for the cache store after the call. */
+    private LLVMValueRef castSeenType;
+
+    /** Ends the slow block of {@link #castFastPath} (after the runtime call) and continues in the join block. */
+    private void castJoin(final LLVMBasicBlockRef slowBB) {
+        LLVMBuildBr(builder, castJoinBB);
+        LLVMPositionBuilderAtEnd(builder, castJoinBB);
+        castJoinBB = null;
+        castSeenType = null;
+    }
+
+    private int castCaches = 0;
 
     /** A cast to an interface (internal name) or an array type (JVM name), checked by name in the runtime. */
     private LLVMValueRef checkedNameCast(final LLVMValueRef value, final String wanted) {
@@ -2846,13 +2910,28 @@ public class InstructionEmitter {
             fn = LLVMAddFunction(castMod, "nabu_checkcast_name", fnType);
             LLVMSetLinkage(fn, LLVMExternalLinkage);
         }
+        // Inline: null, or an object of the class this cast passed last (per call site: the answer for an object depends
+        // on its class alone), passes without a call. An array is not an object with a type info: its first word is
+        // its length and element type, which decide the answer as well, so the cache holds for it too.
+        final LLVMModuleRef cacheMod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final LLVMValueRef cache = LLVMAddGlobal(cacheMod, i64, new BytePointer(".cast.cache." + castCaches++));
+        LLVMSetLinkage(cache, LLVMInternalLinkage);
+        LLVMSetInitializer(cache, LLVMConstInt(i64, 0, 0));
+        final LLVMBasicBlockRef slowBB = castFastPath(value, null, cache);
+        final LLVMValueRef seenType = castSeenType;
         final PointerPointer<Pointer> args = new PointerPointer<>(2);
         args.put(0, value);
         args.put(1, constants.resolveString(wanted, IRGlobal.Linkage.PRIVATE));
-        final LLVMValueRef checked = emitCallOrInvoke("nabu_checkcast_name", fnType, fn, args, 2, null);
+        emitCallOrInvoke("nabu_checkcast_name", fnType, fn, args, 2, null);
+        // the call returned, so the cast holds for objects of this class: remember it
+        final LLVMValueRef remembered = LLVMBuildStore(builder, LLVMBuildPtrToInt(builder, seenType, i64, ""), cache);
+        LLVMSetOrdering(remembered, LLVMAtomicOrderingMonotonic);
+        LLVMSetAlignment(remembered, 8);
+        castJoin(slowBB);
         Reference.reachabilityFence(params);
         Reference.reachabilityFence(args);
-        return checked;
+        return value;
     }
 
     // -------------------------------------------------------
@@ -2944,9 +3023,7 @@ public class InstructionEmitter {
             LLVMSetLinkage(cache, LLVMInternalLinkage);
             LLVMSetInitializer(cache, LLVMConstInt(i64, 0, 0));
             args.put(2, cache);
-            LLVMValueRef cachedResult = LLVMBuildCall2(builder, LLVMGlobalGetValueType(cachedFn), cachedFn, args, 3, "");
-            cachedResult = LLVMBuildTrunc(builder, cachedResult, boolType, new BytePointer(nameOf(instanceOf.result())));
-            storeLocal(instanceOf.result(), cachedResult);
+            storeLocal(instanceOf.result(), inlineCachedInstanceOf(source, cache, cachedFn, args, boolType, i64));
             Reference.reachabilityFence(args);
             return;
         }
@@ -2957,6 +3034,61 @@ public class InstructionEmitter {
         result = LLVMBuildTrunc(builder, result, boolType,
                 new BytePointer(nameOf(instanceOf.result())));
         storeLocal(instanceOf.result(), result);
+    }
+
+    /**
+     * {@code instanceof} through the cache of its call site, the common case without a call: null is false, and an
+     * object whose class is the one in the cache (the cache holds the class and, in its low bit, the answer) gets the
+     * answer of the cache. Else {@code nabu_instanceof_cached} answers and fills the cache.
+     */
+    private LLVMValueRef inlineCachedInstanceOf(final LLVMValueRef source, final LLVMValueRef cache,
+                                                final LLVMValueRef cachedFn, final PointerPointer<Pointer> args,
+                                                final LLVMTypeRef boolType, final LLVMTypeRef i64) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMBasicBlockRef entryBB = LLVMGetInsertBlock(builder);
+        final LLVMValueRef function = LLVMGetBasicBlockParent(entryBB);
+        final String handler = getHandlerLabel();
+        final LLVMBasicBlockRef checkBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer(".io.check"));
+        final LLVMBasicBlockRef slowBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer(".io.slow"));
+        final LLVMBasicBlockRef joinBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer(".io.done"));
+        if (handler != null) {
+            continuationHandlers.put(checkBB, handler);
+            continuationHandlers.put(slowBB, handler);
+            continuationHandlers.put(joinBB, handler);
+        }
+        final LLVMValueRef isNull = LLVMBuildICmp(builder, LLVMIntEQ, source, LLVMConstNull(ptrType), "");
+        LLVMBuildCondBr(builder, isNull, joinBB, checkBB);
+
+        LLVMPositionBuilderAtEnd(builder, checkBB);
+        final LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                classLayouts.objectHeaderType(), source, ClassLayouts.HEADER_SLOT_TYPE, "");
+        final LLVMValueRef actualType = LLVMBuildPtrToInt(builder, LLVMBuildLoad2(builder, ptrType, typeSlot, ""), i64, "");
+        final LLVMValueRef seen = LLVMBuildLoad2(builder, i64, cache, "");
+        LLVMSetOrdering(seen, LLVMAtomicOrderingMonotonic);
+        LLVMSetAlignment(seen, 8);
+        final LLVMValueRef seenType = LLVMBuildAnd(builder, seen, LLVMConstInt(i64, -2L, 1), "");
+        final LLVMValueRef hit = LLVMBuildAnd(builder,
+                LLVMBuildICmp(builder, LLVMIntEQ, seenType, actualType, ""),
+                LLVMBuildICmp(builder, LLVMIntNE, actualType, LLVMConstInt(i64, 0, 0), ""), "");
+        final LLVMValueRef cachedAnswer = LLVMBuildTrunc(builder, seen, boolType, "");
+        LLVMBuildCondBr(builder, hit, joinBB, slowBB);
+
+        LLVMPositionBuilderAtEnd(builder, slowBB);
+        LLVMValueRef slowAnswer = LLVMBuildCall2(builder, LLVMGlobalGetValueType(cachedFn), cachedFn, args, 3, "");
+        slowAnswer = LLVMBuildTrunc(builder, slowAnswer, boolType, "");
+        final LLVMBasicBlockRef slowEnd = LLVMGetInsertBlock(builder);
+        LLVMBuildBr(builder, joinBB);
+
+        LLVMPositionBuilderAtEnd(builder, joinBB);
+        final LLVMValueRef phi = LLVMBuildPhi(builder, boolType, "");
+        final PointerPointer<Pointer> values = new PointerPointer<>(3);
+        final PointerPointer<Pointer> blocks = new PointerPointer<>(3);
+        values.put(0, LLVMConstInt(boolType, 0, 0)).put(1, cachedAnswer).put(2, slowAnswer);
+        blocks.put(0, entryBB).put(1, checkBB).put(2, slowEnd);
+        LLVMAddIncoming(phi, values, blocks, 3);
+        Reference.reachabilityFence(values);
+        Reference.reachabilityFence(blocks);
+        return phi;
     }
 
     /**

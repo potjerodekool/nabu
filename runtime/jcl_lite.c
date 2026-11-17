@@ -87,6 +87,10 @@ typedef struct {
     int32_t flags; int8_t flags_known;
     int8_t enum_known; const void *enum_entry;
     int8_t super_known; void *super;
+    /* the reflection that frameworks ask again and again: parsed once (the arrays handed out are copies) */
+    int8_t generic_known; void *generic_super; void **generic_ifaces; int32_t generic_iface_count;
+    int8_t params_known; void **type_params; int32_t type_param_count;
+    void *enum_values;          /* the shared array of getEnumConstantsShared */
 } s_class;
 typedef struct { int kind; int t; union { int32_t i; int64_t j; double d; float f; int16_t c; } v; } s_box;
 typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
@@ -486,6 +490,10 @@ void *nabu_class_literal(const char *iname) {
  * offset 4, data op offset 8. De backend schrijft de elementgrootte bij elke
  * allocatie; zonder die grootte kan een generieke kopie (arraycopy, clone) niet
  * weten hoeveel bytes een element beslaat. */
+static void *jcl_arr_ref(int32_t n);
+/* A new array of the type `type` with the references of `items` (Class.getInterfaces and the like give a copy). */
+static void *jcl_arr_copy_of(void **items, int32_t n, const char *type);
+
 static void *jcl_arr_ref(int32_t n) {
     if (n < 0) n = 0;
     void *p = jcl_alloc(8 + (size_t)n * sizeof(void *));
@@ -526,6 +534,13 @@ static void jcl_arr_set_type(void *a, const char *name) {
     nabu_array_tag(a, name);
 }
 /* A reference array of n elements with the given array class. */
+static void *jcl_arr_copy_of(void **items, int32_t n, const char *type) {
+    void *arr = jcl_arr_ref(n);
+    nabu_array_tag(arr, type);
+    for (int32_t i = 0; i < n; i++) ((void **)((char *)arr + 8))[i] = items[i];
+    return arr;
+}
+
 static void *jcl_arr_typed(int32_t n, const char *name) {
     void *a = jcl_arr_ref(n);
     nabu_array_tag(a, name);
@@ -3334,7 +3349,14 @@ BIND(void *, jcl_java_lang_Class_getEnumConstants, "java.lang.Class_getEnumConst
     return e != NULL ? e->values() : NULL;
 }
 BIND(void *, jcl_java_lang_Class_getEnumConstantsShared, "java.lang.Class_getEnumConstantsShared", (void *self)) {
-    return jcl_java_lang_Class_getEnumConstants(self);
+    s_class *cs = jcl_class_state(self);
+    if (cs != NULL) {
+        void *shared = __atomic_load_n(&cs->enum_values, __ATOMIC_ACQUIRE);
+        if (shared != NULL) return shared;
+    }
+    void *values = jcl_java_lang_Class_getEnumConstants(self);
+    if (cs != NULL && values != NULL) __atomic_store_n(&cs->enum_values, values, __ATOMIC_RELEASE);
+    return values;
 }
 void *jcl_java_lang_Class_getSuperclass(void *self) __asm__(JCL_SYM("java.lang.Class_getSuperclass"));
 
@@ -3915,6 +3937,7 @@ typedef struct {
     int kind; char *cls; char *name; char *desc; int32_t modifiers; char *exceptions; char *signature;
     char *params;   /* the names of the parameters, comma-separated, or NULL */
     void *key;      /* the String of ProxySupport.methodKey, made on first use (the state is scanned by the collector) */
+    void *name_str; /* the String of getName, made on first use */
 } s_method;
 
 /* Set by the compiler next to the access flags: declared in an interface
@@ -3992,6 +4015,9 @@ static void *jcl_desc_class(const char *d, size_t n) {
     if (n >= sizeof buf) n = sizeof buf - 1;
     memcpy(buf, d, n);
     buf[n] = 0;
+    if (n > 2 && buf[0] == 'L' && buf[n - 1] == ';') {   /* jcl_class takes "Lpkg/Cls;" as it is */
+        return jcl_class(buf);
+    }
     return jcl_class(jcl_desc_name(buf));
 }
 
@@ -4035,6 +4061,7 @@ typedef struct {
     void **args; int32_t argc;  /* G_PARAM: type arguments */
     void *bound;                /* G_VAR: its bound; G_WILDCARD: upper bound; G_ARRAY: component */
     void *lower;                /* G_WILDCARD: lower bound, or NULL */
+    void *name_str;             /* G_VAR: the String of getName, made on first use */
 } s_gtype;
 
 /* Type variable names and their bounds, from formal type parameters (the
@@ -4267,14 +4294,21 @@ void *jcl_field_generic_type(void *self) {
 /* Class.getTypeParameters: the type variables of the class's generic
  * signature (a class in the reflection configuration), else none. */
 BIND(void *, jcl_java_lang_Class_getTypeParameters, "java.lang.Class_getTypeParameters", (void *self)) {
+    s_class *cs = jcl_class_state(self);
+    if (cs != NULL && __atomic_load_n(&cs->params_known, __ATOMIC_ACQUIRE))
+        return jcl_arr_copy_of(cs->type_params, cs->type_param_count, "[Ljava/lang/reflect/TypeVariable;");
     jcl_type_scope scope = {{0}, {0}, 0};
     void *variables[16];
     int32_t count = 0;
     jcl_class_scope(jcl_str(self), &scope, variables, &count);
-    void *arr = jcl_arr_ref(count);
-    jcl_arr_set_type(arr, "[Ljava/lang/reflect/TypeVariable;");
-    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, variables[i]);
-    return arr;
+    if (cs != NULL) {
+        void **kept = (void **)jcl_alloc(sizeof(void *) * (size_t)(count > 0 ? count : 1));
+        memcpy(kept, variables, sizeof(void *) * (size_t)count);
+        cs->type_params = kept;
+        cs->type_param_count = count;
+        __atomic_store_n(&cs->params_known, 1, __ATOMIC_RELEASE);
+    }
+    return jcl_arr_copy_of(variables, count, "[Ljava/lang/reflect/TypeVariable;");
 }
 
 /* Class.getGenericSuperclass / getGenericInterfaces: from the class signature "<formals>Lsuper;Liface;..."
@@ -4286,13 +4320,46 @@ static const char *jcl_class_signature_rest(const char *cls, jcl_type_scope *sco
     int32_t count;
     return jcl_parse_formals(ri->signature, scope, ignored, &count);
 }
+/* The generic superclass and interfaces of a class with a signature, parsed into its state once; 0 when it has none. */
+static int jcl_class_generics(void *self, s_class *cs) {
+    if (cs != NULL && __atomic_load_n(&cs->generic_known, __ATOMIC_ACQUIRE)) return cs->generic_known == 2;
+    jcl_type_scope scope = {{0}, {0}, 0};
+    const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
+    if (p == NULL) {
+        if (cs != NULL) __atomic_store_n(&cs->generic_known, 1, __ATOMIC_RELEASE);
+        return 0;
+    }
+    void *super = NULL;
+    if (*p == 'L') super = jcl_parse_type(&p, &scope).type;
+    void *types[64];
+    int32_t count = 0;
+    while (*p == 'L' && count < 64) types[count++] = jcl_parse_type(&p, &scope).type;
+    if (cs == NULL) return 0;
+    void **kept = (void **)jcl_alloc(sizeof(void *) * (size_t)(count > 0 ? count : 1));
+    memcpy(kept, types, sizeof(void *) * (size_t)count);
+    cs->generic_super = super;
+    cs->generic_ifaces = kept;
+    cs->generic_iface_count = count;
+    __atomic_store_n(&cs->generic_known, 2, __ATOMIC_RELEASE);
+    return 1;
+}
 BIND(void *, jcl_java_lang_Class_getGenericSuperclass, "java.lang.Class_getGenericSuperclass", (void *self)) {
+    s_class *cs = jcl_class_state(self);
+    if (cs != NULL) {
+        if (!jcl_class_generics(self, cs) || cs->generic_super == NULL) return jcl_java_lang_Class_getSuperclass(self);
+        return cs->generic_super;
+    }
     jcl_type_scope scope = {{0}, {0}, 0};
     const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
     if (p == NULL || *p != 'L') return jcl_java_lang_Class_getSuperclass(self);
     return jcl_parse_type(&p, &scope).type;
 }
 BIND(void *, jcl_java_lang_Class_getGenericInterfaces, "java.lang.Class_getGenericInterfaces", (void *self)) {
+    s_class *cs = jcl_class_state(self);
+    if (cs != NULL) {
+        if (!jcl_class_generics(self, cs)) return jcl_java_lang_Class_getInterfaces(self);
+        return jcl_arr_copy_of(cs->generic_ifaces, cs->generic_iface_count, "[Ljava/lang/reflect/Type;");
+    }
     jcl_type_scope scope = {{0}, {0}, 0};
     const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
     if (p == NULL) return jcl_java_lang_Class_getInterfaces(self);
@@ -4300,10 +4367,7 @@ BIND(void *, jcl_java_lang_Class_getGenericInterfaces, "java.lang.Class_getGener
     void *types[64];
     int32_t count = 0;
     while (*p == 'L' && count < 64) types[count++] = jcl_parse_type(&p, &scope).type;
-    void *arr = jcl_arr_ref(count);
-    jcl_arr_set_type(arr, "[Ljava/lang/reflect/Type;");
-    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, types[i]);
-    return arr;
+    return jcl_arr_copy_of(types, count, "[Ljava/lang/reflect/Type;");
 }
 
 static void *jcl_gtype_name_jstr(void *self) {
@@ -4345,7 +4409,9 @@ BIND(void *, jcl_java_lang_reflect_GenericArrayType_getGenericComponentType, "ja
 }
 BIND(void *, jcl_java_lang_reflect_TypeVariable_getName, "java.lang.reflect.TypeVariable_getName", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_VAR);
-    return nabu_jstring_new(g != NULL ? g->text : "");
+    if (g == NULL) return nabu_jstring_new("");
+    if (g->name_str == NULL) g->name_str = nabu_jstring_new(g->text);
+    return g->name_str;
 }
 BIND(void *, jcl_java_lang_reflect_TypeVariable_getBounds, "java.lang.reflect.TypeVariable_getBounds", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_VAR);
@@ -4364,8 +4430,12 @@ static void * jcl_java_lang_reflect_Method_getName (void *self) {
     return (void *)(jcl_is_constructor(m) ? jcl_binary_name(m->cls) : m->name);
 }
 BIND(void *, jcl_java_lang_reflect_Method_getName_jstr, "java.lang.reflect.Method_getName", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    if (m != NULL && m->name_str != NULL) return m->name_str;   /* a String is immutable: one per method */
     void *r = (void *)jcl_java_lang_reflect_Method_getName(self);
-    return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
+    void *str = r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
+    if (m != NULL) m->name_str = str;
+    return str;
 }
 BIND(void *, jcl_java_lang_reflect_Method_getDeclaringClass, "java.lang.reflect.Method_getDeclaringClass", (void *self)) {
     s_method *m = jcl_method_of(self);

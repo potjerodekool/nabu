@@ -16,10 +16,12 @@ import java.util.Optional;
  * binnenste naar buitenste scope gezocht.
  *
  * Gebruik:
+ * <pre>{@code
  *   tracker.pushScope();                          // begin blok
  *   tracker.define("x", ptr);                     // lokale variabele
  *   Optional<IRValue> v = tracker.lookup("x");    // opzoeken
  *   tracker.popScope();                            // einde blok
+ * }</pre>
  *
  * Wordt per methode gereset via reset().
  */

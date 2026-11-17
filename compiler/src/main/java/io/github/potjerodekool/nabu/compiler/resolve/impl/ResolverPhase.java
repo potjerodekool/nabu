@@ -1268,7 +1268,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 && type.asTypeElement().isFunctionalInterface();
     }
 
-    /** A lambda in a cast (`(Supplier<String>) () -> "x"`) has the cast type as target. */
+    /** A lambda in a cast ({@code (Supplier<String>) () -> "x"}) has the cast type as target. */
     @Override
     public Object visitCastExpression(final CastExpressionTree castExpression, final Scope scope) {
         final Object result = super.visitCastExpression(castExpression, scope);

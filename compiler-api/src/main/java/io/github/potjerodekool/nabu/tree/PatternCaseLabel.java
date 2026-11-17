@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.tree.impl.CPatternCaseLabel;
 
 /**
  * A pattern case label.
- * <p> {@code case Point p when p.x() > 0:</p>
+ * <p> {@code case Point p when p.x() > 0:}</p>
  */
 public sealed interface PatternCaseLabel extends CaseLabel permits CPatternCaseLabel {
     Pattern getPattern();

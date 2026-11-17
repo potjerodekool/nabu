@@ -17,7 +17,7 @@ import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
  *   STATIC     — statische methode, directe aanroep
  *   VIRTUAL    — instantie-methode op een klasse
  *   INTERFACE  — methode gedefinieerd op een interface (invokevirtual / invokeinterface)
- *   SPECIAL    — constructor (<init>) of super-aanroep
+ *   SPECIAL    — constructor ({@code <init>}) of super-aanroep
  */
 public final class CallKindResolver {
 

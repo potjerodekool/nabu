@@ -35,7 +35,7 @@ import java.util.*;
 /**
  * Vertaalt de Nabu AST naar een IRModule.
  * <p>
- * Implementeert TreeVisitor<IRValue, IRBuilder>:
+ * Implementeert {@code TreeVisitor<IRValue, IRBuilder>}:
  * - R = IRValue ├âãÆ├é┬ó├â┬ó├óÔé¼┼í├é┬¼├â┬ó├óÔÇÜ┬¼├é┬Ø elke visit-methode geeft de IR-waarde terug
  * die de expressie vertegenwoordigt (null voor statements)
  * - P = IRBuilder ├âãÆ├é┬ó├â┬ó├óÔé¼┼í├é┬¼├â┬ó├óÔÇÜ┬¼├é┬Ø de actieve builder wordt als parameter doorgegeven

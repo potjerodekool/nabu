@@ -41,16 +41,68 @@ public class PluginRegistry {
                                    ClassLoader parent) {
     }
 
-    private PluginClassLoader pluginClassLoader(final java.nio.file.Path jarFile,
-                                                final URL pluginRoot) throws IOException {
+    private PluginClassLoader pluginClassLoader(final java.nio.file.Path jarFile) throws IOException {
         final var key = new PluginLoaderKey(
                 jarFile.toAbsolutePath().normalize(),
                 Files.getLastModifiedTime(jarFile).toMillis(),
                 Files.size(jarFile),
                 getClass().getClassLoader()
         );
-        return PLUGIN_CLASS_LOADERS.computeIfAbsent(key,
-                k -> new PluginClassLoader(pluginRoot, k.parent()));
+        final var existing = PLUGIN_CLASS_LOADERS.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        URL loadFrom;
+        try {
+            loadFrom = shadowCopy(key).toUri().toURL();
+        } catch (final IOException e) {
+            logger.log(LogLevel.WARN, "Could not copy " + jarFile + " (" + e + "); loading it in place");
+            loadFrom = jarFile.toUri().toURL();
+        }
+        final URL root = loadFrom;
+        return PLUGIN_CLASS_LOADERS.computeIfAbsent(key, k -> new PluginClassLoader(root, k.parent()));
+    }
+
+    /**
+     * The loader reads a copy of the jar, not the jar itself: a loader kept for the life of the JVM keeps its jar open,
+     * and on Windows an open jar cannot be replaced (a build that installs a new native-backend.jar into
+     * ~/.nabu/plugins failed while mvnd or the daemon had compiled with the old one). The copy is named after the
+     * modification time and size of the jar, so a JVM that sees the same jar again reuses it; older copies of the same
+     * jar are removed when they are no longer open.
+     */
+    private static java.nio.file.Path shadowCopy(final PluginLoaderKey key) throws IOException {
+        final var directory = Paths.get(System.getProperty("java.io.tmpdir"), "nabu-plugins");
+        Files.createDirectories(directory);
+        final var name = key.jarFile().getFileName().toString();
+        final var base = name.endsWith(".jar") ? name.substring(0, name.length() - 4) : name;
+        final var copy = directory.resolve(base + "-" + key.lastModified() + "-" + key.size() + ".jar");
+        if (!Files.exists(copy) || Files.size(copy) != key.size()) {
+            final var partial = Files.createTempFile(directory, base, ".part");
+            try {
+                Files.copy(key.jarFile(), partial, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Files.move(partial, copy, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (final IOException e) {
+                Files.deleteIfExists(partial);
+                if (!Files.exists(copy) || Files.size(copy) != key.size()) {
+                    throw e;
+                }
+                // another JVM made the same copy at the same time (and has it open): use that one
+            }
+        }
+        try (var others = Files.list(directory)) {
+            others.filter(other -> !other.equals(copy))
+                    .filter(other -> other.getFileName().toString().matches(
+                            java.util.regex.Pattern.quote(base) + "-\\d+-\\d+\\.jar"))
+                    .forEach(other -> {
+                        try {
+                            Files.deleteIfExists(other);
+                        } catch (final IOException ignored) {
+                            // still open in some JVM
+                        }
+                    });
+        }
+        return copy;
     }
 
     public void registerPlugins(final CompilerContext compilerContext) {
@@ -87,12 +139,14 @@ public class PluginRegistry {
                             logger.log(LogLevel.INFO, "Loading plugins from: " + jarFile);
 
                             try (final var fs = FileSystems.newFileSystem(jarFile, (ClassLoader) null)) {
-                                final var pluginPath = fs.getPath("plugin.xml").toUri().toURL();
-                                if (registerPlugin(pluginPath, loadedPlugins)) {
-                                    //URI.create(pluginPath.toString().substring("jar:".length(), pluginPath.toString().length() - "!/plugin.xml".length())).toURL();
-                                    final var pluginRoot = jarFile.toUri().toURL();
-
-                                    sharedLoader.addPluginClassLoader(pluginClassLoader(jarFile, pluginRoot));
+                                // Read through the zip file system, not a jar: URL: the JDK caches the JarFile behind
+                                // a jar: URL connection and never closes it, which kept the plugin jar locked on Windows.
+                                final boolean registered;
+                                try (var in = Files.newInputStream(fs.getPath("plugin.xml"))) {
+                                    registered = registerPlugin(in, jarFile.toString(), loadedPlugins);
+                                }
+                                if (registered) {
+                                    sharedLoader.addPluginClassLoader(pluginClassLoader(jarFile));
                                 }
                             } catch (Exception ignored) {
                             }
@@ -119,19 +173,30 @@ public class PluginRegistry {
         }
     }
 
-    private boolean registerPlugin(final URL url,
+    private boolean registerPlugin(final java.io.InputStream in,
+                                   final String source,
                                    final Set<String> loadedPlugins) throws ParserConfigurationException, SAXException {
-        final var saxParser = SAXParserFactory.newInstance().newSAXParser();
-        return registerPlugin(url, saxParser, loadedPlugins);
+        return registerPlugin(in, source, SAXParserFactory.newInstance().newSAXParser(), loadedPlugins);
     }
 
     private boolean registerPlugin(final URL url,
                                    final SAXParser saxParser,
                                    final Set<String> loadedPlugins) {
+        try (var in = url.openStream()) {
+            return registerPlugin(in, url.toString(), saxParser, loadedPlugins);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to parse plugin.xml", e);
+        }
+    }
+
+    private boolean registerPlugin(final java.io.InputStream in,
+                                   final String source,
+                                   final SAXParser saxParser,
+                                   final Set<String> loadedPlugins) {
         try {
-            logger.log(LogLevel.INFO, "Parsing plugin.xml from " + url);
+            logger.log(LogLevel.INFO, "Parsing plugin.xml from " + source);
             final var handler = new PluginHandler(this.extensionManager, loadedPlugins);
-            saxParser.parse(url.openStream(), handler);
+            saxParser.parse(in, handler);
             if (!handler.skippedPlugin()) {
                 loadedPlugins.add(handler.getPluginId());
                 return true;

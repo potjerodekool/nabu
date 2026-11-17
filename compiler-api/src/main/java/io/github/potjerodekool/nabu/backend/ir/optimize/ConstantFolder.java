@@ -13,9 +13,11 @@ import java.util.ArrayList;
  * op constante waarden tijdens de compilatie.
  *
  * Voorbeelden:
+ * <pre>{@code
  *   %1 = 3 + 4  →  %1 = 7
  *   %2 = true && false → %2 = false
  *   %3 = 10 > 5 → %3 = true
+ * }</pre>
  */
 public class ConstantFolder implements OptimizationPass {
 

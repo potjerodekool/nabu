@@ -351,6 +351,39 @@ run. The executable barely changes: dead fields are data, not code. The win is m
 how many instances of the affected classes are live — for a program that allocates a lot it is large,
 for a small one it is negligible.
 
+## Profiling with stacks on Windows (2026-11-17, `stackprof.py`)
+
+`docs/perf-study/stackprof.py` samples a running Nabu executable from outside, with real call stacks, and needs
+nothing in the executable (no rebuild, no `NABU_PROFILE`):
+
+```
+python docs/perf-study/stackprof.py run <exe> <working dir> <seconds> <runtime object dir> [--callers a,b] [--depth N] [--port P] [paths]
+python docs/perf-study/stackprof.py report %TEMP%\stackprof_samples.json <exe> <runtime object dir> [--callers a,b]
+```
+
+It starts the server, warms it up with 1500 GETs, then samples only while a second process sends the GETs one after
+another. Every ~1 ms each thread is suspended just long enough to copy its registers and stack; the stack is then
+unwound with the x64 unwind data (`.pdata`/`.xdata`) of each frame's module, read from the files on disk (the way
+`RtlVirtualUnwind` does it, epilogs included). Names come from the exe's global symbols, the static functions of the
+runtime objects (`~/.nabu/cache/runtime/<hash>/*.o`, the newest directory belongs to the latest build; without them a
+sample in a static C function is charged to the global before it), and the exports of the DLLs. Samples in a wait
+function are counted as waiting and not unwound. The report gives self time per category and function, inclusive
+time, and for each `--callers` name the chains of its callers. On the petstore 82% of the stacks reach
+`RtlUserThreadStart` (median depth 38).
+
+What it showed on the petstore (`/pet/2`, 2026-11-17):
+
+- `ntdll!ZwDeviceIoControlFile` (13% of running samples) is called by `bdhkm64.dll`, an antivirus hook injected into
+  every process: not Nabu's time, and GraalVM pays it too.
+- Every `pthread_spin_lock` comes from `__emutls_get_address` → `pthread_getspecific`: MinGW's emulated `__thread`
+  takes a lock on each access (`Thread.currentThread` via `jcl_diag_current`, `nabu_monitorenter`).
+- `jcl_class` is called by `Class.getInterfaces` (Spring's `AnnotationsScanner`), by `jcl_desc_class` for
+  `Method.getParameterTypes` and the AOP proxy, and by `Unsafe.checkPrimitivePointer`.
+- `strcmp` comes from `nabu_instanceof` after a miss of a call-site cache (polymorphic sites) and from
+  `nabu_type_info_for` when annotation objects are made.
+- The class-initialization checks (5.4% of the exe's time as calls to `X.clinit.once`) and the `nabu_is_array`
+  call before every virtual call on an `Object` receiver were found the same way and are now inline (+3 to 6% req/s).
+
 ## Phase 0 (do this first, on this machine)
 
 Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat -e instructions,cycles true`.

@@ -1971,6 +1971,28 @@ public class InstructionEmitter {
             continuationHandlers.put(objectBB, handler);
             continuationHandlers.put(joinBB, handler);
         }
+        // Inline first: null, or an object whose first word points into the executable (its type info), is no array;
+        // only anything else asks nabu_is_array. Every virtual call on an Object receiver passes here.
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final LLVMValueRef imageLo = globalValueMap.get("@nabu_image_lo");
+        final LLVMValueRef imageSize = globalValueMap.get("@nabu_image_size");
+        if (imageLo != null && imageSize != null) {
+            final LLVMBasicBlockRef headerBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.header"));
+            final LLVMBasicBlockRef askBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.ask"));
+            if (handler != null) {
+                continuationHandlers.put(headerBB, handler);
+                continuationHandlers.put(askBB, handler);
+            }
+            LLVMBuildCondBr(builder, LLVMBuildIsNull(builder, obj, ".isnull"), objectBB, headerBB);
+            LLVMPositionBuilderAtEnd(builder, headerBB);
+            final LLVMValueRef firstWord = LLVMBuildLoad2(builder, i64, obj, ".word0");
+            final LLVMValueRef lo = LLVMBuildLoad2(builder, i64, imageLo, ".image.lo");
+            final LLVMValueRef size = LLVMBuildLoad2(builder, i64, imageSize, ".image.size");
+            final LLVMValueRef inImage = LLVMBuildICmp(builder, LLVMIntULT,
+                    LLVMBuildSub(builder, firstWord, lo, ".word0.off"), size, ".word0.inimage");
+            LLVMBuildCondBr(builder, inImage, objectBB, askBB);
+            LLVMPositionBuilderAtEnd(builder, askBB);
+        }
         final PointerPointer<Pointer> isArrayArgs = new PointerPointer<>(1);
         isArrayArgs.put(0, obj);
         final LLVMValueRef flag = LLVMBuildCall2(builder, isArrayType, isArrayFn, isArrayArgs, 1, ".isarray");
@@ -3624,9 +3646,37 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         final LLVMValueRef initFn = classInitFn(internalName,
                 LLVMGetGlobalParent(LLVMGetBasicBlockParent(bb)));
         if (initFn == null) return;
-        LLVMBuildCall2(builder, LLVMGlobalGetValueType(initFn), initFn,
-                new PointerPointer<>(0), 0, "");
+        final LLVMValueRef flag = classInitFlags.get(internalName);
+        if (flag == null) {
+            LLVMBuildCall2(builder, LLVMGlobalGetValueType(initFn), initFn,
+                    new PointerPointer<>(0), 0, "");
+            return;
+        }
+        // The check of the flag is inline, the call only on the slow path: the once function is a call into another
+        // partition, made on every static method, constructor and static field access (5% of the petstore's time).
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final LLVMValueRef state = LLVMBuildLoad2(builder, i32, flag, "clinit.state");
+        LLVMSetAlignment(state, 4);
+        LLVMSetOrdering(state, LLVMAtomicOrderingAcquire);
+        final LLVMValueRef ready = LLVMBuildICmp(builder, LLVMIntEQ, state, LLVMConstInt(i32, 2, 0), "clinit.ready");
+        final LLVMValueRef function = LLVMGetBasicBlockParent(bb);
+        final LLVMBasicBlockRef slowBlock = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("clinit.slow"));
+        final LLVMBasicBlockRef contBlock = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("clinit.cont"));
+        // the rest of the block goes on in contBlock: inside a try its calls must still unwind to the handler
+        final String handler = getHandlerLabel();
+        if (handler != null) {
+            continuationHandlers.put(slowBlock, handler);
+            continuationHandlers.put(contBlock, handler);
+        }
+        LLVMBuildCondBr(builder, ready, contBlock, slowBlock);
+        LLVMPositionBuilderAtEnd(builder, slowBlock);
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(initFn), initFn, new PointerPointer<>(0), 0, "");
+        LLVMBuildBr(builder, contBlock);
+        LLVMPositionBuilderAtEnd(builder, contBlock);
     }
+
+    /** Internal class name → the state flag of its once function (2 when the class is initialized). */
+    private final Map<String, LLVMValueRef> classInitFlags = new HashMap<>();
 
     /**
      * De (zo nodig nu aangemaakte) {@code <klasse>.clinit.once}-functie, of
@@ -3721,6 +3771,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         LLVMDisposeBuilder(b);
 
         classInitFns.put(internalName, fn);
+        classInitFlags.put(internalName, flag);
         return fn;
     }
 

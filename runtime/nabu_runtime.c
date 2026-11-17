@@ -2268,6 +2268,29 @@ gebruik MinGW/gcc met target x86_64-w64-windows-gnu."
 #include <mach-o/loader.h>
 extern const struct mach_header_64 _mh_execute_header;
 #endif
+/* The address range of the executable, for the inline check of the compiled code before a virtual call on an Object
+ * receiver: a first word in this range is the type info of an object (an array starts with its length). While they
+ * are 0 every receiver takes the slow path through nabu_is_array. */
+uintptr_t nabu_image_lo = 0, nabu_image_size = 0;
+
+__attribute__((constructor(101))) static void nabu_image_range_init(void) {
+#ifdef _WIN32
+    MEMORY_BASIC_INFORMATION mbi;
+    HMODULE mod = GetModuleHandleA(NULL);
+    const char *lo = (const char *) mod, *hi = lo;
+    while (VirtualQuery(hi, &mbi, sizeof mbi) == sizeof mbi && mbi.AllocationBase == (void *) mod) {
+        hi = (const char *) mbi.BaseAddress + mbi.RegionSize;
+    }
+    nabu_image_lo = (uintptr_t) lo;
+    nabu_image_size = (uintptr_t) (hi - lo);
+#elif defined(__linux__)
+    extern const char __executable_start;
+    extern const char end;
+    nabu_image_lo = (uintptr_t) &__executable_start;
+    nabu_image_size = (uintptr_t) &end - (uintptr_t) &__executable_start;
+#endif
+}
+
 const char *nabu_compiled_type_name(const void *p) {
     if (p == NULL) return NULL;
     /* A boxed Boolean or Character of the interpreter is a tagged value (see nabu_interpreter.h), not a pointer. */

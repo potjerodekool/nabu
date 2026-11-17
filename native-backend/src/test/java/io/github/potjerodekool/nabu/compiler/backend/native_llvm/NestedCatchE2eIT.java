@@ -26,51 +26,90 @@ class NestedCatchE2eIT {
 
     @Test
     void outerHandlerCatchesWhatInnerDoesNot() throws Exception {
+        assertEquals("caught /nothing.properties not found\n0\n", compileAndRun(java.util.Map.of(
+                "MyEx.java", """
+                        package lib;
+                        public class MyEx extends RuntimeException {
+                            public MyEx(String m) { super(m); }
+                        }
+                        """,
+                "Helper.java", """
+                        package lib;
+                        public class Helper {
+                            public static java.io.InputStream open(String name) {
+                                java.io.InputStream s = Helper.class.getResourceAsStream(name);
+                                if (s == null) throw new MyEx(name + " not found");
+                                return s;
+                            }
+                        }
+                        """,
+                "Cfg.java", """
+                        package lib;
+                        public class Cfg {
+                            static final java.util.Properties P = new java.util.Properties();
+                            static {
+                                try {
+                                    try {
+                                        java.io.InputStream s = Helper.open("/nothing.properties");
+                                        P.load(s);
+                                    } catch (java.io.IOException e) {
+                                        System.out.println("io");
+                                    }
+                                } catch (MyEx e) {
+                                    System.out.println("caught " + e.getMessage());
+                                }
+                            }
+                            public static int size() { return P.size(); }
+                        }
+                        """), "System.out.println(lib.Cfg.size());"));
+    }
+
+    /**
+     * A static field read inside a try, then a call that throws (Spring's DisconnectedClientHelper): the check that the
+     * class of the field is initialized splits the block, and the calls after it must still unwind to the handler.
+     */
+    @Test
+    void callAfterStaticFieldReadInTryIsCaught() throws Exception {
+        assertEquals("ignored no.such.Type\n1\n", compileAndRun(java.util.Map.of(
+                "Registry.java", """
+                        package lib;
+                        public class Registry {
+                            public static final java.util.Set<Class<?>> TYPES = new java.util.HashSet<>();
+                            static { TYPES.add(String.class); }
+                        }
+                        """,
+                "Helper.java", """
+                        package lib;
+                        public class Helper {
+                            public static void add(String type) {
+                                try {
+                                    Registry.TYPES.add(Class.forName(type));
+                                } catch (ClassNotFoundException ex) {
+                                    System.out.println("ignored " + type);
+                                }
+                            }
+                        }
+                        """), "lib.Helper.add(\"no.such.Type\"); System.out.println(lib.Registry.TYPES.size());"));
+    }
+
+    /** Compiles the library sources with javac, then a Main with the given body natively against them; its output. */
+    private String compileAndRun(final java.util.Map<String, String> libSources, final String mainBody) throws Exception {
         NativeToolchain.assumeGcc();
         var root = new File(".").getAbsoluteFile();
         while (!root.isDirectory() || !"nabu".equals(root.getName())) root = root.getParentFile();
 
         final Path libSrc = tempDir.resolve("libsrc/lib");
         Files.createDirectories(libSrc);
-        Files.writeString(libSrc.resolve("MyEx.java"), """
-                package lib;
-                public class MyEx extends RuntimeException {
-                    public MyEx(String m) { super(m); }
-                }
-                """);
-        Files.writeString(libSrc.resolve("Helper.java"), """
-                package lib;
-                public class Helper {
-                    public static java.io.InputStream open(String name) {
-                        java.io.InputStream s = Helper.class.getResourceAsStream(name);
-                        if (s == null) throw new MyEx(name + " not found");
-                        return s;
-                    }
-                }
-                """);
-        Files.writeString(libSrc.resolve("Cfg.java"), """
-                package lib;
-                public class Cfg {
-                    static final java.util.Properties P = new java.util.Properties();
-                    static {
-                        try {
-                            try {
-                                java.io.InputStream s = Helper.open("/nothing.properties");
-                                P.load(s);
-                            } catch (java.io.IOException e) {
-                                System.out.println("io");
-                            }
-                        } catch (MyEx e) {
-                            System.out.println("caught " + e.getMessage());
-                        }
-                    }
-                    public static int size() { return P.size(); }
-                }
-                """);
+        final java.util.List<String> javacArgs = new java.util.ArrayList<>();
         final Path libClasses = tempDir.resolve("libclasses");
         Files.createDirectories(libClasses);
-        final int javac = ToolProvider.getSystemJavaCompiler().run(null, null, null, "-d", libClasses.toString(),
-                libSrc.resolve("MyEx.java").toString(), libSrc.resolve("Helper.java").toString(), libSrc.resolve("Cfg.java").toString());
+        javacArgs.add("-d");
+        javacArgs.add(libClasses.toString());
+        for (final var source : libSources.entrySet()) {
+            Files.writeString(libSrc.resolve(source.getKey()), source.getValue());
+            javacArgs.add(libSrc.resolve(source.getKey()).toString());
+        }
+        final int javac = ToolProvider.getSystemJavaCompiler().run(null, null, null, javacArgs.toArray(String[]::new));
         assertEquals(0, javac);
 
         final Path srcDir = tempDir.resolve("src");
@@ -80,11 +119,10 @@ class NestedCatchE2eIT {
 
                 public class Main {
                     public static void main(String[] args) throws Exception {
-                        System.out.println(lib.Cfg.size());
+                        %s
                     }
                 }
-                """, StandardCharsets.UTF_8);
-
+                """.formatted(mainBody), StandardCharsets.UTF_8);
         final Path out = tempDir.resolve("out");
         final Path config = out.resolve("META-INF/native-image/test");
         Files.createDirectories(config);
@@ -133,7 +171,7 @@ class NestedCatchE2eIT {
         }
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         final int exit = proc.exitValue();
-        assertEquals("caught /nothing.properties not found\n0\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
+        return output;
     }
 }

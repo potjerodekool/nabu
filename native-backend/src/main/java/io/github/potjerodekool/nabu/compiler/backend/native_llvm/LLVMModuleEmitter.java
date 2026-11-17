@@ -996,6 +996,14 @@ public void setReflectionRegistry(
         LLVMSetLinkage(spinHintsFlag, LLVMExternalLinkage);
         globalValueMap.put("@nabu_spin_hints", spinHintsFlag);
 
+        // --- The address range of the executable (set by the runtime before main; 0 until then): a virtual call on an
+        // Object receiver sees an object, not an array, when its first word points in there ---
+        for (final String name : new String[] {"nabu_image_lo", "nabu_image_size"}) {
+            final LLVMValueRef g = LLVMAddGlobal(mod, LLVMInt64TypeInContext(ctx), new BytePointer(name));
+            LLVMSetLinkage(g, LLVMExternalLinkage);
+            globalValueMap.put("@" + name, g);
+        }
+
         // --- A compiled loop reads nabu_safepoint_request on every jump back, and calls nabu_safepoint_poll
         // while it is not 0: that is how another thread gets the stack of a thread that never waits ---
         final LLVMValueRef safepointFlag = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx),

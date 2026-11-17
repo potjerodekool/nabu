@@ -424,8 +424,10 @@ static int nabu_boehm_tracer_count = 0;
 static int nabu_boehm_trace_proc_index = -1;
 
 /* The state of the collection that is marking on this thread, for nabu_boehm_mark. */
-static __thread struct GC_ms_entry *nabu_boehm_msp;
-static __thread struct GC_ms_entry *nabu_boehm_limit;
+NABU_TLS_VAR(struct GC_ms_entry *, nabu_boehm_msp, NULL)
+#define nabu_boehm_msp NABU_TLS(nabu_boehm_msp)
+NABU_TLS_VAR(struct GC_ms_entry *, nabu_boehm_limit, NULL)
+#define nabu_boehm_limit NABU_TLS(nabu_boehm_limit)
 
 static void nabu_boehm_mark(void *candidate) {
     nabu_boehm_msp = GC_mark_and_push(candidate, nabu_boehm_msp, nabu_boehm_limit, NULL);

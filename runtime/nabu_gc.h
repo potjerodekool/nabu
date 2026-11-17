@@ -78,4 +78,42 @@ void nabu_gc_set_stack_base(void *thread_handle, void *hi);
  * word that may refer to an object. Lives until nabu_gc_free or unreachable (see nabu_gc_set_finalizer). */
 void *nabu_gc_alloc_traced(size_t n, void (*trace)(void *obj, void (*mark)(void *candidate)));
 
+/* ---- Thread-local variables of the runtime ----
+ * On MinGW a __thread variable is emulated: every access is a call of __emutls_get_address, which reaches the
+ * pthread_getspecific of winpthreads and its spin lock. The runtime reads some of them on every monitor, every
+ * Thread.currentThread and every continuation switch, so on Windows they live in a slot of the thread's own TLS
+ * array (read from the TEB without a call, for the first 64 slots), holding a block of their own. */
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#include <intrin.h>
+#include <stdlib.h>
+#include <string.h>
+static inline void *nabu_tls_slot_get(DWORD idx) {
+    if (idx < 64) return (void *) __readgsqword(0x1480 + idx * 8);   /* TEB.TlsSlots: TlsGetValue without SetLastError */
+    return TlsGetValue(idx);
+}
+#define NABU_TLS_VAR(T, name, init) \
+    static DWORD name##_tlsidx = TLS_OUT_OF_INDEXES; \
+    __attribute__((constructor(101))) static void name##_tlsinit(void) { \
+        if (name##_tlsidx == TLS_OUT_OF_INDEXES) name##_tlsidx = TlsAlloc(); \
+    } \
+    static __attribute__((noinline)) T *name##_tlsnew(void) { \
+        if (name##_tlsidx == TLS_OUT_OF_INDEXES) name##_tlsinit(); \
+        T *p = (T *) calloc(1, sizeof(T)); \
+        { T first = init; memcpy((void *) p, (const void *) &first, sizeof(T)); } \
+        TlsSetValue(name##_tlsidx, p); \
+        return p; \
+    } \
+    static inline T *name##_tlsget(void) { \
+        T *p = (T *) nabu_tls_slot_get(name##_tlsidx); \
+        return __builtin_expect(p != NULL, 1) ? p : name##_tlsnew(); \
+    }
+#else
+#define NABU_TLS_VAR(T, name, init) \
+    static __thread T name##_tlsval = init; \
+    static inline T *name##_tlsget(void) { return &name##_tlsval; }
+#endif
+#define NABU_TLS(name) (*name##_tlsget())
+
 #endif

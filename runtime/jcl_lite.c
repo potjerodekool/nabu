@@ -3483,11 +3483,37 @@ static void *jcl_class_getSuperclass_compute(void *self) {
     return jcl_class("java/lang/Object");
 }
 /* Class.getInterfaces: the interfaces the compiled type records (they include the known superinterfaces). */
+/* The Class objects of the interfaces per type info: Spring's AnnotationsScanner asks for them on every request, and
+ * each answer looked every interface up by name. Class objects live as long as the program (jcl_class_table), so plain
+ * memory may hold them. The array itself is new for every call, as in the JDK. */
+typedef struct jcl_interfaces_entry {
+    const nabu_type_info *ti; int32_t count; void **classes; struct jcl_interfaces_entry *next;
+} jcl_interfaces_entry;
+static jcl_interfaces_entry *volatile jcl_interfaces_cache[256];
+
 BIND(void *, jcl_java_lang_Class_getInterfaces, "java.lang.Class_getInterfaces", (void *self)) {
     const nabu_type_info *ti = nabu_compiled_type_for(jcl_str(self));
     int32_t count = ti != NULL ? ti->interface_count : 0;
     void *arr = jcl_arr_typed(count, "[Ljava/lang/Class;");
-    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, jcl_class(ti->interfaces[i]));
+    if (count == 0) return arr;
+    jcl_interfaces_entry *volatile *bucket = &jcl_interfaces_cache[((uintptr_t) ti >> 4) & 255];
+    jcl_interfaces_entry *entry = __atomic_load_n(bucket, __ATOMIC_ACQUIRE);
+    while (entry != NULL && entry->ti != ti) entry = entry->next;
+    if (entry == NULL) {
+        entry = (jcl_interfaces_entry *) malloc(sizeof *entry);
+        void **classes = (void **) malloc((size_t) count * sizeof(void *));
+        if (entry == NULL || classes == NULL) {
+            free(entry); free(classes);
+            for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, jcl_class(ti->interfaces[i]));
+            return arr;
+        }
+        for (int32_t i = 0; i < count; i++) classes[i] = jcl_class(ti->interfaces[i]);
+        entry->ti = ti; entry->count = count; entry->classes = classes;
+        entry->next = __atomic_load_n(bucket, __ATOMIC_ACQUIRE);
+        while (!__atomic_compare_exchange_n(bucket, &entry->next, entry, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
+        }
+    }
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, entry->classes[i]);
     return arr;
 }
 BIND(int, jcl_java_lang_Class_isArray, "java.lang.Class_isArray", (void *self)) {
@@ -5415,10 +5441,12 @@ void nabu_set_virtual_backoff_fn(void *fn) {
 static void (*jcl_virtual_start_fn)(void *) = NULL;
 void nabu_set_virtual_start_fn(void *fn) { jcl_virtual_start_fn = (void (*)(void *))fn; }
 
-static __thread void *jcl_cur_thread = NULL;
+NABU_TLS_VAR(void *, jcl_cur_thread, NULL)
+#define jcl_cur_thread NABU_TLS(jcl_cur_thread)
 /* The virtual thread that is mounted on this thread, else NULL: Thread.currentThread() is that one, the thread
  * itself (the carrier) is what Thread.currentCarrierThread() and everything that blocks work on. */
-static __thread void *jcl_logical_thread = NULL;
+NABU_TLS_VAR(void *, jcl_logical_thread, NULL)
+#define jcl_logical_thread NABU_TLS(jcl_logical_thread)
 /* The virtual thread that is mounted here and may be unmounted while it waits for a monitor, else NULL. */
 static void *jcl_monitor_vthread(void) {
     if (jcl_logical_thread == NULL || jcl_virtual_backoff_fn == NULL || jcl_virtual_unpark_fn == NULL
@@ -6181,9 +6209,12 @@ static void *jcl_stack_hi(void) {
 }
 #endif
 
-static __thread void *jcl_gc_thread = NULL;      /* the collector's handle of this thread */
-static __thread jcl_region *jcl_carrier_region = NULL;
-static __thread jcl_cont *jcl_running = NULL;    /* the continuation running on this thread, innermost */
+NABU_TLS_VAR(void *, jcl_gc_thread, NULL)
+#define jcl_gc_thread NABU_TLS(jcl_gc_thread)
+NABU_TLS_VAR(jcl_region *, jcl_carrier_region, NULL)
+#define jcl_carrier_region NABU_TLS(jcl_carrier_region)
+NABU_TLS_VAR(jcl_cont *, jcl_running, NULL)
+#define jcl_running NABU_TLS(jcl_running)
 
 static void jcl_set_gc_base(void *handle, void *hi) {
     nabu_gc_set_stack_base(handle, hi);

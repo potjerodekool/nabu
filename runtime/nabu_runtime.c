@@ -450,11 +450,26 @@ static void nabu_type_info_backfill_vtable(nabu_type_info *ti) {
     (void)ti; /* intentional no-op */
 }
 
+/* Index of nabu_type_cache by name (1 + the entry, 0 is free): every object the runtime makes (Class objects,
+ * annotations, ...) looks its type info up here, and a scan with strcmp over all entries showed in the profile. */
+static uint16_t nabu_type_name_index[2 * NABU_MAX_TYPES];
+
+static uint32_t nabu_type_slot(const char *name) {
+    uint32_t h = 2166136261u;
+    for (const unsigned char *c = (const unsigned char *) name; *c; c++) h = (h ^ *c) * 16777619u;
+    uint32_t i = h & (2 * NABU_MAX_TYPES - 1);
+    while (nabu_type_name_index[i] != 0 && strcmp(nabu_type_cache[nabu_type_name_index[i] - 1].name, name) != 0) {
+        i = (i + 1) & (2 * NABU_MAX_TYPES - 1);
+    }
+    return i;
+}
+
 static nabu_type_info *nabu_type_info_for(const char *name) {
     nabu_rt_lock();
-    for (int i = 0; i < nabu_type_count; i++) {
-        if (strcmp(nabu_type_cache[i].name, name) == 0) {
-            nabu_type_info *found = &nabu_type_cache[i];
+    const uint32_t slot = nabu_type_slot(name);
+    if (nabu_type_name_index[slot] != 0) {
+        {
+            nabu_type_info *found = &nabu_type_cache[nabu_type_name_index[slot] - 1];
             /* Jcl_lite-objecten gebruiken altijd de library-tabellen.
              * Overschrijf ook wanneer de entry al een waarde heeft: een eerdere
              * aanmaak kan een lege gecompileerde interface-tabel gekopieerd hebben. */
@@ -470,6 +485,7 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
     }
     nabu_type_info *ti = &nabu_type_cache[nabu_type_count++];
     ti->name = name;
+    nabu_type_name_index[slot] = (uint16_t) nabu_type_count;
     ti->size = sizeof(nabu_object);
     ti->field_count = 0;
     /* Eerst NULL: de recursieve nabu_type_info_for-aanroep hieronder (voor
@@ -2375,6 +2391,10 @@ const char *nabu_compiled_type_name(const void *p) {
 
 extern int nabu_class_is_annotation(const char *internal) __attribute__((weak));
 
+#define NABU_INSTANCEOF_CACHE 2048
+typedef struct { uintptr_t type_answer; const char *wanted; } nabu_instanceof_entry;
+static nabu_instanceof_entry nabu_instanceof_cache[NABU_INSTANCEOF_CACHE];
+
 int nabu_instanceof(void *obj, const char *type_name) {
     if (obj == NULL) {
         return 0;
@@ -2385,32 +2405,53 @@ int nabu_instanceof(void *obj, const char *type_name) {
      * Was #ifdef _WIN32: op Windows returnt nabu_compiled_type_name altijd NULL
      * en zijn valide objecten herkenbaar via nabu_jcl_is_object. Op Linux werkt
      * nabu_compiled_type_name via /proc/self/maps — de guard moet ook daar gelden. */
-    if (!nabu_jcl_is_object(obj) && nabu_compiled_type_name(obj) == NULL) {
-        return 0;
-    }
-
     nabu_object *header = (nabu_object *)obj;
     nabu_type_info *current = header->type;
 
-    while (current != NULL) {
+    /* The answer depends on the type info and the name alone: kept per (type, name pointer), direct mapped. A call
+     * site with its own cache (nabu_instanceof_cached) still lands here whenever it sees another class than last time.
+     * Looked at before the check below that obj has a header: only a type info that passed that check is ever stored,
+     * and the first word of an array (its length and element type) cannot equal the address of one. The names are
+     * constants of the program or of the runtime, or the name of a Class object: they do not move. */
+    nabu_instanceof_entry *entry =
+            &nabu_instanceof_cache[(((uintptr_t) current >> 4) ^ ((uintptr_t) type_name >> 3)) & (NABU_INSTANCEOF_CACHE - 1)];
+    const uintptr_t seen = __atomic_load_n(&entry->type_answer, __ATOMIC_ACQUIRE);
+    if (current != NULL && (seen & ~(uintptr_t) 1) == (uintptr_t) current
+            && __atomic_load_n(&entry->wanted, __ATOMIC_ACQUIRE) == type_name) {
+        return (int) (seen & 1);
+    }
+
+    if (!nabu_jcl_is_object(obj) && nabu_compiled_type_name(obj) == NULL) {
+        return 0;
+    }
+    if (current == NULL) return 0;
+
+    int answer = 0;
+    while (current != NULL && !answer) {
         if (strcmp(current->name, type_name) == 0) {
-            return 1;
+            answer = 1;
+            break;
         }
         for (int i = 0; i < current->interface_count; i++) {
             if (strcmp(current->interfaces[i], type_name) == 0) {
-                return 1;
+                answer = 1;
+                break;
             }
         }
         current = current->super_type;
     }
 
     /* An annotation object (made by the runtime for an annotation type) is an Annotation. */
-    if (nabu_class_is_annotation != NULL && header->type != NULL
+    if (!answer && nabu_class_is_annotation != NULL
             && strcmp(type_name, "java/lang/annotation/Annotation") == 0
             && nabu_class_is_annotation(((nabu_type_info *)header->type)->name)) {
-        return 1;
+        answer = 1;
     }
-    return 0;
+    /* two stores are not one: a reader that sees the new type with the old name just misses */
+    __atomic_store_n(&entry->wanted, (const char *) NULL, __ATOMIC_RELEASE);
+    __atomic_store_n(&entry->type_answer, (uintptr_t) header->type | (uintptr_t) answer, __ATOMIC_RELEASE);
+    __atomic_store_n(&entry->wanted, type_name, __ATOMIC_RELEASE);
+    return answer;
 }
 
 /* nabu_instanceof with a cache of the call site: *cache holds the class (a type info, so its low bit is free) of the
@@ -3105,13 +3146,15 @@ volatile int nabu_threads_active = 0;
 volatile int nabu_parallel = 0;
 volatile int nabu_monitor_waiters = 0;
 /* Where the running thread tells what it waits for, see nabu_wait_mark. */
-static __thread volatile int *nabu_wait_slot = NULL;
+NABU_TLS_VAR(volatile int *, nabu_wait_slot, NULL)
+#define nabu_wait_slot NABU_TLS(nabu_wait_slot)
 
 void nabu_set_wait_slot(volatile int *slot) { nabu_wait_slot = slot; }
 void nabu_wait_mark(int state) { if (nabu_wait_slot != NULL) *nabu_wait_slot = state; }
 
 /* The id of the running thread, in the header of the object whose monitor it holds. The main thread is 1. */
-static __thread int nabu_thread_id = 1;
+NABU_TLS_VAR(int, nabu_thread_id, 1)
+#define nabu_thread_id NABU_TLS(nabu_thread_id)
 
 int nabu_current_thread_id(void) { return nabu_thread_id; }
 void nabu_set_current_thread_id(int id) { nabu_thread_id = id; }
@@ -3213,7 +3256,8 @@ struct nabu_waiter {
     int sleeping;
 };
 
-static __thread nabu_waiter *nabu_self_waiter = NULL;
+NABU_TLS_VAR(nabu_waiter *, nabu_self_waiter, NULL)
+#define nabu_self_waiter NABU_TLS(nabu_self_waiter)
 
 /* Never freed: another thread may still try to wake the waiter of a thread that has ended. */
 nabu_waiter *nabu_waiter_self(void) {
@@ -3426,7 +3470,8 @@ struct nabu_spin_state {
     uint64_t value;
     unsigned count;
 };
-static __thread struct nabu_spin_state nabu_spin_st;
+NABU_TLS_VAR(struct nabu_spin_state, nabu_spin_st, {0})
+#define nabu_spin_st NABU_TLS(nabu_spin_st)
 
 /* 1 when the threads take turns (NABU_GIL=1): only then a thread that spins has to give its turn away. Threads that
  * run in parallel are scheduled by the operating system, and a thread that wants the stack of another gets it at the
@@ -3466,7 +3511,8 @@ void nabu_safepoint_poll(void) {
 
 /* The monitors the running thread holds (counting re-entries). A continuation that holds one cannot yield: the
  * monitor belongs to the thread, not to the stack of the continuation. */
-static __thread int nabu_held_monitor_count = 0;
+NABU_TLS_VAR(int, nabu_held_monitor_count, 0)
+#define nabu_held_monitor_count NABU_TLS(nabu_held_monitor_count)
 
 int nabu_held_monitors(void) { return nabu_held_monitor_count; }
 

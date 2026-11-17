@@ -800,16 +800,41 @@ void *nabu_jit_compile(const uint8_t *bytecode, size_t len,
     return nabu_jit_fn(bytecode, len, class_name, method_name);
 }
 
+/* Answers of nabu_instance_field_offset per (type info, name), direct mapped on the two pointers: the runtime asks for
+ * the same few fields all the time (Reference.referent on every ThreadLocal access, a socket's fd). A record never
+ * changes once published, and holds its own copy of the name, so a caller that passes a name in a buffer it reuses
+ * only misses. */
+typedef struct { const void *type; const char *name; intptr_t offset; } nabu_field_offset_rec;
+static nabu_field_offset_rec *volatile nabu_field_offset_cache[1024];
+
 intptr_t nabu_instance_field_offset(const void *obj, const char *name) {
-    if (obj == NULL || name == NULL || nabu_compiled_type_name(obj) == NULL) return -1;
-    for (const nabu_type_info *ti = ((const nabu_object *)obj)->type; ti != NULL; ti = ti->super_type) {
+    if (obj == NULL || name == NULL) return -1;
+    const void *type = ((const nabu_object *) obj)->type;
+    nabu_field_offset_rec *volatile *slot =
+            &nabu_field_offset_cache[(((uintptr_t) type >> 4) ^ ((uintptr_t) name >> 3)) & 1023];
+    const nabu_field_offset_rec *rec = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+    if (rec != NULL && rec->type == type && strcmp(rec->name, name) == 0) return rec->offset;
+    if (nabu_compiled_type_name(obj) == NULL) return -1;
+    intptr_t offset = -1;
+    for (const nabu_type_info *ti = ((const nabu_object *)obj)->type; ti != NULL && offset < 0; ti = ti->super_type) {
         for (int i = 0; i < ti->instance_field_count; i++) {
             if (strcmp(ti->instance_fields[i].name, name) == 0) {
-                return (intptr_t)ti->instance_fields[i].offset;
+                offset = (intptr_t)ti->instance_fields[i].offset;
+                break;
             }
         }
     }
-    return -1;
+    const size_t len = strlen(name);
+    nabu_field_offset_rec *fresh = (nabu_field_offset_rec *) nabu_gc_alloc(sizeof *fresh);
+    char *copy = (char *) nabu_gc_alloc_atomic(len + 1);
+    if (fresh != NULL && copy != NULL) {
+        memcpy(copy, name, len + 1);
+        fresh->type = type;
+        fresh->name = copy;
+        fresh->offset = offset;
+        __atomic_store_n(slot, fresh, __ATOMIC_RELEASE);
+    }
+    return offset;
 }
 
 void *nabu_init_object(void *obj, const char *type_name) {
@@ -2637,9 +2662,52 @@ const char *nabu_array_type_name(int32_t id) {
 
 /* The id of an array type by its JVM name; a name the program does not
  * allocate gets a new id, so every array the runtime makes has its class. */
-int32_t nabu_array_type_id(const char *name) {
+/* Hash index of the backend's array type names (the table is constant; built on first use, id 0 marks a free slot):
+ * Method.getParameterTypes and Arrays.copyOf ask for an id by name, and a strcmp over every array type showed. */
+typedef struct { uint32_t mask; int32_t slots[]; } nabu_array_name_index;
+static nabu_array_name_index *volatile nabu_array_index = NULL;
+
+static uint32_t nabu_array_name_hash(const char *name) {
+    uint32_t h = 2166136261u;
+    for (const unsigned char *c = (const unsigned char *) name; *c; c++) h = (h ^ *c) * 16777619u;
+    return h;
+}
+
+static nabu_array_name_index *nabu_array_index_get(void) {
+    nabu_array_name_index *index = __atomic_load_n(&nabu_array_index, __ATOMIC_ACQUIRE);
+    if (index != NULL) return index;
+    uint32_t size = 16;
+    while (size < 2u * (uint32_t) nabu_array_type_count) size <<= 1;
+    index = (nabu_array_name_index *) calloc(1, sizeof *index + size * sizeof(int32_t));
+    if (index == NULL) return NULL;
+    index->mask = size - 1;
     for (int32_t i = 1; i < nabu_array_type_count; i++) {
-        if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) return i;
+        if (nabu_array_type_names[i] == NULL) continue;
+        uint32_t h = nabu_array_name_hash(nabu_array_type_names[i]) & index->mask;
+        while (index->slots[h] != 0) {
+            if (strcmp(nabu_array_type_names[index->slots[h]], nabu_array_type_names[i]) == 0) break;  /* first one wins */
+            h = (h + 1) & index->mask;
+        }
+        if (index->slots[h] == 0) index->slots[h] = i;
+    }
+    nabu_array_name_index *expected = NULL;
+    if (!__atomic_compare_exchange_n(&nabu_array_index, &expected, index, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        free(index);           /* another thread built it first */
+        index = expected;
+    }
+    return index;
+}
+
+int32_t nabu_array_type_id(const char *name) {
+    const nabu_array_name_index *index = nabu_array_index_get();
+    if (index != NULL) {
+        for (uint32_t h = nabu_array_name_hash(name) & index->mask; index->slots[h] != 0; h = (h + 1) & index->mask) {
+            if (strcmp(nabu_array_type_names[index->slots[h]], name) == 0) return index->slots[h];
+        }
+    } else {
+        for (int32_t i = 1; i < nabu_array_type_count; i++) {
+            if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) return i;
+        }
     }
     int32_t id = 0;
     nabu_array_lock_acquire();

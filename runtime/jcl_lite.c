@@ -91,6 +91,7 @@ typedef struct {
     int8_t generic_known; void *generic_super; void **generic_ifaces; int32_t generic_iface_count;
     int8_t params_known; void **type_params; int32_t type_param_count;
     void *enum_values;          /* the shared array of getEnumConstantsShared */
+    void *component;            /* getComponentType of an array class, found on first use (NULL until then) */
 } s_class;
 typedef struct { int kind; int t; union { int32_t i; int64_t j; double d; float f; int16_t c; } v; } s_box;
 typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
@@ -854,6 +855,8 @@ static const char *jcl_compiled_type_name(const void *p) { return nabu_compiled_
  * a table of records that never change once published (the type info is the key, so a stale entry cannot be wrong). */
 typedef struct { uintptr_t type; void *cls; } jcl_getclass_rec;
 static jcl_getclass_rec *volatile jcl_getclass_cache[4096];
+/* The same for arrays, keyed by the second word of the array (element size and array type id). */
+static jcl_getclass_rec *volatile jcl_array_getclass_cache[1024];
 
 static void jcl_getclass_remember(void *self, void *cls) {
     const uintptr_t type = ((const uintptr_t *)self)[0];
@@ -877,8 +880,23 @@ BIND(void *, jcl_java_lang_Object_getClass, "java.lang.Object_getClass", (void *
          * runtime) en draagt de interne klassenaam. */
         const char *compiled = jcl_compiled_type_name(self);
         if (compiled == NULL) {
+            /* An array: its first word is its length, so the cache above never matches; the second word (element
+             * size and array type id) names its class. Unsafe.copyMemory asks for it on every copy into a byte[]. */
+            const uint32_t key = ((const uint32_t *) self)[1];
+            jcl_getclass_rec *volatile *slot = &jcl_array_getclass_cache[(key >> 8) & 1023];
+            const jcl_getclass_rec *rec = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            const uint32_t es = key & 0xff;
+            if (rec != NULL && rec->type == key && ((const int32_t *) self)[0] >= 0
+                    && (es == 1 || es == 2 || es == 4 || es == 8)) return rec->cls;
             const char *array = jcl_typed_array_name(self);
-            if (array != NULL) return jcl_class(array);
+            if (array != NULL) {
+                void *cls = jcl_class(array);
+                jcl_getclass_rec *fresh = (jcl_getclass_rec *) jcl_alloc(sizeof(jcl_getclass_rec));
+                fresh->type = key;
+                fresh->cls = cls;
+                __atomic_store_n(slot, fresh, __ATOMIC_RELEASE);
+                return cls;
+            }
         }
         void *cls = jcl_class(compiled != NULL ? compiled : "java/lang/String");
         if (compiled != NULL) jcl_getclass_remember(self, cls);
@@ -3247,20 +3265,23 @@ BIND(void *, jcl_java_lang_Class_getAnnotation, "java.lang.Class_getAnnotation",
 }
 BIND(void *, jcl_java_lang_Class_getClassLoader, "java.lang.Class_getClassLoader", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_java_lang_Class_getComponentType, "java.lang.Class_getComponentType", (void *self)) {
+    /* Unsafe.copyMemory asks for it on every copy into an array: an array class keeps its component class */
+    s_class *cs = jcl_class_state(self);
+    void *known = cs != NULL ? __atomic_load_n(&cs->component, __ATOMIC_ACQUIRE) : NULL;
+    if (known != NULL) return known;
     const char *n = jcl_str(self);
     size_t len = strlen(n);
+    void *component = NULL;
     /* JVM-vorm: "[Ljava/lang/String;", "[[I", "[C" — zoals de backend een
      * array-class-literal noemt. */
     if (n[0] == '[' && len > 1) {
         const char *elem = n + 1;
-        if (elem[0] == '[') return jcl_class(elem);
-        return jcl_class(jcl_desc_name(elem));
+        component = elem[0] == '[' ? jcl_class(elem) : jcl_class(jcl_desc_name(elem));
+    } else if (len > 2 && n[len - 1] == ']') {
+        component = n[0] == 'L' ? jcl_class(jcl_desc_name(n)) : jcl_class(jcl_desc_name(n + 1));
     }
-    if (len > 2 && n[len - 1] == ']') {
-        if (n[0] == 'L') return jcl_class(jcl_desc_name(n));
-        return jcl_class(jcl_desc_name(n + 1));
-    }
-    return NULL;
+    if (cs != NULL && component != NULL) __atomic_store_n(&cs->component, component, __ATOMIC_RELEASE);
+    return component;
 }
 /* Class.arrayType (Java 12): the class of an array of this class ("[Ljava/lang/String;", "[I", "[[I"). */
 BIND(void *, jcl_java_lang_Class_arrayType, "java.lang.Class_arrayType", (void *self)) {
@@ -3627,6 +3648,9 @@ BIND(int, jcl_java_lang_Class_isInterface, "java.lang.Class_isInterface", (void 
 }
 BIND(int, jcl_java_lang_Class_isPrimitive, "java.lang.Class_isPrimitive", (void *self)) {
     const char *n = jcl_str(self);
+    /* the longest primitive name is "boolean": every class name of the program is longer (it has a package) or at
+     * least is not one of these, and Unsafe.allocateUninitializedArray asks on every string concatenation */
+    if (strnlen(n, 8) > 7) return 0;
     return strcmp(n, "int") == 0 || strcmp(n, "long") == 0 || strcmp(n, "boolean") == 0
         || strcmp(n, "double") == 0 || strcmp(n, "float") == 0 || strcmp(n, "short") == 0
         || strcmp(n, "byte") == 0 || strcmp(n, "char") == 0 || strcmp(n, "void") == 0;
@@ -3964,6 +3988,9 @@ typedef struct {
     char *params;   /* the names of the parameters, comma-separated, or NULL */
     void *key;      /* the String of ProxySupport.methodKey, made on first use (the state is scanned by the collector) */
     void *name_str; /* the String of getName, made on first use */
+    void **param_classes; /* the Class objects of the parameters, found on the first getParameterTypes */
+    void *declaring_class; /* the Class of getDeclaringClass, found on first use */
+    void *return_class;    /* the Class of getReturnType, found on first use */
 } s_method;
 
 /* Set by the compiler next to the access flags: declared in an interface
@@ -4463,15 +4490,27 @@ BIND(void *, jcl_java_lang_reflect_Method_getName_jstr, "java.lang.reflect.Metho
     if (m != NULL) m->name_str = str;
     return str;
 }
+/* getDeclaringClass and getReturnType are asked on every call through a Spring AOP proxy: found by name once. */
 BIND(void *, jcl_java_lang_reflect_Method_getDeclaringClass, "java.lang.reflect.Method_getDeclaringClass", (void *self)) {
     s_method *m = jcl_method_of(self);
-    return jcl_class(m != NULL ? m->cls : "");
+    if (m == NULL) return jcl_class("");
+    void *cls = __atomic_load_n(&m->declaring_class, __ATOMIC_ACQUIRE);
+    if (cls == NULL) {
+        cls = jcl_class(m->cls);
+        __atomic_store_n(&m->declaring_class, cls, __ATOMIC_RELEASE);
+    }
+    return cls;
 }
 BIND(void *, jcl_java_lang_reflect_Method_getReturnType, "java.lang.reflect.Method_getReturnType", (void *self)) {
     s_method *m = jcl_method_of(self);
     if (m == NULL) return jcl_class("void");
-    const char *r = strchr(m->desc, ')');
-    return r == NULL ? jcl_class("void") : jcl_desc_class(r + 1, strlen(r + 1));
+    void *cls = __atomic_load_n(&m->return_class, __ATOMIC_ACQUIRE);
+    if (cls == NULL) {
+        const char *r = strchr(m->desc, ')');
+        cls = r == NULL ? jcl_class("void") : jcl_desc_class(r + 1, strlen(r + 1));
+        __atomic_store_n(&m->return_class, cls, __ATOMIC_RELEASE);
+    }
+    return cls;
 }
 BIND(void *, jcl_java_lang_reflect_Method_getGenericReturnType, "java.lang.reflect.Method_getGenericReturnType", (void *self)) {
     s_method *m = jcl_method_of(self);
@@ -4485,12 +4524,21 @@ BIND(void *, jcl_java_lang_reflect_Method_getParameterTypes, "java.lang.reflect.
         jcl_arr_set_type(empty, "[Ljava/lang/Class;");
         return empty;
     }
-    void *arr = jcl_arr_ref(jcl_exec_param_count(m));
+    const int32_t count = jcl_exec_param_count(m);
+    void *arr = jcl_arr_ref(count);
     jcl_arr_set_type(arr, "[Ljava/lang/Class;");
-    int32_t i = 0;
-    for (const char *d = m->desc + 1; *d != ')' && *d != 0; d += jcl_desc_len(d)) {
-        jcl_arr_set(arr, i++, jcl_desc_class(d, jcl_desc_len(d)));
+    /* Spring asks for them on every call through a proxy: the Class objects are found by name once per method (the
+     * array is new for every call, as in the JDK). */
+    void **classes = __atomic_load_n(&m->param_classes, __ATOMIC_ACQUIRE);
+    if (classes == NULL) {
+        classes = (void **) jcl_alloc((size_t) (count > 0 ? count : 1) * sizeof(void *));
+        int32_t i = 0;
+        for (const char *d = m->desc + 1; *d != ')' && *d != 0 && i < count; d += jcl_desc_len(d)) {
+            classes[i++] = jcl_desc_class(d, jcl_desc_len(d));
+        }
+        __atomic_store_n(&m->param_classes, classes, __ATOMIC_RELEASE);
     }
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, classes[i]);
     return arr;
 }
 BIND(int32_t, jcl_java_lang_reflect_Method_getParameterCount, "java.lang.reflect.Method_getParameterCount", (void *self)) {

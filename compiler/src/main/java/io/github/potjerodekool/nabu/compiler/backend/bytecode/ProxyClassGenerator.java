@@ -129,30 +129,46 @@ public final class ProxyClassGenerator {
         methods.addAll(spec.methods());
         for (final ProxyMethod method : methods) {
             if (seen.add(method.name() + method.desc())) {
-                node.methods.add(forwardingMethod(method));
+                node.methods.add(forwardingMethod(node, method, seen.size() - 1));
             }
         }
         return node;
     }
 
-    /** {@code return (R) h.invoke(this, ProxySupport.method(Owner.class, name, desc, mods), new Object[] {args})}. */
-    private static MethodNode forwardingMethod(final ProxyMethod method) {
+    /**
+     * {@code return (R) h.invoke(this, m$i, new Object[] {args})}, where the static field {@code m$i} holds the Method
+     * once {@code ProxySupport.method(Owner.class, name, desc, mods)} has given it: that lookup builds a key string and
+     * takes a lock, and a Spring proxy is called on every request (ProxySupport.method returns one object per method, so
+     * two threads that both fill the field store the same object).
+     */
+    private static MethodNode forwardingMethod(final ClassNode owner, final ProxyMethod method, final int index) {
         final MethodNode node = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL, method.name(), method.desc(),
                 null, method.exceptions().toArray(new String[0]));
         final InsnList code = node.instructions;
         final Type[] params = Type.getArgumentTypes(method.desc());
         final Type returnType = Type.getReturnType(method.desc());
 
+        final String field = "m$" + index;
+        owner.fields.add(new org.objectweb.asm.tree.FieldNode(
+                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC, field, "Ljava/lang/reflect/Method;",
+                null, null));
+
         final LabelNode start = new LabelNode();
         final LabelNode end = new LabelNode();
         final LabelNode rethrow = new LabelNode();
         final LabelNode wrap = new LabelNode();
+        final LabelNode known = new LabelNode();
 
         code.add(start);
+        code.add(new FieldInsnNode(Opcodes.GETSTATIC, owner.name, field, "Ljava/lang/reflect/Method;"));
+        code.add(new JumpInsnNode(Opcodes.IFNONNULL, known));
+        ReflectionDataGenerator.pushMethod(code, method.reflected());
+        code.add(new FieldInsnNode(Opcodes.PUTSTATIC, owner.name, field, "Ljava/lang/reflect/Method;"));
+        code.add(known);
         code.add(new VarInsnNode(Opcodes.ALOAD, 0));
         code.add(new FieldInsnNode(Opcodes.GETFIELD, PROXY_BASE, "h", HANDLER_DESC));
         code.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        ReflectionDataGenerator.pushMethod(code, method.reflected());
+        code.add(new FieldInsnNode(Opcodes.GETSTATIC, owner.name, field, "Ljava/lang/reflect/Method;"));
         int local = 1;
         if (params.length == 0) {
             code.add(new InsnNode(Opcodes.ACONST_NULL));

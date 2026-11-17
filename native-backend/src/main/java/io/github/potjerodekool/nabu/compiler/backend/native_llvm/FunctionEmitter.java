@@ -118,6 +118,26 @@ public class FunctionEmitter {
         return currentFnNameForDiagnostics;
     }
 
+    private IRFunction currentFn;
+
+    /**
+     * Whether the class of the current function is initialized, or being initialized by this thread, whenever the
+     * function runs: a static method or constructor checks it on entry, and a class initializer is that
+     * initialization. Not an instance method: an object can exist before its class is initialized (the String
+     * constants of the image are there before String's initializer has set COMPACT_STRINGS).
+     */
+    boolean currentFunctionImpliesClassInit() {
+        final IRFunction fn = currentFn;
+        if (fn == null || fn.name == null || classLayouts == null) {
+            return false;
+        }
+        if (fn.name.endsWith("_clinit") || fn.name.contains("<clinit>")) {
+            return true;
+        }
+        return fn.isConstructor() || io.github.potjerodekool.nabu.lang.Flags.hasFlag(fn.getFlags(),
+                io.github.potjerodekool.nabu.lang.Flags.STATIC);
+    }
+
     /**
      * Retourneert het LLVM-blok voor de catch-body van een handler (of null
      * als het blok geen handler is). Wordt gebruikt door emitBody om de
@@ -456,6 +476,7 @@ public class FunctionEmitter {
         instructions.setLocalValueMap(localMap);
         instructions.setFunctionEmitter(this);
         currentFnNameForDiagnostics = fn.name;
+        currentFn = fn;
 
         // Parameters koppelen
         final int declaredParams = LLVMCountParams(llvmFn);

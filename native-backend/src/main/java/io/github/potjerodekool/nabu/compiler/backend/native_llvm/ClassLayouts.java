@@ -357,12 +357,24 @@ public class ClassLayouts {
 
     /** The function a virtual call on a receiver of class {@code layout} in {@code slot} always reaches, or null. */
     public LLVMValueRef monomorphicVirtual(final ClassLayout layout, final int slot) {
-        if (!DEVIRT || layout == null || layout.vtableMono == null || slot < 0 || slot >= layout.vtableMono.length
-                || slotIsExclusive(layout.internalName)) {
+        if (!DEVIRT || layout == null || layout.vtableMono == null || slot < 0 || slot >= layout.vtableMono.length) {
+            return null;
+        }
+        // The C runtime makes objects of JDK classes (Class, Method, exceptions, ...) with the vtable of Object: only the
+        // slots of Object's own methods can be dispatched on those, and must stay a vtable call. A later slot read past
+        // the end of Object's vtable for such an object anyway, so on a JDK class it may become a direct call too
+        // (String.length called String.coder through the vtable, which kept LLVM from inlining it).
+        if (slotIsExclusive(layout.internalName) && slot < objectVtableLength()) {
             return null;
         }
         final long v = layout.vtableMono[slot];
         return v > 0 ? functionByAddress.get(v) : null;
+    }
+
+    /** The number of vtable slots of java.lang.Object; every slot counts as Object's while that is unknown. */
+    private int objectVtableLength() {
+        final ClassLayout object = byInternalName.get("java/lang/Object");
+        return object != null && object.vtableAddrs != null ? object.vtableAddrs.length : Integer.MAX_VALUE;
     }
 
     /** The function an interface call always reaches (every concrete implementer has it), or null. */

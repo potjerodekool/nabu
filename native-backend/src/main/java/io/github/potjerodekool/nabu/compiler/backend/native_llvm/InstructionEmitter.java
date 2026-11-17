@@ -3516,7 +3516,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                 if (owner == null || classLayouts.moduleOf(owner) == null) {
                     owner = classLayouts.ownerInternalName(plain);
                 }
-                emitClassInit(owner);
+                if (!initializedInCurrentFunction(owner)) {
+                    emitClassInit(owner);
+                }
                 // A field inherited from an interface (AESCrypt.AES_KEYSIZES from AESConstants): initializing
                 // the class does not initialize that interface, reading its field does.
                 final String declaringName = LLVMGetValueName(asGlobalVar).getString();
@@ -3627,6 +3629,34 @@ private void emitThrow(IRInstruction.Throw throwInst) {
     // Klasse-initialisatie
     // -------------------------------------------------------
 
+    /**
+     * Whether {@code owner} is initialized (or being initialized by this thread) whenever the current function runs: the
+     * function is a static method, constructor or class initializer (see
+     * {@link FunctionEmitter#currentFunctionImpliesClassInit}) and {@code owner} is its class or a superclass of it
+     * (initializing a class initializes its superclasses first). Not for an interface: initializing a class does not
+     * initialize the interfaces it implements. Not in an instance method either: String.coder runs on the String
+     * constants of the image before String's initializer, and without the check read COMPACT_STRINGS as false.
+     */
+    private boolean initializedInCurrentFunction(final String owner) {
+        if (owner == null || functionEmitter == null || "false".equals(System.getProperty("nabu.clinit.ownSkip"))
+                || !functionEmitter.currentFunctionImpliesClassInit()) {
+            return false;
+        }
+        final io.github.potjerodekool.nabu.backend.ir.IRModule ownerModule = classLayouts.moduleOf(owner);
+        if (ownerModule == null || io.github.potjerodekool.nabu.lang.Flags.hasFlag(ownerModule.flags,
+                io.github.potjerodekool.nabu.lang.Flags.INTERFACE)) {
+            return false;
+        }
+        String current = classLayouts.ownerInternalName(functionEmitter.currentFnNameForDiagnostics());
+        for (int depth = 0; current != null && depth < 64; depth++) {
+            if (current.equals(owner)) {
+                return true;
+            }
+            current = classLayouts.superInternalName(current);
+        }
+        return false;
+    }
+
     /** Interne klassenaam -> de eenmalige initialisatie-functie, of null als er niets te doen is. */
     private final Map<String, LLVMValueRef> classInitFns = new HashMap<>();
 
@@ -3730,6 +3760,10 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                 new PointerPointer<>(0), 0, 0);
         final LLVMValueRef fn = LLVMAddFunction(mod, dotted + ".clinit.once", fnType);
         LLVMSetLinkage(fn, LLVMInternalLinkage);
+        // Only reached while the class is not initialized (the check of the flag is inline at every use): not worth
+        // inlining, else every caller got the whole class initializer behind its check.
+        LLVMAddAttributeAtIndex(fn, -1, LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("noinline", 8), 0));
+        LLVMAddAttributeAtIndex(fn, -1, LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("cold", 4), 0));
         // The flag is the state of the initialization: 0 not yet, 2 done, odd while one thread runs it
         // (nabu_clinit_begin). The initializer touches its own static fields: the thread that runs it passes.
         final LLVMValueRef flag = LLVMAddGlobal(mod, i32,

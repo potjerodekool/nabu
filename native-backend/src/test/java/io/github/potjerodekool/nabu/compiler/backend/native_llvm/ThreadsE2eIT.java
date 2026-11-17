@@ -77,6 +77,27 @@ class ThreadsE2eIT {
         assertEquals(expected("cpuCount"), output("cpuCount", java.util.Map.of("NABU_CPUS", "3")));
     }
 
+    /**
+     * main returned and a thread that is not a daemon calls System.exit: the process ends with its code. (The wait for
+     * such threads used to run in an exit handler, and exit from the thread then waited for the C library's exit lock
+     * that the handler held.)
+     */
+    @Test
+    void exitFromThreadAfterMainReturned() throws Exception {
+        assertEquals(expected("exitFromThreadAfterMainReturned"),
+                output("exitFromThreadAfterMainReturned", java.util.Map.of("NABU_CONTINUATIONS", "0"), 3));
+    }
+
+    /**
+     * A thread of a lambda without captured variables: the inliner removed the lambda's empty constructor call, and the
+     * backend then gave the lambda object to the Thread constructor as its receiver (start threw
+     * IllegalThreadStateException).
+     */
+    @Test
+    void threadOfLambdaWithoutCaptures() throws Exception {
+        assertEquals(expected("threadOfLambdaWithoutCaptures"), output("threadOfLambdaWithoutCaptures"));
+    }
+
     /** Every parked virtual thread keeps a stack of its own: there can be many of them at once. */
     @Test
     void manyParkedVirtualThreads() throws Exception {
@@ -531,6 +552,12 @@ class ThreadsE2eIT {
                 }
             }
             try (Stream<Path> walk = Files.walk(out)) {
+                final Path ll = walk.filter(f -> f.getFileName().toString().endsWith(".ll")).findFirst().orElse(null);
+                if (ll != null) {
+                    Files.copy(ll, Path.of(keep + ".ll"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            try (Stream<Path> walk = Files.walk(out)) {
                 final Path warnings = walk.filter(f -> f.getFileName().toString().endsWith(".warnings.txt"))
                         .findFirst().orElse(null);
                 if (warnings != null) {
@@ -550,6 +577,12 @@ class ThreadsE2eIT {
 
     /** Same, with extra environment variables for the program. */
     private String output(final String name, final java.util.Map<String, String> environment) throws Exception {
+        return output(name, environment, 0);
+    }
+
+    /** Same, with the exit code the program must end with. */
+    private String output(final String name, final java.util.Map<String, String> environment, final int exitCode)
+            throws Exception {
         final Path exe = executable();
         final Path log = Files.createTempFile(buildDir, name, ".log");
         final ProcessBuilder builder = NativeToolchain.run(exe.toAbsolutePath());
@@ -562,7 +595,7 @@ class ThreadsE2eIT {
                     + new String(Files.readAllBytes(log), StandardCharsets.UTF_8));
         }
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
-        assertEquals(0, proc.exitValue(), output);
+        assertEquals(exitCode, proc.exitValue(), output);
         return output;
     }
 }

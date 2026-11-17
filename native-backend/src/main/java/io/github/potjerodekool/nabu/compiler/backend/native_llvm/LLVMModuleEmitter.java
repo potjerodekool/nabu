@@ -1044,6 +1044,12 @@ public void setReflectionRegistry(
         LLVMSetLinkage(argsFromArgvFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_args_from_argv", argsFromArgvFn);
 
+        // void nabu_main_returned(): the main()-bridge calls it after the entry method returned (jcl_lite.c)
+        final LLVMTypeRef mainReturnedFnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), (PointerPointer<?>) null, 0, 0);
+        final LLVMValueRef mainReturnedFn = LLVMAddFunction(mod, new BytePointer("nabu_main_returned"), mainReturnedFnType);
+        LLVMSetLinkage(mainReturnedFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_main_returned", mainReturnedFn);
+
         // --- Primitief -> string (voor concat met een numerieke operand) ---
         // i8* nabu_int_to_string(i32), i8* nabu_long_to_string(i64)
         LLVMValueRef intToString = LLVMAddFunction(mod,

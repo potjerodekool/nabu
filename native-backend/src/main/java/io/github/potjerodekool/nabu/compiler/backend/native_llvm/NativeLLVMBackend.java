@@ -259,14 +259,27 @@ public class NativeLLVMBackend implements Backend {
             IRValue.Temp result = new IRValue.Temp("main.result", IRType.I32);
             entryBlock.add(new IRInstruction.Call(CallKind.STATIC, IRType.I32,
                     paramTypes, result, entry.name, args, SourceLocation.UNKNOWN));
+            entryBlock.add(mainReturned());
             entryBlock.add(new IRInstruction.Return(result, SourceLocation.UNKNOWN));
         } else {
             entryBlock.add(new IRInstruction.Call(CallKind.STATIC, IRType.VOID,
                     paramTypes, null, entry.name, args, SourceLocation.UNKNOWN));
+            entryBlock.add(mainReturned());
             entryBlock.add(new IRInstruction.Return(IRValue.ofI32(0), SourceLocation.UNKNOWN));
         }
         bridge.addBlock(entryBlock);
         module.addFunction(bridge);
+    }
+
+    /**
+     * The call of {@code nabu_main_returned} after the entry method: like the JVM, the process waits there for the
+     * threads that are not daemons. That happens before {@code exit}, not in an exit handler: the C library holds its
+     * exit lock while the handlers run, and a thread that then calls {@code exit} (System.exit) or {@code atexit}
+     * (the first double formatted by printf does) would wait for it forever.
+     */
+    private static IRInstruction mainReturned() {
+        return new IRInstruction.Call(CallKind.STATIC, IRType.VOID, List.of(), null, "nabu_main_returned",
+                List.of(), SourceLocation.UNKNOWN);
     }
 
     /**

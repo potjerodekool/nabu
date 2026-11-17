@@ -54,6 +54,8 @@ public class InstructionEmitter {
 // HeapAlloc-resultaten die wachten op hun constructor-aanroep.
 // Worden gekoppeld aan een volgende Call(SPECIAL, *_init) als 'this'.
     private final Deque<IRValue> pendingConstructorAllocs = new ArrayDeque<>();
+    /** The class (internal name) of each open allocation of {@link #pendingConstructorAllocs}. */
+    private final Map<IRValue, String> pendingAllocClasses = new HashMap<>();
     // Per call-site-shape (naam, parameters, resultaattype) gedeclareerde
     // externen voor signature-polymorfe methoden.
     private final Map<String, LLVMValueRef> polymorphicDeclarations = new HashMap<>();
@@ -90,6 +92,7 @@ public class InstructionEmitter {
     public void beginFunction(IRFunction fn) {
         this.currentFunctionName = fn != null ? fn.name : null;
         this.pendingConstructorAllocs.clear();
+        this.pendingAllocClasses.clear();
         this.lastAllocatedObject = null;
         this.knownNonNull.clear();
         this.blockNonNull.clear();
@@ -637,6 +640,7 @@ public class InstructionEmitter {
     private void emitHeapAlloc(IRInstruction.HeapAlloc ha) {
         // Registreer het resultaat voor koppeling aan de constructor-aanroep.
         pendingConstructorAllocs.addLast(ha.result());
+        rememberAllocClass(ha.result(), ha.allocType());
         lastAllocatedObject = ha.result();
 
         ClassLayouts.ClassLayout layout = classLayouts.getFor(ha.allocType());
@@ -658,6 +662,7 @@ public class InstructionEmitter {
         // Stack-allocation van een niet-ontsnappend object: alloca van de struct,
         // header-init, en registratie voor constructor-koppeling.
         pendingConstructorAllocs.addLast(sa.result());
+        rememberAllocClass(sa.result(), sa.allocType());
         lastAllocatedObject = sa.result();
 
         ClassLayouts.ClassLayout layout = classLayouts.getFor(sa.allocType());
@@ -1563,6 +1568,7 @@ public class InstructionEmitter {
                 // De receiver staat al vooraan; alleen de bijbehorende
                 // openstaande HeapAlloc afboeken.
                 pendingConstructorAllocs.removeLastOccurrence(call.args().getFirst());
+                pendingAllocClasses.remove(call.args().getFirst());
             } else {
                 callArgs = prependThis(call.function(), call.args());
             }
@@ -2496,6 +2502,37 @@ public class InstructionEmitter {
                 && call.args().size() == call.paramTypes().size() + 1;
     }
 
+    private void rememberAllocClass(final IRValue object, final IRType allocType) {
+        if (allocType instanceof IRType.Ptr p && p.jvmDescriptor() != null) {
+            final String d = p.jvmDescriptor();
+            pendingAllocClasses.put(object, d.startsWith("L") && d.endsWith(";") ? d.substring(1, d.length() - 1) : d);
+        }
+    }
+
+    /**
+     * The open allocation a constructor call without receiver belongs to: the last one of the constructor's own class,
+     * else the last one. An allocation can stay open when the IR inliner removed the constructor call that belonged
+     * to it (the empty constructor of a lambda without captures, which carries its receiver): taking simply the last
+     * one gave {@code new Thread(() -> ...)} the lambda as its Thread.
+     */
+    private IRValue takePendingAlloc(final String constructor) {
+        final int init = constructor.lastIndexOf("_init");
+        if (init > 0) {
+            final String owner = constructor.substring(0, init).replace('.', '/');
+            for (final java.util.Iterator<IRValue> it = pendingConstructorAllocs.descendingIterator(); it.hasNext(); ) {
+                final IRValue candidate = it.next();
+                if (owner.equals(pendingAllocClasses.get(candidate))) {
+                    it.remove();
+                    pendingAllocClasses.remove(candidate);
+                    return candidate;
+                }
+            }
+        }
+        final IRValue last = pendingConstructorAllocs.pollLast();
+        if (last != null) pendingAllocClasses.remove(last);
+        return last;
+    }
+
     /**
      * Prepends the pending HeapAlloc-object ('this') aan de constructor-argumenten.
      */
@@ -2505,7 +2542,7 @@ public class InstructionEmitter {
         // `this`-heuristiek worden nagegaan, want bij een niet-statische member
         // class is args[0] de ENCLOSING instance, die toevallig ook de `this`
         // van de huidige functie kan zijn.
-        IRValue thisVal = pendingConstructorAllocs.pollLast();
+        IRValue thisVal = takePendingAlloc(functionName);
         if (thisVal == null) {
             if (!args.isEmpty() && isFunctionThis(args.get(0))) {
                 // Delegerende constructor (`this(...)`): het object is al

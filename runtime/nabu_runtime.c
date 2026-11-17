@@ -1557,13 +1557,38 @@ int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
 /* ---- NABU_PROFILE=<file>: a sampling profiler for the executable itself (Windows) ----
  * A thread of the runtime stops every thread of the process in turn about every 2 ms, reads where it stands (the
  * instruction pointer only: the compiled code has no frame pointers to walk) and lets it go. Every 5 seconds the
- * counts per function are written to <file>, the largest first. Samples in system DLLs (waiting in the kernel,
- * sockets) are counted as "[system]"; the sampling thread allocates nothing while another thread is stopped. */
+ * counts per function are written to <file>, the largest first, after the share per package. Samples in system DLLs
+ * are named by DLL and export (ntdll!ZwWaitForSingleObject...); those in a wait function are the waiting threads and
+ * are counted apart. The timer resolution is set to 1 ms for the sampler's sleep. The sampling thread allocates
+ * nothing while another thread is stopped. */
 #include <tlhelp32.h>
 #define NABU_PROF_MAX_THREADS 256
 #define NABU_PROF_MAX_SAMPLES 4000000
 static uintptr_t *nabu_prof_samples;
 static size_t nabu_prof_count;
+static DWORD *nabu_prof_tids;   /* the thread of every sample */
+
+/* The exported function of a system DLL at or before addr (the export table of the loaded image), or NULL. */
+static const char *nabu_prof_export_name(HMODULE module, uintptr_t addr) {
+    const unsigned char *base = (const unsigned char *) module;
+    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *) base;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return NULL;
+    const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *) (base + dos->e_lfanew);
+    const IMAGE_DATA_DIRECTORY *dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    if (dir->VirtualAddress == 0) return NULL;
+    const IMAGE_EXPORT_DIRECTORY *exp = (const IMAGE_EXPORT_DIRECTORY *) (base + dir->VirtualAddress);
+    const DWORD *names = (const DWORD *) (base + exp->AddressOfNames);
+    const WORD *ordinals = (const WORD *) (base + exp->AddressOfNameOrdinals);
+    const DWORD *functions = (const DWORD *) (base + exp->AddressOfFunctions);
+    const uintptr_t rva = addr - (uintptr_t) base;
+    const char *best = NULL;
+    DWORD best_rva = 0;
+    for (DWORD i = 0; i < exp->NumberOfNames; i++) {
+        const DWORD f = functions[ordinals[i]];
+        if (f <= rva && f >= best_rva) { best_rva = f; best = (const char *) (base + names[i]); }
+    }
+    return best;
+}
 
 static int nabu_prof_cmp(const void *a, const void *b) {
     uintptr_t x = *(const uintptr_t *)a, y = *(const uintptr_t *)b;
@@ -1580,10 +1605,45 @@ static void nabu_prof_write(const char *path) {
     entry *entries = (entry *)calloc(n + 1, sizeof(entry));
     size_t entry_count = 0;
     size_t system = 0;
+    /* the names of the system DLLs the samples fell in (a few: kept for the life of the process) */
+    static char dll_names[512][96];
+    static HMODULE dll_handles[512];
+    static const char *dll_exports[512];
+    static int dll_count = 0;
+    const char *previous_name = NULL;
     for (size_t i = 0; i < n; i++) {
+        if (i > 0 && copy[i] == copy[i - 1] && previous_name != NULL) {
+            /* sorted: the same address as the sample before (threads waiting stand on a few addresses) */
+            entries[entry_count - 1].count++;
+            if (copy[i] >= nabu_image_end) system++;
+            continue;
+        }
         const char *name = copy[i] < nabu_image_end ? nabu_frame_name(copy[i]) : NULL;
-        if (copy[i] >= nabu_image_end) { system++; continue; }
+        if (copy[i] >= nabu_image_end) {
+            system++;
+            HMODULE module = NULL;
+            name = "[system: ?]";
+            if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   (LPCSTR) copy[i], &module) && module != NULL) {
+                const char *export_name = nabu_prof_export_name(module, copy[i]);
+                int k = 0;
+                while (k < dll_count && (dll_handles[k] != module || dll_exports[k] != export_name)) k++;
+                if (k == dll_count && dll_count < 512) {
+                    char full[MAX_PATH];
+                    const DWORD len = GetModuleFileNameA(module, full, sizeof full);
+                    const char *base = full;
+                    for (DWORD c = 0; c < len; c++) if (full[c] == '\\' || full[c] == '/') base = full + c + 1;
+                    snprintf(dll_names[k], sizeof dll_names[k], "[system: %s!%s]", len > 0 ? base : "?",
+                             export_name != NULL ? export_name : "?");
+                    dll_handles[k] = module;
+                    dll_exports[k] = export_name;
+                    dll_count++;
+                }
+                if (k < dll_count) name = dll_names[k];
+            }
+        }
         if (name == NULL) name = "?";
+        previous_name = name;
         if (entry_count > 0 && strcmp(entries[entry_count - 1].name, name) == 0) entries[entry_count - 1].count++;
         else { entries[entry_count].name = name; entries[entry_count].count = 1; entry_count++; }
     }
@@ -1596,8 +1656,67 @@ static void nabu_prof_write(const char *path) {
     }
     FILE *f = fopen(path, "w");
     if (f != NULL) {
-        fprintf(f, "samples %zu, system dlls (waiting, kernel) %zu, in the program %zu\n", n, system, n - system);
-        for (size_t i = 0; i < entry_count && i < 400; i++) fprintf(f, "%zu %s\n", entries[i].count, entries[i].name);
+        /* waiting threads stand in a wait function of ntdll: they are left out of the rest */
+        size_t waiting = 0;
+        for (size_t i = 0; i < entry_count; i++) {
+            if (strstr(entries[i].name, "!ZwWait") != NULL || strstr(entries[i].name, "!NtWait") != NULL
+                    || strstr(entries[i].name, "!ZwDelayExecution") != NULL || strstr(entries[i].name, "!ZwRemoveIoCompletion") != NULL) {
+                waiting += entries[i].count;
+                entries[i].count = 0;
+            }
+        }
+        const size_t busy = n - waiting;
+        fprintf(f, "samples %zu: waiting %zu, running %zu (in the program %zu)\n", n, waiting, busy, n - system);
+        /* per package of the compiled code (the name up to the class, its package), and the runtime and system apart */
+        {
+            typedef struct { char key[96]; size_t count; } group;
+            static group groups[1024];
+            int group_count = 0;
+            for (size_t i = 0; i < entry_count; i++) {
+                if (entries[i].count == 0) continue;
+                const char *name = entries[i].name;
+                char key[96];
+                if (name[0] == '[') snprintf(key, sizeof key, "[system]");
+                else if (strncmp(name, "GC_", 3) == 0) snprintf(key, sizeof key, "[gc]");
+                else if (strchr(name, '.') == NULL) snprintf(key, sizeof key, "[runtime]");
+                else {
+                    const char *cls_end = strchr(name, '_');
+                    size_t len = cls_end != NULL ? (size_t) (cls_end - name) : strlen(name);
+                    size_t pkg = 0;
+                    for (size_t c = 0; c < len; c++) if (name[c] == '.') pkg = c;
+                    /* two levels of the package: java.util, org.hibernate, org.springframework ... */
+                    size_t dots = 0, cut = pkg;
+                    for (size_t c = 0; c < pkg; c++) if (name[c] == '.' && ++dots == 2) { cut = c; break; }
+                    if (cut >= sizeof key) cut = sizeof key - 1;
+                    memcpy(key, name, cut);
+                    key[cut] = '\0';
+                }
+                int g = 0;
+                while (g < group_count && strcmp(groups[g].key, key) != 0) g++;
+                if (g == group_count) {
+                    if (group_count == 1024) continue;
+                    snprintf(groups[g].key, sizeof groups[g].key, "%s", key);
+                    groups[g].count = 0;
+                    group_count++;
+                }
+                groups[g].count += entries[i].count;
+            }
+            for (int a = 0; a < group_count; a++)
+                for (int b = a + 1; b < group_count; b++)
+                    if (groups[b].count > groups[a].count) { group t = groups[a]; groups[a] = groups[b]; groups[b] = t; }
+            for (int g = 0; g < group_count && g < 40; g++)
+            {
+                /* tenths of a percent as integers: printf of a double can take the C library's exit lock (see
+                   nabu_main_returned in jcl_lite.c) */
+                const size_t tenths = busy > 0 ? groups[g].count * 1000 / busy : 0;
+                fprintf(f, "  %3zu.%zu%% %s\n", tenths / 10, tenths % 10, groups[g].key);
+            }
+        }
+        /* the functions, largest first (sort again: the waits were zeroed) */
+        for (size_t a = 0; a < entry_count && a < 400; a++)
+            for (size_t b = a + 1; b < entry_count; b++)
+                if (entries[b].count > entries[a].count) { entry t = entries[a]; entries[a] = entries[b]; entries[b] = t; }
+        for (size_t i = 0; i < entry_count && i < 400 && entries[i].count > 0; i++) fprintf(f, "%zu %s\n", entries[i].count, entries[i].name);
         fclose(f);
     }
     free(entries);
@@ -1607,7 +1726,15 @@ static void nabu_prof_write(const char *path) {
 static DWORD WINAPI nabu_prof_thread(LPVOID arg) {
     const char *path = (const char *) arg;
     nabu_ensure_symbols();
+    {
+        /* Sleep(1) sleeps 1 ms instead of a tick of 15.6 ms (NtSetTimerResolution: no link to winmm) */
+        typedef LONG (WINAPI *set_resolution_fn)(ULONG, BOOLEAN, PULONG);
+        set_resolution_fn set_resolution = (set_resolution_fn) (void *) GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtSetTimerResolution");
+        ULONG current = 0;
+        if (set_resolution != NULL) set_resolution(10000, TRUE, &current);
+    }
     HANDLE handles[NABU_PROF_MAX_THREADS];
+    DWORD handle_ids[NABU_PROF_MAX_THREADS];
     int handle_count = 0;
     const DWORD pid = GetCurrentProcessId(), self = GetCurrentThreadId();
     ULONGLONG last_refresh = 0, last_write = GetTickCount64();
@@ -1623,7 +1750,7 @@ static DWORD WINAPI nabu_prof_thread(LPVOID arg) {
                 for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
                     if (te.th32OwnerProcessID != pid || te.th32ThreadID == self || handle_count >= NABU_PROF_MAX_THREADS) continue;
                     HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
-                    if (h != NULL) handles[handle_count++] = h;
+                    if (h != NULL) { handle_ids[handle_count] = te.th32ThreadID; handles[handle_count++] = h; }
                 }
                 CloseHandle(snap);
             }
@@ -1635,13 +1762,16 @@ static DWORD WINAPI nabu_prof_thread(LPVOID arg) {
             ctx.ContextFlags = CONTEXT_CONTROL;
             const BOOL ok = GetThreadContext(handles[i], &ctx);
             ResumeThread(handles[i]);
-            if (ok && nabu_prof_count < NABU_PROF_MAX_SAMPLES) nabu_prof_samples[nabu_prof_count++] = (uintptr_t) ctx.Rip;
+            if (ok && nabu_prof_count < NABU_PROF_MAX_SAMPLES) {
+                nabu_prof_tids[nabu_prof_count] = handle_ids[i];
+                nabu_prof_samples[nabu_prof_count++] = (uintptr_t) ctx.Rip;
+            }
         }
         if (now - last_write > 5000) {
             nabu_prof_write(path);
             last_write = now;
         }
-        Sleep(2);
+        Sleep(1);
     }
     return 0;
 }
@@ -1650,7 +1780,8 @@ __attribute__((constructor(120))) static void nabu_prof_start(void) {
     const char *path = getenv("NABU_PROFILE");
     if (path == NULL || path[0] == '\0') return;
     nabu_prof_samples = (uintptr_t *) malloc((size_t) NABU_PROF_MAX_SAMPLES * sizeof(uintptr_t));
-    if (nabu_prof_samples == NULL) return;
+    nabu_prof_tids = (DWORD *) malloc((size_t) NABU_PROF_MAX_SAMPLES * sizeof(DWORD));
+    if (nabu_prof_samples == NULL || nabu_prof_tids == NULL) return;
     CreateThread(NULL, 0, nabu_prof_thread, (LPVOID) path, 0, NULL);
 }
 #else

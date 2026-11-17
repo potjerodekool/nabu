@@ -82,6 +82,11 @@ public class Inliner implements OptimizationPass {
                 final IRFunction callee = callees.get(call.function());
                 if (callee == null || callee == caller) continue;
                 if (call.returnType() != null && !call.returnType().equals(callee.returnType)) continue;
+                // A constructor call of the source frontend leaves 'this' out: the backend pairs it with the
+                // HeapAlloc before it. Its arguments do not line up with the parameters, and inlined the HeapAlloc
+                // would stay unpaired, so that the next constructor call took it ('new Thread(() -> ...)' got the
+                // lambda as its Thread).
+                if (call.args().size() != callee.params.size()) continue;
                 // Recursie-detectie: inline niet als callee (transitief) caller kan bereiken.
                 if (!eligible(callee, inLoop)) continue;
                 if (!argsSimple(call.args())) continue;

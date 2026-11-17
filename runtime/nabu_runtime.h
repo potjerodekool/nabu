@@ -95,6 +95,7 @@ char *nabu_concat(const char *a, const char *b);
  * @return Een nieuw String[] (lengte argc - 1, of 0 als argc <= 1)
  */
 void *nabu_args_from_argv(int32_t argc, char **argv);
+void nabu_main_returned(void);
 
 /**
  * Zet een geheel getal om naar zijn decimale stringrepresentatie, zoals Java's

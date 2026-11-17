@@ -5819,6 +5819,8 @@ static void *jcl_thread_main(void *arg) {
 /* At exit the JVM waits for the threads that are not daemons, unless System.exit was called. */
 static void jcl_await_threads(void) {
     if (jcl_exiting) return;
+    static int awaited = 0;
+    if (awaited) return;
     nabu_waiter *waiter = nabu_waiter_self();
     nabu_keyq_add((const void *) &jcl_live_threads, waiter);
     for (;;) {
@@ -5827,6 +5829,14 @@ static void jcl_await_threads(void) {
         nabu_waiter_wait(waiter, ticket, -1);
     }
     nabu_keyq_remove((const void *) &jcl_live_threads, waiter);
+    awaited = 1;
+}
+
+/* The main method returned (the main()-bridge of the backend calls this): wait for the threads that are not daemons
+ * here, before exit. The exit handler (jcl_await_threads through atexit) stays for the other ways out, such as an
+ * exception that ends main. */
+void nabu_main_returned(void) {
+    if (nabu_threads_active) jcl_await_threads();
 }
 
 /* The stack trace of another thread, asked cooperatively: the thread that wants it sets a request and wakes the

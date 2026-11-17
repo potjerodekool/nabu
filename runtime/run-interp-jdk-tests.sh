@@ -18,7 +18,7 @@ jimage extract --dir "$O/x" --include 'regex:/java.base/(java/(lang|util|io|net|
 mkdir -p "$O/dev/jdkclasses/classes"; cp -r "$O"/x/java.base/* "$O/dev/jdkclasses/classes/"
 printf 'ServiceTest$Greeter=ServiceTest$En\n' > "$O/dev/services.txt"
 export NABU_DEV_DIR="$O/dev" NABU_CLASSPATH="$O/classes:$O/lib.jar"
-gcc -w -DNABU_GC_NONE -I"$R" -o "$O/test_run" "$R/test_run.c" "$R"/nabu_runtime.c "$R"/gc_none.c "$R"/nabu_interpreter.c "$R"/nabu_classfile.c "$R"/test_stubs.c -lpthread -ldl -lm || exit 1
+gcc -w ${NABU_TEST_CFLAGS:--O2 -fno-strict-aliasing} -DNABU_GC_NONE -I"$R" -o "$O/test_run" "$R/test_run.c" "$R"/nabu_runtime.c "$R"/gc_none.c "$R"/nabu_interpreter.c "$R"/nabu_classfile.c "$R"/test_stubs.c -lpthread -ldl -lm || exit 1
 fail=0
 # class  expected-output (| separated lines)
 check() {

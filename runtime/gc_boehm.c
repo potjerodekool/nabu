@@ -19,6 +19,8 @@
 #include <string.h>
 #include <time.h>
 
+#include <unwind.h>
+
 #include <gc.h>
 #include "nabu_gc.h"
 
@@ -116,6 +118,46 @@ void *nabu_prof_malloc_atomic(size_t n) {
     return nabu_alloc_global_flag() ? GC_malloc_kind_global(n, 0) : GC_malloc_atomic(n);
 }
 
+/* The allocations of the C runtime itself (nabu_gc_alloc: strings, arrays, reflection objects, boxes made in C), counted
+ * while NABU_ALLOC_PROF is set. The function that asks is usually a small static helper, so the key is the call chain:
+ * the return addresses of the six frames above the allocation, from which a reader takes the first one that is a
+ * compiled method or a function of the class library. They are written as "R f1 .. f6 bytes count" lines. */
+#define NABU_RPROF_SLOTS 16384
+#define NABU_RPROF_FRAMES 6
+typedef struct { uintptr_t frames[NABU_RPROF_FRAMES]; uint64_t bytes; uint64_t count; } nabu_rprof_entry;
+static nabu_rprof_entry nabu_rprof_table[NABU_RPROF_SLOTS];
+static volatile char nabu_rprof_busy = 0;
+
+typedef struct { uintptr_t frames[NABU_RPROF_FRAMES]; int skip; int count; } nabu_rprof_walk;
+
+static _Unwind_Reason_Code nabu_rprof_frame(struct _Unwind_Context *context, void *arg) {
+    nabu_rprof_walk *walk = (nabu_rprof_walk *) arg;
+    if (walk->skip > 0) { walk->skip--; return _URC_NO_REASON; }
+    if (walk->count >= NABU_RPROF_FRAMES) return _URC_END_OF_STACK;
+    walk->frames[walk->count++] = (uintptr_t) _Unwind_GetIP(context);
+    return _URC_NO_REASON;
+}
+
+static void nabu_rprof_record(size_t n) {
+    nabu_rprof_walk walk;
+    memset(&walk, 0, sizeof walk);
+    walk.skip = 2;   /* this function and nabu_gc_alloc */
+    _Unwind_Backtrace(nabu_rprof_frame, &walk);
+    uintptr_t h = 1469598103934665603ull;
+    for (int i = 0; i < NABU_RPROF_FRAMES; i++) h = (h ^ walk.frames[i]) * 1099511628211ull;
+    while (__atomic_test_and_set(&nabu_rprof_busy, __ATOMIC_ACQUIRE)) { }
+    size_t slot = (size_t) (h >> 20) & (NABU_RPROF_SLOTS - 1);
+    for (int probes = 0; probes < NABU_RPROF_SLOTS; probes++, slot = (slot + 1) & (NABU_RPROF_SLOTS - 1)) {
+        nabu_rprof_entry *e = &nabu_rprof_table[slot];
+        if (e->count == 0) memcpy(e->frames, walk.frames, sizeof e->frames);
+        else if (memcmp(e->frames, walk.frames, sizeof e->frames) != 0) continue;
+        e->bytes += n;
+        e->count++;
+        break;
+    }
+    __atomic_clear(&nabu_rprof_busy, __ATOMIC_RELEASE);
+}
+
 static void nabu_prof_dump(void) {
 #ifdef _WIN32
     const uintptr_t base = (uintptr_t) GetModuleHandleA(NULL);
@@ -137,6 +179,23 @@ static void nabu_prof_dump(void) {
         WriteFile(f, line, (DWORD) n, &written, NULL);
 #else
         if (write(f, line, (size_t) n) < 0) break;
+#endif
+    }
+    for (int i = 0; i < NABU_RPROF_SLOTS; i++) {
+        const nabu_rprof_entry *e = &nabu_rprof_table[i];
+        if (e->count == 0) continue;
+        char wide[256];
+        int n = snprintf(wide, sizeof wide, "R");
+        for (int k = 0; k < NABU_RPROF_FRAMES; k++) {
+            n += snprintf(wide + n, sizeof wide - (size_t) n, " %llx",
+                    (unsigned long long) (e->frames[k] != 0 ? e->frames[k] - base : 0));
+        }
+        n += snprintf(wide + n, sizeof wide - (size_t) n, " %llu %llu\n", (unsigned long long) e->bytes, (unsigned long long) e->count);
+#ifdef _WIN32
+        DWORD written;
+        WriteFile(f, wide, (DWORD) n, &written, NULL);
+#else
+        if (write(f, wide, (size_t) n) < 0) break;
 #endif
     }
 #ifdef _WIN32
@@ -185,8 +244,16 @@ __attribute__((constructor(102))) static void nabu_gc_alloc_stats_init(void) {
     atexit(nabu_gc_alloc_stats_report);
 }
 
-void *nabu_gc_alloc(size_t n) { nabu_gc_alloc_bytes += n; return GC_malloc(n); }
-void *nabu_gc_alloc_atomic(size_t n) { nabu_gc_alloc_bytes += n; return GC_malloc_atomic(n); }
+void *nabu_gc_alloc(size_t n) {
+    nabu_gc_alloc_bytes += n;
+    if (nabu_prof_path != NULL) nabu_rprof_record(n);
+    return GC_malloc(n);
+}
+void *nabu_gc_alloc_atomic(size_t n) {
+    nabu_gc_alloc_bytes += n;
+    if (nabu_prof_path != NULL) nabu_rprof_record(n);
+    return GC_malloc_atomic(n);
+}
 void *nabu_gc_alloc_pinned(size_t n) { return GC_malloc_uncollectable(n); }
 void *nabu_gc_realloc(void *p, size_t n) { return GC_realloc(p, n); }
 void nabu_gc_free(void *p) { GC_free(p); }

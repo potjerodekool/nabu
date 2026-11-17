@@ -230,14 +230,36 @@ public class Linker {
                 flags.add("-g");
             }
         }
+        flags.addAll(runtimeOptimizationFlags());
         final GarbageCollector gc = GarbageCollectors.of(gcStrategy);
         flags.addAll(gc.compileFlags());
         return RuntimeObjects.get(runtimeSources(gc), compiler, flags, triple);
     }
 
+    /**
+     * How the C runtime is optimized: {@code -O2} (it was compiled without any optimization, so every check of a cast,
+     * every monitor and every function of the class library written in C ran as unoptimized code), without the
+     * type-based aliasing rules, which a runtime that reads object headers through several pointer types does not
+     * keep. {@code -Dnabu.runtime.opt=-O0} (any flags, separated by spaces) replaces them.
+     */
+    static List<String> runtimeOptimizationFlags() {
+        final String value = System.getProperty("nabu.runtime.opt");
+        if (value == null) {
+            return List.of("-O2", "-fno-strict-aliasing");
+        }
+        final List<String> flags = new ArrayList<>();
+        for (final String flag : value.trim().split(" +")) {
+            if (!flag.isEmpty()) {
+                flags.add(flag);
+            }
+        }
+        return flags;
+    }
+
     private static void addRuntimeSources(List<String> cmd,
                                           CompileOptions.GcStrategy gcStrategy) {
         final GarbageCollector gc = GarbageCollectors.of(gcStrategy);
+        cmd.addAll(runtimeOptimizationFlags());
         cmd.addAll(gc.compileFlags());
         runtimeSources(gc).forEach(src -> cmd.add(src.toString()));
     }

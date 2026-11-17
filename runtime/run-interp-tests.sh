@@ -7,7 +7,7 @@ O="${TMPDIR:-/tmp}/nabu-interp-tests"; rm -rf "$O"; mkdir -p "$O/classes"
 javac --release 17 -d "$O/classes" "$R"/jtest/*.java || exit 1
 export NABU_CLASSPATH="$O/classes"
 fail=0
-build() { gcc -w -DNABU_GC_NONE -I"$R" -o "$O/$1" "$R/$2.c" "$R"/nabu_runtime.c "$R"/gc_none.c "$R"/nabu_interpreter.c "$R"/nabu_classfile.c "$R"/test_stubs.c -lpthread -ldl -lm; }
+build() { gcc -w ${NABU_TEST_CFLAGS:--O2 -fno-strict-aliasing} -DNABU_GC_NONE -I"$R" -o "$O/$1" "$R/$2.c" "$R"/nabu_runtime.c "$R"/gc_none.c "$R"/nabu_interpreter.c "$R"/nabu_classfile.c "$R"/test_stubs.c -lpthread -ldl -lm; }
 # name  test-source  class  expected-output (| separated lines)
 check() {
   local name=$1 src=$2 cls=$3 expect=$4

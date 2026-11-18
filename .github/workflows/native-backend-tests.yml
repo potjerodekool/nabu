@@ -12,6 +12,9 @@ on:
       forks:
         description: 'Test processes in parallel (-Dit.forks)'
         default: '2'
+      java:
+        description: 'JDK to build and run with (setup-java java-version)'
+        default: '25'
 
 permissions:
   contents: read
@@ -28,7 +31,7 @@ jobs:
       uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
-        java-version: '25'
+        java-version: '${{ inputs.java || '25' }}'
         cache: 'maven'
 
     - name: Install native toolchain

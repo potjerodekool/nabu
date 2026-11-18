@@ -334,8 +334,11 @@ void __llvm_profile_write_file(void) {
     prof_release();
 
     fclose(f);
-    fprintf(stderr, "[nabu_profile_rt] wrote %s (%lu functions, %lu with value sites)\n",
-            g_profile_filename, (unsigned long) num_data, (unsigned long) with_values);
+    /* Silent unless NABU_PROFILE_VERBOSE is set: a program under test keeps its own output. */
+    if (getenv("NABU_PROFILE_VERBOSE") != NULL) {
+        fprintf(stderr, "[nabu_profile_rt] wrote %s (%lu functions, %lu with value sites)\n",
+                g_profile_filename, (unsigned long) num_data, (unsigned long) with_values);
+    }
 }
 
 /* ---- Lifecycle --------------------------------------------------------- */

@@ -19,8 +19,8 @@
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <junit.version>5.12.2</junit.version>
-        <mockito.version>5.23.0</mockito.version>
-        <jacoco.version>0.8.14</jacoco.version>
+        <mockito.version>5.24.0</mockito.version>
+        <jacoco.version>0.8.16</jacoco.version>
         <surefire.version>2.22.2</surefire.version>
         <failsafe.version>2.22.2</failsafe.version>
         <asm.version>9.8</asm.version>
@@ -197,7 +197,7 @@
                             <path>
                                 <groupId>org.projectlombok</groupId>
                                 <artifactId>lombok</artifactId>
-                                <version>1.18.42</version>
+                                <version>1.18.48</version>
                             </path>
                         </annotationProcessorPaths>
                     </configuration>

@@ -54,6 +54,11 @@ switch ($arch) {
     'ARM64' { $platform = 'windows-arm64' }
     default { Fail "unsupported processor: $arch" }
 }
+# The core is the same on every platform; the native backend is built for these platforms only.
+$nativePlatforms = @('windows-x86_64')
+if ($Native -and $nativePlatforms -notcontains $platform) {
+    Fail "there is no native backend for $platform (it exists for: $($nativePlatforms -join ', ')). Install without -Native to get the compiler and the JVM backend."
+}
 
 # --- the version
 if (-not $Version) {

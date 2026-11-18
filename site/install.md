@@ -82,6 +82,8 @@ export PATH="$HOME/.nabu/bin:$PATH"          # in your shell profile (Linux and 
 | Windows x64 | MinGW-w64 `gcc` with `libgc`, and the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
 | macOS (Apple Silicon) | `clang` (`xcode-select --install`) and the Boehm GC (`brew install bdw-gc`, found in `/opt/homebrew` without any setting); tested on a CI runner only, see [limitations]({{ site.baseurl }}/limitations/) |
 
+These are needed on the machine where you **build**. The people who run the executable you build need none of this on Windows; on Linux and macOS they need the shared Boehm GC (`libgc1` on Debian and Ubuntu), see [What the people who run your program need]({{ site.baseurl }}/backends/llvm/installation/#what-the-people-who-run-your-program-need).
+
 Nabu does not ship the Microsoft runtime that its LLVM libraries need on Windows: Microsoft's terms for redistributing it are not those of Nabu. Many machines have it already; `nabu doctor` tells you if yours does not.
 
 ## Check and use

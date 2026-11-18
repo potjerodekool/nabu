@@ -6,7 +6,7 @@ title: Installing the LLVM toolchain
 The LLVM backend turns a Nabu or Java program into a native executable. This page lists what you need to install, how Nabu finds those tools, and how to check that everything works.
 
 <div class="callout callout-info" markdown="1">
-**Verified on Windows x64 and Linux x64.** Every step for Windows on this page has been run on a real machine, and a native build has been run on Ubuntu (in WSL, `gcc` 15 and `libgc` 8.2 from the Ubuntu packages). The macOS section follows what the code expects (`clang` on macOS), but it has **not been tested**. Please report what you find. To install Nabu itself, see [Installing Nabu]({{ site.baseurl }}/install/).
+**Verified on Windows x64 and Linux x64.** Every step for Windows on this page has been run on a real machine, and a native build has been run on Ubuntu (in WSL, `gcc` 15 and `libgc` 8.2 from the Ubuntu packages). The macOS section follows what the code expects (`clang` on macOS), but it has **not been tested**. Please report what you find. To install Nabu itself (the `nabu` command and the native backend), use the install script on [Installing Nabu]({{ site.baseurl }}/install/); this page is about the C toolchain that the backend needs next to it, and about building Nabu from source.
 </div>
 
 ## What the backend needs
@@ -112,11 +112,11 @@ When Nabu finds a GCC on Windows, it targets `x86_64-w64-windows-gnu` automatica
 
 On Windows the executables have the MinGW runtime (`libwinpthread`, `libgcc`) linked in, both from a Maven build (the `llvm` profile) and from [nabu-native-image]({{ site.baseurl }}/backends/llvm/native-image/), so they run without the MinGW `bin` directory on the `PATH`, on any machine. That also keeps another program's older `libwinpthread-1.dll` that comes first on the `PATH` from making the executable fail to start (error `0xC0000139`). To link the DLL dynamically instead, pass `-Dnabu.link.static=false` to Maven (`--dynamic` to nabu-native-image): the executable then needs `libwinpthread-1.dll` from the MinGW `bin` directory, on the `PATH` or next to the `.exe`.
 
-## Linux x64 (not tested)
+## Linux x64 and arm64
 
 The code links with the `gcc` found on the `PATH`. The `NABU_*` variables above only apply on Windows.
 
-1. Install a JDK 24+ and Maven.
+1. Install a JDK 21 or later (and Maven when you build with Maven).
 2. Install GCC and the Boehm GC development package, for example:
    - Debian/Ubuntu: `sudo apt install build-essential libgc-dev`
    - Fedora: `sudo dnf install gcc gc-devel`
@@ -124,11 +124,11 @@ The code links with the `gcc` found on the `PATH`. The `NABU_*` variables above 
 
 The link command adds `-lgc -lpthread` for `--gc=BOEHM`.
 
-## macOS (not tested)
+## macOS (Apple Silicon; tried on a CI runner only)
 
 The code links with the `clang` found on the `PATH`.
 
-1. Install a JDK 24+ and Maven.
+1. Install a JDK 21 or later (and Maven when you build with Maven).
 2. Install the Xcode command line tools (`xcode-select --install`) for `clang`.
 3. Install the Boehm GC, for example with Homebrew: `brew install bdw-gc`.
 4. Homebrew's prefix (`/opt/homebrew` on Apple Silicon) is not on `clang`'s default search path. Export it before building:
@@ -138,9 +138,9 @@ The code links with the `clang` found on the `PATH`.
    export LIBRARY_PATH="$(brew --prefix bdw-gc)/lib"
    ```
 
-## Building Nabu with the LLVM backend
+## Building Nabu from source
 
-The LLVM backend is a plugin. Building Nabu installs it into your user plugin directory, where the compiler picks it up:
+You only need this to work on Nabu itself; users install a release with the script (see [Installing Nabu]({{ site.baseurl }}/install/)). The LLVM backend is a plugin. Building Nabu installs it into your user plugin directory, where the compiler picks it up:
 
 ```bash
 git clone https://github.com/potjerodekool/nabu.git
@@ -201,6 +201,20 @@ Some things to expect:
 - **The JDK is compiled from bytecode.** The backend follows every call from your code and compiles the JDK methods it reaches, and the same goes for libraries on the classpath. You do not configure anything for this.
 - **The build takes a while.** Even for a small program the backend compiles about 2,300 JDK classes (15,700 methods), and LLVM then optimizes all of it, in parallel parts. On the verification machine (8 cores) a small program (the integration-test programs) takes about 30 seconds and produces a 13 MB executable.
 - **The build prints a summary line per kind of warning**, for example about static fields of classes outside the compiled closure; the details are in `<name>.warnings.txt` next to the executable. They are informational. Functions that could not be compiled at all are listed in `<name>.unresolved.txt` next to the executable; the program only fails if it actually calls one of them.
+
+## What the people who run your program need
+
+The executable you build is a program of its own: it contains the compiled program, the JDK classes it uses, the Nabu runtime and the Boehm GC. **The toolchain above is needed to build it, not to run it**, and nothing of Nabu, a JDK or LLVM has to be installed where it runs.
+
+| Platform | The executable needs on the machine where it runs |
+|---|---|
+| Windows x64 | nothing of its own: it is linked with the MinGW runtime inside (`-static`, the default) and the Boehm GC as a static library, and it imports only DLLs of Windows itself (`KERNEL32`, `WS2_32` and the Universal C Runtime `api-ms-win-crt-*`, part of Windows 10 and later; Windows 7 and 8.1 need the Universal C Runtime update) |
+| Linux x64 and arm64 | the C library (`glibc`) and the shared Boehm GC, **`libgc.so.1`** (Debian and Ubuntu: `sudo apt install libgc1`; Fedora: `gc`). The link command has no `-static` on Linux, so check with `ldd your-program` that nothing is missing |
+| macOS | the shared Boehm GC (`brew install bdw-gc`); check with `otool -L your-program` |
+
+A container image for a Linux executable needs `libgc` in it (a `debian:stable-slim` image with `libgc1`, for example), and the same C library as the one the program was built against or a newer one. Building on an older distribution makes a program that runs on more machines. Linking `libgc` statically on Linux and macOS is not done yet.
+
+The Windows column is checked on a build of the petstore demo (`llvm-objdump -p`); the Linux and macOS columns follow from the link command and are not checked with `ldd` or `otool` yet.
 
 ## Next steps
 

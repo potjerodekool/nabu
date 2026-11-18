@@ -66,6 +66,8 @@ case "$arch" in
     *) fail "unsupported processor: $arch" ;;
 esac
 platform="$system-$cpu"
+# The core is the same on every platform; the native backend is built for these platforms only.
+native_platforms="linux-x86_64 linux-arm64 macosx-arm64"
 
 # --- what is needed
 if command -v curl >/dev/null 2>&1; then
@@ -128,6 +130,12 @@ check() {
 
 core="nabu-$version.zip"
 nativefile="nabu-native-$version-$platform.zip"
+if [ "$native" = yes ]; then
+    case " $native_platforms " in
+        *" $platform "*) ;;
+        *) fail "there is no native backend for $platform (it exists for: $native_platforms). Install without --native to get the compiler and the JVM backend." ;;
+    esac
+fi
 get SHA256SUMS
 get "$core"
 check "$core"

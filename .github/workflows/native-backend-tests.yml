@@ -1,11 +1,17 @@
 name: Native Backend Tests
 
+# The native integration tests (failsafe, *IT) on Linux x64: every one builds a program to a native executable with
+# gcc and libgc and runs it. They take about an hour, so they run by hand (Actions, Run workflow), not on every
+# push. Linux arm64: native-linux-arm.yml, macOS: native-macos.yml.
 on:
-  push:
-    branches: [ main, perf-study ]
-  pull_request:
-    branches: [ main, perf-study ]
   workflow_dispatch:
+    inputs:
+      tests:
+        description: 'Failsafe test selection (-Dit.test); empty runs them all'
+        default: ''
+      forks:
+        description: 'Test processes in parallel (-Dit.forks)'
+        default: '2'
 
 permissions:
   contents: read
@@ -22,18 +28,27 @@ jobs:
       uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
-        java-version: '21'
+        java-version: '25'
         cache: 'maven'
 
     - name: Install native toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc libgc-dev
+        sudo apt-get install -y gcc libgc-dev unzip
 
-    - name: Build compiler-api
-      run: |
-        mvn -B -o install -pl compiler-api -am -DskipTests -Dmaven.javadoc.skip=true
+    - name: Run the native tests
+      timeout-minutes: 180
+      run: >
+        mvn -B verify -pl native-backend -am
+        -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
+        -Dfailsafe.failIfNoSpecifiedTests=false -Dmaven.javadoc.skip=true
+        -Dit.forks=${{ inputs.forks || '2' }}
+        ${{ inputs.tests != '' && format('-Dit.test={0}', inputs.tests) || '' }}
 
-    - name: Build and test native-backend
-      run: |
-        mvn -B test -pl native-backend -Dnabu.gcc=/usr/bin/gcc
+    - name: Keep the reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: failsafe-reports
+        path: native-backend/target/failsafe-reports/*
+        if-no-files-found: ignore

@@ -374,6 +374,52 @@ public class FunctionEmitter {
 
     private static final long INTERVAL_COST_LIMIT = Long.getLong("nabu.intervalCost", 1_000_000L);
 
+    // -Dnabu.dataflowStats=true: at the end of the build, the time of the two analyses and the slowest functions
+    // (blocks x instructions is the cost that -Dnabu.intervalCost limits).
+    private static final boolean DATAFLOW_STATS = Boolean.getBoolean("nabu.dataflowStats");
+    private record DataflowStat(String name, int blocks, long instructions, long nullnessNanos, long intervalNanos,
+                                boolean intervalRan) { }
+    private static final java.util.List<DataflowStat> DATAFLOW = java.util.Collections.synchronizedList(
+            new java.util.ArrayList<>());
+    private static boolean dataflowHookInstalled;
+
+    private static synchronized void recordDataflow(final IRFunction fn, final long nullnessNanos,
+                                                    final long intervalNanos, final boolean intervalRan) {
+        if (!dataflowHookInstalled) {
+            dataflowHookInstalled = true;
+            Runtime.getRuntime().addShutdownHook(new Thread(FunctionEmitter::printDataflowStats));
+        }
+        long instructionCount = 0;
+        for (final var block : fn.blocks()) {
+            instructionCount += block.instructions().size();
+        }
+        DATAFLOW.add(new DataflowStat(fn.name, fn.blocks().size(), instructionCount, nullnessNanos, intervalNanos,
+                intervalRan));
+    }
+
+    private static void printDataflowStats() {
+        final var all = new java.util.ArrayList<>(DATAFLOW);
+        long nullness = 0;
+        long interval = 0;
+        for (final var st : all) {
+            nullness += st.nullnessNanos();
+            interval += st.intervalNanos();
+        }
+        System.err.println("[dataflowStats] " + all.size() + " analyses, nullness " + nullness / 1_000_000L
+                + " ms, interval " + interval / 1_000_000L + " ms");
+        all.sort((x, y) -> Long.compare(y.nullnessNanos() + y.intervalNanos(), x.nullnessNanos() + x.intervalNanos()));
+        long running = 0;
+        for (int i = 0; i < Math.min(15, all.size()); i++) {
+            final var st = all.get(i);
+            running += st.nullnessNanos() + st.intervalNanos();
+            System.err.println("[dataflowStats]   " + (st.nullnessNanos() / 1_000_000L) + " ms nullness, "
+                    + (st.intervalNanos() / 1_000_000L) + " ms interval" + (st.intervalRan() ? "" : " (skipped)")
+                    + ", " + st.blocks() + " blocks, " + st.instructions() + " instructions: " + st.name());
+        }
+        System.err.println("[dataflowStats] the slowest " + Math.min(15, all.size()) + " functions: "
+                + running / 1_000_000L + " ms of " + (nullness + interval) / 1_000_000L + " ms");
+    }
+
     private static long intervalCost(final IRFunction fn) {
         long instructions = 0;
         for (final var block : fn.blocks()) {
@@ -390,15 +436,34 @@ public class FunctionEmitter {
         try {
             final var nullnessAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis();
             final var intervalAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis();
+            final long statsStart = System.nanoTime();
             final var nullnessResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
                     fn, nullnessAnalysis);
+            final long statsNullness = System.nanoTime() - statsStart;
             // The intervals only remove bounds checks. Every block holds a map with an interval per variable, so the
             // cost grows with blocks x variables: on a huge function (a generated initializer, a parser table) it
             // takes minutes for nothing. -Dnabu.intervalCost=<n> sets the limit.
-            final var intervalResult = intervalCost(fn) > INTERVAL_COST_LIMIT ? null
-                    : io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(fn, intervalAnalysis);
+            final boolean intervalTooCostly = intervalCost(fn) > INTERVAL_COST_LIMIT;
             instructions.setNullnessResult(nullnessResult);
-            instructions.setIntervalResult(intervalResult);
+            // The intervals are worked out when a bounds check asks for them (see InstructionEmitter).
+            instructions.setIntervalSupplier(() -> {
+                if (intervalTooCostly) {
+                    return null;
+                }
+                final long intervalStart = System.nanoTime();
+                try {
+                    return io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(fn, intervalAnalysis);
+                } catch (Throwable t) {
+                    return null; // conservative: the bounds checks stay
+                } finally {
+                    if (DATAFLOW_STATS) {
+                        recordDataflow(fn, 0, System.nanoTime() - intervalStart, true);
+                    }
+                }
+            });
+            if (DATAFLOW_STATS) {
+                recordDataflow(fn, statsNullness, 0, false);
+            }
         } catch (Throwable t) {
             // Conservatief: bij falen geen optimalisatie, checks blijven.
             instructions.setNullnessResult(null);

@@ -154,13 +154,16 @@ public class IntervalAnalysis implements DataFlowAnalysis<Map<String, Interval>>
     public Map<String, Interval> meet(Map<String, Interval> a, Map<String, Interval> b) {
         // The join of a map with itself is that map: most joins on a straight path are of equal maps.
         if (a == b || a.equals(b)) return a;
-        final var r = new LinkedHashMap<>(a);
-        final var keys = new LinkedHashSet<>(a.keySet());
-        keys.addAll(b.keySet());
-        for (final var k : keys) {
-            final Interval va = a.getOrDefault(k, Interval.top());
-            final Interval vb = b.getOrDefault(k, Interval.top());
-            r.put(k, joinInterval(va, vb));
+        // One pass, one map: a variable that only one side knows is top (the join with the top of the other side is
+        // top, also for bottom), so only the variables of both sides need a join. The order of the keys is that of
+        // a, then the new ones of b.
+        final var r = new LinkedHashMap<String, Interval>((int) ((a.size() + b.size()) / 0.75f) + 1);
+        for (final var e : a.entrySet()) {
+            final Interval vb = b.get(e.getKey());
+            r.put(e.getKey(), vb == null ? Interval.top() : joinInterval(e.getValue(), vb));
+        }
+        for (final var k : b.keySet()) {
+            if (!a.containsKey(k)) r.put(k, Interval.top());
         }
         return r;
     }

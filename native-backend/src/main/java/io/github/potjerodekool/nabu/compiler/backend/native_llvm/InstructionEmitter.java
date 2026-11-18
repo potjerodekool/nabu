@@ -74,6 +74,8 @@ public class InstructionEmitter {
     private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis intervalAnalysis;
     private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> nullnessResult;
     private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> intervalResult;
+    private java.util.function.Supplier<io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>>> intervalSupplier;
+    private boolean intervalAsked;
     private String currentIrBlockLabel;
     /** Lengtes van stack-arrays (AllocaArray) met constante grootte. */
     private final java.util.Map<LLVMValueRef, Long> arrayLengths = new java.util.HashMap<>();
@@ -171,6 +173,26 @@ public class InstructionEmitter {
 
     public void setIntervalResult(io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> r) {
         this.intervalResult = r;
+        this.intervalSupplier = null;
+    }
+
+    /**
+     * The intervals of the function, worked out when a bounds check asks for them (an array of known length and an
+     * index that is a temp) and not before: most functions have no such check, and the analysis takes more time than
+     * the nullness analysis, on every function of the program.
+     */
+    public void setIntervalSupplier(java.util.function.Supplier<io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>>> supplier) {
+        this.intervalSupplier = supplier;
+        this.intervalResult = null;
+        this.intervalAsked = false;
+    }
+
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> intervalResult() {
+        if (intervalSupplier != null && !intervalAsked) {
+            intervalAsked = true;
+            intervalResult = intervalSupplier.get();
+        }
+        return intervalResult;
     }
 
     public void setCurrentIrBlock(String label) {
@@ -902,8 +924,9 @@ public class InstructionEmitter {
         }
         // Dataflow: als de index bewezen in-bounds is, sla de hele check over.
         boolean skipAll = false;
-        if (intervalResult != null && indexIr instanceof IRValue.Temp it) {
-            final var m = intervalResult.in(currentIrBlockLabel);
+        // (the analysis is only worked out for an array of known length: that is the only case it can remove the check)
+        if (indexIr instanceof IRValue.Temp it && arrayLengths.get(array) != null && intervalResult() != null) {
+            final var m = intervalResult().in(currentIrBlockLabel);
             if (m != null) {
                 final var iv = m.get(it.name());
                 if (iv != null && !iv.isTop() && !iv.isBottom()) {

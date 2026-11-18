@@ -1940,7 +1940,20 @@ for (IRModule m : modules) {
         if (Flags.hasFlag(field.flags(), Flags.VOLATILE) || Flags.hasFlag(field.flags(), Flags.PUBLIC)) {
             return true;
         }
+        if (readByTheRuntime(module, field)) {
+            return true;
+        }
         return reachability.isRead(field.name()) || reflectionKeeps(module, field);
+    }
+
+    /**
+     * A field that the C runtime reads by name and that no compiled code needs to read. {@code Reference.referent}:
+     * the runtime implements get0, refersTo0 and clear0 on it, and from JDK 25.0.5 {@code Reference.get()} calls
+     * {@code get0()} instead of reading the field itself, so no read of it was left in the program, the field was
+     * left out, and every {@code WeakReference.get()} (a ThreadLocal map is made of them) returned null.
+     */
+    private boolean readByTheRuntime(final IRModule module, final IRField field) {
+        return "referent".equals(field.name()) && "java/lang/ref/Reference".equals(normalizeInternalName(module.name));
     }
 
     /** Whether the reflection configuration of the batch makes this field reachable by name at run time. */

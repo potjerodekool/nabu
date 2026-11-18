@@ -70,6 +70,27 @@ class DeadFieldEliminationTest {
         return Files.readString(tempDir.resolve("out.ll"));
     }
 
+    /**
+     * The runtime reads Reference.referent by name (get0, refersTo0, clear0). From JDK 25.0.5 Reference.get() calls
+     * get0() and nothing in the program reads the field any more: it must stay (WeakReference.get() returned null,
+     * and with it every ThreadLocal of a thread that is not the main thread).
+     */
+    @Test
+    void theReferentOfAReferenceStaysForTheRuntime() throws Exception {
+        final IRBuilder b = new IRBuilder("java/lang/ref/Reference");
+        final IRType ref = new IRType.Ptr(IRType.I8, "Ljava/lang/ref/Reference;");
+        b.beginFunction("main", IRType.I32, List.of(), false);
+        final var obj = b.emitHeapAlloc("reference", ref);
+        final var referent = new IRValue.Named("referent", IRType.I32, ref, false, 0);
+        b.emitStore(new IRValue.Values(obj, referent), b.constInt(5));
+        b.emitReturn(b.constInt(0));
+        b.endFunction();
+        final IRModule m = b.build();
+        m.emitField(IRField.field(Flags.PRIVATE, "referent", IRType.I32, null));
+        final String ll = ll(m);
+        assertTrue(ll.contains(".field.referent"), "Reference.referent keeps its slot:\n" + ll);
+    }
+
     @Test
     void neverReadFieldLeavesTheStruct() throws Exception {
         final String ll = ll(box(Flags.PRIVATE, Flags.PRIVATE));

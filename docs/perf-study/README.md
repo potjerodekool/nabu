@@ -55,7 +55,7 @@ What the measurements say so far:
 | 3 | Inline type checks (class numbering) instead of a runtime call | +3-5% | 1 week | low |
 | 4 | Own middle-end before LLVM: whole-program type-flow analysis, devirtualization + inlining on receiver sets, escape analysis with scalar replacement, null/bounds check elimination | +30-50% | 2-3 months | high |
 | 5 | Precise generational GC, bump allocation, inline fast path; mostly-copying with a conservative stack (no LLVM stackmaps, no changes to jcl_lite.c) | +10%, RSS -15% | 1-2 months | high |
-| 6 | LLVM PGO (instrumented training run, indirect-call promotion). Needs a training workload; GraalVM CE has no PGO | +15-25% | 2-3 weeks | medium |
+| 6 | LLVM PGO (instrumented training run, indirect-call promotion). Needs a training workload; GraalVM CE has no PGO | +15-25% (done 2026-11-18: +35-50% on the petstore, see Lever 6 results) | 2-3 weeks | medium |
 | 7 | 32-bit compressed references (needs 5) | RSS -15% | 1-2 months | high |
 
 Cheap experiments first: O3 (`--opt AGGRESSIVE`), a higher inline threshold, a larger cross-partition import limit
@@ -383,6 +383,58 @@ What it showed on the petstore (`/pet/2`, 2026-11-17):
   `nabu_type_info_for` when annotation objects are made.
 - The class-initialization checks (5.4% of the exe's time as calls to `X.clinit.once`) and the `nabu_is_array`
   call before every virtual call on an `Object` receiver were found the same way and are now inline (+3 to 6% req/s).
+
+## Lever 6 results (2026-11-18, LLVM PGO and LLVM 22; Windows x86-64, one keep-alive client, 3000 requests per endpoint)
+
+Profile-guided optimization works: `-Dnabu.pgo=instrument` builds a program that counts the edges of every function
+and the targets of its indirect calls; `-Dnabu.pgo=<file>.profdata` builds with the counts as branch weights and
+function entry counts (pgo-instr-use) and promotes hot indirect calls to a guarded direct call (pgo-icall-prom).
+`runtime/nabu_profile_rt.c` writes the profile (`LLVM_PROFILE_FILE`, default `default.profraw`, also every
+`NABU_PROFILE_WRITE_EVERY` seconds for a server; `NABU_PROFILE_VERBOSE=1` reports each write).
+
+Recipe (the petstore; every step but the builds takes seconds):
+
+1. Build with `-Dnabu.pgo=instrument` (about 18 minutes at -O2).
+2. Run it under a training workload with `LLVM_PROFILE_FILE` set and let it write the profile (the petstore: 40 s of
+   `/pet/2`, `/pet/findByStatus?status=available`, `/store/inventory` in turn, 270k functions with counters).
+3. `llvm-profdata merge x.profraw -o x.profdata`, with the `llvm-profdata` of the same LLVM major version as the backend
+   (22). An older or newer major version writes or reads another indexed format and is refused.
+4. Build with `-Dnabu.pgo=x.profdata`.
+
+| petstore, -O2 | /pet/2 | findByStatus | inventory |
+|---|---|---|---|
+| LLVM 21, no PGO | 1530 | 1110 | 1020 |
+| LLVM 21 + PGO | 2060 | 1500 | 1520 |
+| LLVM 22, no PGO | 1660 | 1215 | 1130 |
+| LLVM 22 + PGO | 2060-2120 | 1515-1560 | 1475-1510 |
+| GraalVM native-image | 2049 | 1664 | 1682 |
+
+LLVM 22 alone is +9%; PGO adds little on top of that (the same level as PGO on LLVM 21, within the 5% noise of a run).
+The executable is 146 MB with a profile (151 MB without; the instrumented one is 257 MB).
+
+Endpoints the training never calls do not get slower: requests per second with and without the profile (LLVM 22, two
+runs each, no profile / profile):
+
+| endpoint (not in the training) | no profile | profile |
+|---|---|---|
+| GET /user/user1 | 1716-1873 | 1934-2043 |
+| GET /store/order/1 | 1702-1743 | 2049-2143 |
+| GET /pet/findByTags | 1324-1365 | 1581-1594 |
+| PUT /pet | 1315-1395 | 1597-1706 |
+| GET /pet/9999 (404) | 1571-1631 | 1905-1947 |
+
+Most of it is code the endpoints share with the trained ones (Spring MVC, Jackson, Hibernate, H2); code that no
+training request reaches has no profile and is compiled as before.
+
+Limits:
+
+- A profile belongs to the IR it was made from. After a change of the compiler or of the program, train again: a
+  function whose shape changed is left without a profile, the rest keeps it, and nothing tells you how much that is.
+- There is no profile to check in; the training run is part of the release build. A workload that is far from the real
+  one (other endpoints, other data) trains the wrong branches; measure an untrained path as above.
+- Verified on Windows x86-64 only. The profile runtime finds its data through section markers that differ per object
+  format; Linux and macOS are not tried.
+- Every native IT passes with `-Dnabu.pgo=instrument` (156/0, 2 skipped by platform).
 
 ## Phase 0 (do this first, on this machine)
 

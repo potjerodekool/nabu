@@ -32,6 +32,14 @@ class PartitionedCodegenSizingTest {
     }
 
     @Test
+    void halfTheThreadsSplitAtTheSameTimeAtMostTwo() {
+        assertEquals(1, PartitionedCodegen.splitThreads(1));
+        assertEquals(1, PartitionedCodegen.splitThreads(2));
+        assertEquals(2, PartitionedCodegen.splitThreads(4));
+        assertEquals(2, PartitionedCodegen.splitThreads(16));
+    }
+
+    @Test
     void theNumberOfPartitionsFollowsTheProcessorsAndStaysBetweenTwoAndEight() {
         final int p = PartitionedCodegen.partitionCount(100_000);
         assertTrue(p >= 2 && p <= 8, "partitions: " + p);

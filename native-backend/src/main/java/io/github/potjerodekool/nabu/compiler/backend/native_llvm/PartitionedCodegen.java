@@ -480,6 +480,7 @@ final class PartitionedCodegen {
         final int threads = codegenThreads(partitions, definedFunctions);
         System.err.println("[NativeLLVMBackend] code generation: " + threads + " of " + partitions
                 + " partitions at a time (" + definedFunctions + " functions)");
+        splitLock = new java.util.concurrent.Semaphore(splitThreads(threads));
         final ExecutorService pool = Executors.newFixedThreadPool(threads, r -> {
             final Thread t = new Thread(r, "nabu-llvm-codegen");
             t.setDaemon(true);
@@ -517,8 +518,21 @@ final class PartitionedCodegen {
      * size of the program: all partitions doing that at the same time hold N copies of it. One at a time; the
      * optimization and the code generation of the (small) remainders do run in parallel.
      */
-    private final java.util.concurrent.Semaphore splitLock =
-            new java.util.concurrent.Semaphore(Math.max(1, Integer.getInteger("nabu.llvm.splitThreads", 1)));
+    private java.util.concurrent.Semaphore splitLock = new java.util.concurrent.Semaphore(1);
+
+    /**
+     * How many partitions read and trim the whole program at the same time: {@code nabu.llvm.splitThreads}, or half
+     * the code generation threads, at most 2. (The petstore at -O2 with 4 threads: one at a time 280 s for the
+     * optimization and code generation and 13.0 GB; two 258 s and 15.0 GB; four 299 s and 17.3 GB, the partitions then
+     * compete for the memory bandwidth.)
+     */
+    static int splitThreads(final int codegenThreads) {
+        final Integer configured = Integer.getInteger("nabu.llvm.splitThreads");
+        if (configured != null) {
+            return Math.max(1, configured);
+        }
+        return Math.max(1, Math.min(2, codegenThreads / 2));
+    }
 
     private void compilePartition(final int partition,
                                   final Path bitcodeFile,

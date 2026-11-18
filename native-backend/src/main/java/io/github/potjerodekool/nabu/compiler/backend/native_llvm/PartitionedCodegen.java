@@ -471,7 +471,8 @@ final class PartitionedCodegen {
      * size of the program: all partitions doing that at the same time hold N copies of it. One at a time; the
      * optimization and the code generation of the (small) remainders do run in parallel.
      */
-    private final java.util.concurrent.locks.ReentrantLock splitLock = new java.util.concurrent.locks.ReentrantLock();
+    private final java.util.concurrent.Semaphore splitLock =
+            new java.util.concurrent.Semaphore(Math.max(1, Integer.getInteger("nabu.llvm.splitThreads", 1)));
 
     private void compilePartition(final int partition,
                                   final Path bitcodeFile,
@@ -490,7 +491,7 @@ final class PartitionedCodegen {
             final long t0;
             final long t1;
             final long tp = System.nanoTime();
-            splitLock.lock();
+            splitLock.acquireUninterruptibly();
             final long tl = System.nanoTime();
             try {
                 if (LLVMParseBitcodeInContext2(ctx, buffer, mod) != 0) {
@@ -504,7 +505,7 @@ final class PartitionedCodegen {
                 keepPartition(mod, partition);
                 t1 = System.nanoTime();
             } finally {
-                splitLock.unlock();
+                splitLock.release();
             }
 
             final BytePointer err = new BytePointer();

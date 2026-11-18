@@ -328,7 +328,7 @@ public class Linker {
         }
         // PGO profile runtime: linked when -Dnabu.pgo.pipeline starts with pgo-instr-gen
         String pgoPipeline = System.getProperty("nabu.pgo.pipeline");
-        if (pgoPipeline != null && pgoPipeline.startsWith("pgo-instr-gen")) {
+        if ((pgoPipeline != null && pgoPipeline.startsWith("pgo-instr-gen")) || NativeLLVMBackend.pgoInstrument()) {
             Path profileRt = main.resolveSibling("nabu_profile_rt.c");
             if (java.nio.file.Files.exists(profileRt)) srcs.add(profileRt);
         }

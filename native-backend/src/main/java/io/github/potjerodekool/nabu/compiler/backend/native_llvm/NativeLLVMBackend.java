@@ -17,6 +17,7 @@ import org.bytedeco.llvm.LLVM.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.bytedeco.llvm.global.LLVM.*;
@@ -57,16 +58,51 @@ public class NativeLLVMBackend implements Backend {
      * x86 only (an unknown option makes LLVM exit the process); -Dnabu.alignBranches=true|false overrides.
      */
     private static void alignBranches(final int moduleCount) {
+        final List<String> options = new ArrayList<>();
         final String arch = System.getProperty("os.arch", "");
-        if (!arch.equals("amd64") && !arch.equals("x86_64")) {
+        if (arch.equals("amd64") || arch.equals("x86_64")) {
+            final String prop = System.getProperty("nabu.alignBranches");
+            final boolean on = prop != null ? Boolean.parseBoolean(prop) : moduleCount <= 2000;
+            options.add("-x86-branches-within-32B-boundaries=" + on);
+        }
+        // The profile of a PGO build: pgo-instr-use reads it from this option (the C API has no PGO options).
+        final String profile = pgoProfile();
+        if (profile != null) {
+            options.add("-pgo-test-profile-file=" + profile);
+        }
+        if (options.isEmpty()) {
             return;
         }
-        final String prop = System.getProperty("nabu.alignBranches");
-        final boolean on = prop != null ? Boolean.parseBoolean(prop) : moduleCount <= 2000;
-        final org.bytedeco.javacpp.PointerPointer<BytePointer> argv = new org.bytedeco.javacpp.PointerPointer<>(2);
+        final org.bytedeco.javacpp.PointerPointer<BytePointer> argv =
+                new org.bytedeco.javacpp.PointerPointer<>(options.size() + 1);
         argv.put(0, new BytePointer("nabu"));
-        argv.put(1, new BytePointer("-x86-branches-within-32B-boundaries=" + on));
-        LLVMParseCommandLineOptions(2, argv, new BytePointer("nabu"));
+        for (int i = 0; i < options.size(); i++) {
+            argv.put(i + 1, new BytePointer(options.get(i)));
+        }
+        LLVMParseCommandLineOptions(options.size() + 1, argv, new BytePointer("nabu"));
+    }
+
+    /**
+     * Profile-guided optimization, {@code -Dnabu.pgo=instrument} or {@code -Dnabu.pgo=<file>.profdata}.
+     *
+     * <p>{@code instrument}: every function counts its edges and the targets of its indirect calls (pgo-instr-gen,
+     * then instrprof lowers the counters into the profile sections), and the program is linked with
+     * {@code runtime/nabu_profile_rt.c}, which writes {@code LLVM_PROFILE_FILE} (default.profraw) when it ends, or every
+     * {@code NABU_PROFILE_WRITE_EVERY} seconds. {@code docs/perf-study/pgo_merge.py} turns that into a .profdata that
+     * this LLVM reads.
+     *
+     * <p>A .profdata: the counts become branch weights and function entry counts (pgo-instr-use), and an indirect call
+     * whose profile names a hot target becomes a check of the target with a direct, inlinable call
+     * (pgo-icall-prom). The IR must be the IR that was instrumented (the same program, the same compiler); a function
+     * whose shape changed is left without profile. Both run before the usual pipeline.
+     */
+    static boolean pgoInstrument() {
+        return "instrument".equals(System.getProperty("nabu.pgo"));
+    }
+
+    private static String pgoProfile() {
+        final String value = System.getProperty("nabu.pgo");
+        return value != null && !value.isBlank() && !value.equals("instrument") ? value : null;
     }
 
     @Override
@@ -639,7 +675,16 @@ public class NativeLLVMBackend implements Backend {
         //   instrument: pgo-instr-gen,default<O2>
         //   use:        pgo-instr-use</abs/path/to/profile.profdata>,default<O2>
         String pgoPipeline = System.getProperty("nabu.pgo.pipeline");
-        return pgoPipeline != null && !pgoPipeline.isBlank() ? pgoPipeline : pipeline(level);
+        if (pgoPipeline != null && !pgoPipeline.isBlank()) {
+            return pgoPipeline;
+        }
+        if (pgoInstrument()) {
+            return "pgo-instr-gen,instrprof," + pipeline(level);
+        }
+        if (pgoProfile() != null) {
+            return "pgo-instr-use,pgo-icall-prom," + pipeline(level);
+        }
+        return pipeline(level);
     }
 
     private static String pipeline(CompileOptions.OptLevel level) {

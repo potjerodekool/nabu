@@ -13,7 +13,9 @@ Usage:
 A .profraw is first converted with `llvm-profdata merge --text` (PATH, $LLVM_PROFDATA, or the default LLVM install).
 """
 
+import bisect
 import hashlib
+import itertools
 import os
 import struct
 import subprocess
@@ -118,7 +120,7 @@ def _is_int(text: str) -> bool:
 
 def _value_prof_data(record: FuncRecord) -> bytes:
     """ValueProfData::serializeFrom: TotalSize, NumValueKinds, then a ValueProfRecord per kind with sites."""
-    body = b""
+    body = bytearray()
     kinds = 0
     for kind in range(IPVK_LAST + 1):
         sites = record.values.get(kind)
@@ -131,7 +133,7 @@ def _value_prof_data(record: FuncRecord) -> bytes:
                                     else int(target), count)
                         for site in sites for target, count in site[:255])
         body += header + data
-    return struct.pack("<II", 8 + len(body), kinds) + body
+    return struct.pack("<II", 8 + len(body), kinds) + bytes(body)
 
 
 def write_indexed(path: str, records: List[FuncRecord]) -> None:
@@ -190,7 +192,7 @@ def _build_hash_table(entries: List[Tuple[bytes, bytes, int]], file_base: int) -
     for key, data, h in entries:
         buckets[h & (num_buckets - 1)].append((key, data, h))
 
-    payload = b"\x00"                 # offset 0 means "empty bucket", so no bucket may start there
+    payload = bytearray(b"\x00")      # offset 0 means "empty bucket", so no bucket may start there
     bucket_offsets = [0] * num_buckets
     for i, bucket in enumerate(buckets):
         if not bucket:
@@ -198,12 +200,14 @@ def _build_hash_table(entries: List[Tuple[bytes, bytes, int]], file_base: int) -
         bucket_offsets[i] = file_base + len(payload)
         payload += struct.pack("<H", len(bucket))
         for key, data, h in bucket:
-            payload += struct.pack("<QQQ", h, len(key), len(data)) + key + data
+            payload += struct.pack("<QQQ", h, len(key), len(data))
+            payload += key
+            payload += data
     payload += b"\x00" * (-len(payload) % 8)
     meta_offset = len(payload)
     payload += struct.pack("<QQ", num_buckets, n)
-    payload += b"".join(struct.pack("<Q", off) for off in bucket_offsets)
-    return payload, meta_offset
+    payload += struct.pack(f"<{num_buckets}Q", *bucket_offsets)
+    return bytes(payload), meta_offset
 
 
 def _build_summary(records: List[FuncRecord]) -> bytes:
@@ -216,17 +220,14 @@ def _build_summary(records: List[FuncRecord]) -> bytes:
     out += struct.pack("<6Q", len(records), len(all_counts), max(entry_counts, default=0),
                        max(all_counts, default=0), max(internal, default=0), total_count)
     ordered = sorted(all_counts, reverse=True)
+    cumulative = list(itertools.accumulate(ordered))
     for cutoff in SUMMARY_CUTOFFS:
         # the smallest count such that the counts at or above it make up `cutoff` per million of the total
         needed = total_count * cutoff / 1_000_000
-        acc, num, min_count = 0, 0, 0
-        for c in ordered:
-            if acc >= needed and num > 0:
-                break
-            acc += c
-            num += 1
-            min_count = c
-        out += struct.pack("<QQQ", cutoff, min_count if ordered else 0, num if ordered else 0)
+        # take counts until the running total reaches `needed`
+        num = min(bisect.bisect_left(cumulative, needed) + 1, len(ordered)) if ordered else 0
+        min_count = ordered[num - 1] if ordered else 0
+        out += struct.pack("<QQQ", cutoff, min_count, num)
     return out
 
 

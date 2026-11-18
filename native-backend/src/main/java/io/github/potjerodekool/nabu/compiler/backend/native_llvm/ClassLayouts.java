@@ -1947,13 +1947,41 @@ for (IRModule m : modules) {
     }
 
     /**
-     * A field that the C runtime reads by name and that no compiled code needs to read. {@code Reference.referent}:
-     * the runtime implements get0, refersTo0 and clear0 on it, and from JDK 25.0.5 {@code Reference.get()} calls
-     * {@code get0()} instead of reading the field itself, so no read of it was left in the program, the field was
-     * left out, and every {@code WeakReference.get()} (a ThreadLocal map is made of them) returned null.
+     * The instance fields that the C runtime reaches by name ({@code nabu_instance_field_offset} in
+     * {@code runtime/jcl_lite.c}), by the internal name of the class that declares them. Dead-field elimination would
+     * leave out such a field when no compiled code reads it, and the runtime then finds no field: it used to be so
+     * with {@code Reference.referent}, which {@code Reference.get()} read itself until JDK 25.0.5 (from then on it
+     * calls the native {@code get0()}), and every {@code WeakReference.get()} returned null. The others are read by
+     * the code of the JDK as things are, which is no guarantee for the next JDK release.
+     *
+     * <p>A test ({@code DeadFieldEliminationTest}) fails when {@code jcl_lite.c} asks for a name that is not in
+     * this table.</p>
      */
+    static final Map<String, Set<String>> READ_BY_THE_RUNTIME = Map.ofEntries(
+            Map.entry("java/lang/ref/Reference", Set.of("referent")),
+            Map.entry("java/io/FileDescriptor", Set.of("fd")),
+            Map.entry("java/io/FileInputStream", Set.of("fd")),
+            Map.entry("java/io/FileOutputStream", Set.of("fd")),
+            Map.entry("java/io/RandomAccessFile", Set.of("fd")),
+            Map.entry("java/io/File", Set.of("path")),
+            Map.entry("java/net/InetAddress", Set.of("holder")),
+            Map.entry("java/net/InetAddress$InetAddressHolder", Set.of("address")),
+            Map.entry("java/net/Inet6Address", Set.of("holder6")),
+            Map.entry("java/net/Inet6Address$Inet6AddressHolder", Set.of("ipaddress", "scope_id")),
+            Map.entry("jdk/internal/vm/Continuation", Set.of("tail")),
+            // compiled_box_value: the value of a box of java.lang
+            Map.entry("java/lang/Boolean", Set.of("value")),
+            Map.entry("java/lang/Byte", Set.of("value")),
+            Map.entry("java/lang/Character", Set.of("value")),
+            Map.entry("java/lang/Short", Set.of("value")),
+            Map.entry("java/lang/Integer", Set.of("value")),
+            Map.entry("java/lang/Long", Set.of("value")),
+            Map.entry("java/lang/Float", Set.of("value")),
+            Map.entry("java/lang/Double", Set.of("value")));
+
     private boolean readByTheRuntime(final IRModule module, final IRField field) {
-        return "referent".equals(field.name()) && "java/lang/ref/Reference".equals(normalizeInternalName(module.name));
+        final Set<String> names = READ_BY_THE_RUNTIME.get(normalizeInternalName(module.name));
+        return names != null && names.contains(field.name());
     }
 
     /** Whether the reflection configuration of the batch makes this field reachable by name at run time. */

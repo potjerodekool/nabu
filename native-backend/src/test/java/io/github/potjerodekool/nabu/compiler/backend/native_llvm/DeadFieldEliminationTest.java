@@ -70,25 +70,59 @@ class DeadFieldEliminationTest {
         return Files.readString(tempDir.resolve("out.ll"));
     }
 
-    /**
-     * The runtime reads Reference.referent by name (get0, refersTo0, clear0). From JDK 25.0.5 Reference.get() calls
-     * get0() and nothing in the program reads the field any more: it must stay (WeakReference.get() returned null,
-     * and with it every ThreadLocal of a thread that is not the main thread).
-     */
-    @Test
-    void theReferentOfAReferenceStaysForTheRuntime() throws Exception {
-        final IRBuilder b = new IRBuilder("java/lang/ref/Reference");
-        final IRType ref = new IRType.Ptr(IRType.I8, "Ljava/lang/ref/Reference;");
+    /** A class whose only use of the field is a store: no compiled code reads it. */
+    private IRModule writeOnly(final String internalName, final String field) {
+        final IRBuilder b = new IRBuilder(internalName);
+        final IRType type = new IRType.Ptr(IRType.I8, "L" + internalName + ";");
         b.beginFunction("main", IRType.I32, List.of(), false);
-        final var obj = b.emitHeapAlloc("reference", ref);
-        final var referent = new IRValue.Named("referent", IRType.I32, ref, false, 0);
-        b.emitStore(new IRValue.Values(obj, referent), b.constInt(5));
+        final var obj = b.emitHeapAlloc("object", type);
+        final var named = new IRValue.Named(field, IRType.I32, type, false, 0);
+        b.emitStore(new IRValue.Values(obj, named), b.constInt(5));
         b.emitReturn(b.constInt(0));
         b.endFunction();
         final IRModule m = b.build();
-        m.emitField(IRField.field(Flags.PRIVATE, "referent", IRType.I32, null));
-        final String ll = ll(m);
-        assertTrue(ll.contains(".field.referent"), "Reference.referent keeps its slot:\n" + ll);
+        m.emitField(IRField.field(Flags.PRIVATE, field, IRType.I32, null));
+        return m;
+    }
+
+    /**
+     * The fields that the runtime reads by name stay in the struct, also when nothing else reads them. From JDK
+     * 25.0.5 Reference.get() calls the native get0() and nothing in the program read Reference.referent any more:
+     * it was left out, WeakReference.get() returned null, and with it every ThreadLocal of a thread that is not the
+     * main thread.
+     */
+    @Test
+    void theFieldsTheRuntimeReadsByNameStay() throws Exception {
+        for (final var entry : ClassLayouts.READ_BY_THE_RUNTIME.entrySet()) {
+            for (final String field : entry.getValue()) {
+                final String ll = ll(writeOnly(entry.getKey(), field));
+                assertTrue(ll.contains(".field." + field), entry.getKey() + "." + field + " keeps its slot:\n" + ll);
+            }
+        }
+    }
+
+    /** Whatever jcl_lite.c asks nabu_instance_field_offset for is in ClassLayouts.READ_BY_THE_RUNTIME. */
+    @Test
+    void everyFieldNameOfTheRuntimeIsInTheTable() throws Exception {
+        Path dir = Path.of("").toAbsolutePath();
+        while (dir != null && !Files.isRegularFile(dir.resolve("runtime/jcl_lite.c"))) {
+            dir = dir.getParent();
+        }
+        org.junit.jupiter.api.Assumptions.assumeTrue(dir != null, "runtime/jcl_lite.c not found above the test directory");
+        final String source = Files.readString(dir.resolve("runtime/jcl_lite.c"), java.nio.charset.StandardCharsets.UTF_8);
+        final var matcher = java.util.regex.Pattern.compile("nabu_instance_field_offset\\([^,]+,\\s*\"([A-Za-z0-9_]+)\"\\)")
+                .matcher(source);
+        final java.util.Set<String> asked = new java.util.TreeSet<>();
+        while (matcher.find()) {
+            asked.add(matcher.group(1));
+        }
+        assertFalse(asked.isEmpty(), "no nabu_instance_field_offset call found: the pattern does not match any more");
+        final java.util.Set<String> known = new java.util.HashSet<>();
+        ClassLayouts.READ_BY_THE_RUNTIME.values().forEach(known::addAll);
+        final java.util.Set<String> missing = new java.util.TreeSet<>(asked);
+        missing.removeAll(known);
+        assertTrue(missing.isEmpty(),
+                "jcl_lite.c reads these fields by name, add them to ClassLayouts.READ_BY_THE_RUNTIME: " + missing);
     }
 
     @Test

@@ -1,0 +1,60 @@
+name: JDK diff (diagnostic)
+
+# Lists the classes of java.base that differ between two JDK patch releases (by hand). Used to find what a Nabu
+# runtime patch or substitution depends on when a new JDK patch release breaks a test.
+on:
+  workflow_dispatch:
+    inputs:
+      old:
+        description: 'older JDK (setup-java java-version)'
+        default: '25.0.4'
+      new:
+        description: 'newer JDK (setup-java java-version)'
+        default: '25.0.5'
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: "${{ inputs.old }}"
+      - name: Old classes
+        run: |
+          java -version 2> old-version.txt
+          jimage extract --dir old-classes --include 'regex:/java.base/.*' "$JAVA_HOME/lib/modules"
+          (cd old-classes/java.base && find . -type f -name '*.class' | sort | xargs sha256sum) > old.sha
+          wc -l old.sha
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: "${{ inputs.new }}"
+      - name: New classes and the difference
+        run: |
+          java -version 2> new-version.txt
+          jimage extract --dir new-classes --include 'regex:/java.base/.*' "$JAVA_HOME/lib/modules"
+          (cd new-classes/java.base && find . -type f -name '*.class' | sort | xargs sha256sum) > new.sha
+          wc -l new.sha
+          mkdir out
+          cp old-version.txt new-version.txt out/
+          diff old.sha new.sha | grep '^[<>]' | awk '{print $1, $3}' | sed 's|\./||' | sort -k2 > out/changed.txt || true
+          wc -l out/changed.txt
+          # the bytecode of every changed class, old and new, to read
+          mkdir out/old out/new
+          awk '{print $2}' out/changed.txt | sort -u | while read -r f; do
+            for side in old new; do
+              if [ -f "$side-classes/java.base/$f" ]; then
+                mkdir -p "out/$side/$(dirname "$f")"
+                javap -p -c -constants "$side-classes/java.base/$f" > "out/$side/${f%.class}.txt" 2>/dev/null || true
+              fi
+            done
+          done
+          cat out/changed.txt | head -100
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jdk-diff
+          path: out/*

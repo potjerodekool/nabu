@@ -391,10 +391,21 @@ static pthread_once_t nabu_rt_once = PTHREAD_ONCE_INIT;
 static void nabu_sigsegv_handler(int sig, siginfo_t *si, void *ctx) {
     ucontext_t *uc = (ucontext_t *)ctx;
     void *fault_addr = si->si_addr;
-    void *rip = (void *)uc->uc_mcontext.gregs[REG_RIP];
-    void *rax = (void *)uc->uc_mcontext.gregs[REG_RAX];
-    void *r13 = (void *)uc->uc_mcontext.gregs[REG_R13];
-    dprintf(2, "[nabu crash] sig=%d fault_addr=%p rip=%p rax(itable?)=%p r13(obj?)=%p\n",
+    /* The registers of the fault: where the code is, and the two the compiled code keeps an itable and an object in.
+     * The names of the registers are those of the processor and the system; elsewhere they are left out (NULL). */
+    void *rip = NULL, *rax = NULL, *r13 = NULL;
+#if defined(__linux__) && defined(__x86_64__)
+    rip = (void *)uc->uc_mcontext.gregs[REG_RIP];
+    rax = (void *)uc->uc_mcontext.gregs[REG_RAX];
+    r13 = (void *)uc->uc_mcontext.gregs[REG_R13];
+#elif defined(__linux__) && defined(__aarch64__)
+    rip = (void *)uc->uc_mcontext.pc;
+    rax = (void *)uc->uc_mcontext.regs[0];
+    r13 = (void *)uc->uc_mcontext.regs[13];
+#else
+    (void)uc;
+#endif
+    dprintf(2, "[nabu crash] sig=%d fault_addr=%p pc=%p r0/rax(itable?)=%p r13(obj?)=%p\n",
             sig, fault_addr, rip, rax, r13);
     void *bt[32];
     int n = backtrace(bt, 32);

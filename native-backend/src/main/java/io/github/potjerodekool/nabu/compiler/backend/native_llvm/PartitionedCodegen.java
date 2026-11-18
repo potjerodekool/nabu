@@ -59,6 +59,8 @@ final class PartitionedCodegen {
     private static final boolean TIMING = Boolean.getBoolean("nabu.llvm.partitionTiming");
 
     private final int partitions;
+    /** The function bodies of the program, counted before the module is released (the size of the work). */
+    private int definedFunctions;
     private final Map<Long, Integer> functionOwner = new HashMap<>();
     private final Map<Long, Integer> globalOwner = new HashMap<>();
     private final Map<String, Integer> functionOwnerByName = new HashMap<>();
@@ -74,10 +76,12 @@ final class PartitionedCodegen {
     /**
      * The number of partitions for a module with {@code definedFunctions}
      * function bodies: 1 for small modules (unit tests), otherwise the
-     * system property {@code nabu.llvm.partitions} or half the number of
-     * logical processors, at most 16. (On an 8-core machine with
-     * hyper-threading, 8 partitions are clearly faster than 16: the
-     * partitions compete for the same cores and memory bandwidth.)
+     * system property {@code nabu.llvm.partitions} or a quarter of the number of
+     * logical processors, at least 2 and at most 8. (Measured on the petstore
+     * at -O2, 8 cores with hyper-threading: 4 partitions on 4 threads build in
+     * 8 min 14 s, 8 partitions on 4 threads in 10 min 15 s: every partition
+     * gets a copy of the small functions it calls, so more partitions is more
+     * work in total; a program in 2 partitions on one thread took 14 min 56 s.)
      */
     static int partitionCount(final int definedFunctions) {
         final String configured = System.getProperty("nabu.llvm.partitions");
@@ -91,7 +95,7 @@ final class PartitionedCodegen {
         if (definedFunctions < 2000) {
             return 1;
         }
-        return Math.max(2, Math.min(16, Runtime.getRuntime().availableProcessors() / 2));
+        return Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors() / 4));
     }
 
     static int countDefinedFunctions(final LLVMModuleRef mod) {
@@ -118,6 +122,7 @@ final class PartitionedCodegen {
                               final List<Path> objectFiles,
                               final Runnable releaseModule) throws CompileException {
         final var codegen = new PartitionedCodegen(partitions);
+        codegen.definedFunctions = countDefinedFunctions(mod);
         final long t0 = System.nanoTime();
         codegen.assignOwners(mod);
         // The bitcode goes to a file that every partition maps: the pages are file backed (the operating system
@@ -414,8 +419,12 @@ final class PartitionedCodegen {
     // Per partition (own context, own thread)
     // -------------------------------------------------------
 
-    /** The number of partitions that are compiled at the same time: {@code nabu.llvm.codegenThreads}, at most {@code partitions}. */
-    static int codegenThreads(final int partitions) {
+    /**
+     * The number of partitions that are compiled at the same time: {@code nabu.llvm.codegenThreads}, at most
+     * {@code partitions}; without the property as many as the memory of the machine allows
+     * ({@link #threadsForMemory}).
+     */
+    static int codegenThreads(final int partitions, final int definedFunctions) {
         final String configured = System.getProperty("nabu.llvm.codegenThreads");
         if (configured != null) {
             try {
@@ -424,7 +433,41 @@ final class PartitionedCodegen {
                 // fall through to the default
             }
         }
-        return partitions;
+        return Math.max(1, Math.min(partitions, threadsForMemory(physicalMemory(), definedFunctions)));
+    }
+
+    /** Bytes of memory that one partition in flight takes, per function of the program (the petstore: 3.5 GB for 200000). */
+    private static final long BYTES_PER_FUNCTION = 16 * 1024L;
+
+    /** The share of the physical memory that the code generation may use; the rest is for the system and this JVM. */
+    private static final double MEMORY_SHARE = 0.5;
+
+    /**
+     * How many partitions fit in memory at the same time: the memory the code generation may use, less 1 GB for the
+     * rest of the build, divided by what one partition takes (about 16 KB per function of the program, at least
+     * 512 MB). The petstore (about 200000 functions) takes 15.6 GB with 4 partitions at once: 4 threads on a 32 GB
+     * machine, 2 on 16 GB.
+     */
+    static int threadsForMemory(final long physicalBytes, final int definedFunctions) {
+        if (physicalBytes <= 0) {
+            return 2;
+        }
+        final long perPartition = Math.max(512L << 20, definedFunctions * BYTES_PER_FUNCTION);
+        final long budget = (long) (physicalBytes * MEMORY_SHARE) - (1L << 30);
+        return (int) Math.max(1, Math.min(64, budget / perPartition));
+    }
+
+    /** The physical memory of the machine in bytes; 0 when this JVM cannot tell. */
+    private static long physicalMemory() {
+        try {
+            if (java.lang.management.ManagementFactory.getOperatingSystemMXBean()
+                    instanceof com.sun.management.OperatingSystemMXBean os) {
+                return os.getTotalMemorySize();
+            }
+        } catch (final RuntimeException | LinkageError e) {
+            // jdk.management is not there: unknown
+        }
+        return 0;
     }
 
     private void compilePartitions(final Path bitcodeFile,
@@ -434,7 +477,10 @@ final class PartitionedCodegen {
         // Every partition in flight holds its share of the program (functions, and the code generator's own data):
         // all partitions at once is the whole program again. -Dnabu.llvm.codegenThreads=1 compiles them one by one,
         // for a program that is too big for the memory of the machine.
-        final ExecutorService pool = Executors.newFixedThreadPool(codegenThreads(partitions), r -> {
+        final int threads = codegenThreads(partitions, definedFunctions);
+        System.err.println("[NativeLLVMBackend] code generation: " + threads + " of " + partitions
+                + " partitions at a time (" + definedFunctions + " functions)");
+        final ExecutorService pool = Executors.newFixedThreadPool(threads, r -> {
             final Thread t = new Thread(r, "nabu-llvm-codegen");
             t.setDaemon(true);
             return t;

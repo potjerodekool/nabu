@@ -8176,8 +8176,22 @@ BIND(int32_t, jcl_EPoll_eventSize, "sun.nio.ch.EPoll_eventSize", (void)) {
     return 12;
 #endif
 }
-BIND(int32_t, jcl_EPoll_eventsOffset, "sun.nio.ch.EPoll_eventsOffset", (void)) { return 0; }
-BIND(int32_t, jcl_EPoll_dataOffset, "sun.nio.ch.EPoll_dataOffset", (void)) { return 4; }
+/* The offsets of the structure of this system: packed on x86-64 (events 0, data 4, size 12), not packed on aarch64
+ * (events 0, data 8, size 16). A fixed 4 made the selector read the descriptor of an event from the padding on arm64. */
+BIND(int32_t, jcl_EPoll_eventsOffset, "sun.nio.ch.EPoll_eventsOffset", (void)) {
+#ifdef __linux__
+    return (int32_t)offsetof(struct epoll_event, events);
+#else
+    return 0;
+#endif
+}
+BIND(int32_t, jcl_EPoll_dataOffset, "sun.nio.ch.EPoll_dataOffset", (void)) {
+#ifdef __linux__
+    return (int32_t)offsetof(struct epoll_event, data);
+#else
+    return 4;
+#endif
+}
 BIND(int32_t, jcl_EPoll_create, "sun.nio.ch.EPoll_create", (void)) {
 #ifdef __linux__
     int fd = epoll_create1(EPOLL_CLOEXEC);

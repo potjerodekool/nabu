@@ -88,8 +88,8 @@ public class NativeLLVMBackend implements Backend {
      * <p>{@code instrument}: every function counts its edges and the targets of its indirect calls (pgo-instr-gen,
      * then instrprof lowers the counters into the profile sections), and the program is linked with
      * {@code runtime/nabu_profile_rt.c}, which writes {@code LLVM_PROFILE_FILE} (default.profraw) when it ends, or every
-     * {@code NABU_PROFILE_WRITE_EVERY} seconds. {@code docs/perf-study/pgo_merge.py} turns that into a .profdata that
-     * this LLVM reads.
+     * {@code NABU_PROFILE_WRITE_EVERY} seconds. {@code llvm-profdata merge} (of the same LLVM major version as this
+     * backend, 22) turns that into a .profdata.
      *
      * <p>A .profdata: the counts become branch weights and function entry counts (pgo-instr-use), and an indirect call
      * whose profile names a hot target becomes a check of the target with a direct, inlinable call

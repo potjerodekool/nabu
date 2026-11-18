@@ -11,7 +11,7 @@ The LLVM backend turns a Nabu or Java program into a native executable. This pag
 
 ## What the backend needs
 
-You do **not** need to install LLVM itself. The backend uses LLVM through the [Bytedeco](https://github.com/bytedeco/javacpp-presets/tree/master/llvm) Java bindings (`org.bytedeco:llvm` 21.1.8), which ship the native LLVM libraries inside a jar. LLVM produces an object file in-process.
+You do **not** need to install LLVM itself. The backend uses LLVM through the [Bytedeco](https://github.com/bytedeco/javacpp-presets/tree/master/llvm) Java bindings (`org.bytedeco:llvm` 22.1.8), which ship the native LLVM libraries inside a jar. LLVM produces an object file in-process.
 
 To turn that object file into an executable, Nabu calls a **C compiler**. It compiles the Nabu C runtime (`nabu_runtime.c` and `jcl_lite.c`) and links everything together. Which compiler depends on the platform:
 

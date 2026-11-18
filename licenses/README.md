@@ -11,8 +11,8 @@ the table says where each one came from.
 | `ASM-BSD-3-Clause.txt` | ASM 9.8 | `LICENSE.txt`, <https://gitlab.ow2.org/asm/asm> (master) |
 | `abego-TreeLayout-BSD-3-Clause.txt` | abego TreeLayout 1.0.3 | `LICENSE`, <https://github.com/abego/treelayout> (master) |
 | `ICU4J-Unicode-License.txt` | ICU4J 72.1 | the file `LICENSE` inside `icu4j-72.1.jar` |
-| `LLVM-Apache-2.0-with-LLVM-exception.txt` | LLVM and Clang 21.1.8 | `llvm/LICENSE.TXT` at tag llvmorg-21.1.8, <https://github.com/llvm/llvm-project> |
-| `JavaCPP-Apache-2.0-or-GPL-2.0-with-Classpath-Exception.txt` | JavaCPP and the JavaCPP Presets for LLVM 1.5.13 | `LICENSE.txt` at tag 1.5.13, <https://github.com/bytedeco/javacpp> |
+| `LLVM-Apache-2.0-with-LLVM-exception.txt` | LLVM and Clang 22.1.8 | `llvm/LICENSE.TXT` at tag llvmorg-22.1.8, <https://github.com/llvm/llvm-project> |
+| `JavaCPP-Apache-2.0-or-GPL-2.0-with-Classpath-Exception.txt` | JavaCPP and the JavaCPP Presets for LLVM 1.5.14 | `LICENSE.txt` at tag 1.5.14, <https://github.com/bytedeco/javacpp> |
 | `Boehm-GC-8.2.12-license.txt` | Boehm-Demers-Weiser GC 8.2.12 | the section "Copyright & Warranty" of `README.md` at tag v8.2.12, <https://github.com/ivmai/bdwgc> |
 | `MinGW-w64-winpthreads.txt` | winpthreads of MinGW-w64 | `mingw-w64-libraries/winpthreads/COPYING`, <https://github.com/mingw-w64/mingw-w64> (master) |
 | `GCC-Runtime-Library-Exception-3.1.txt`, `GPL-3.0.txt` | libgcc (GCC Runtime Library Exception and the GPL it refers to) | `COPYING.RUNTIME` and `COPYING3`, <https://github.com/gcc-mirror/gcc> (master) |

@@ -120,7 +120,7 @@ public class GlobalEmitter {
         globalValueMap.put("@" + name, global);
     }
 
-    // LLVMGetModuleContext is beschikbaar in LLVM 21
+    // LLVMGetModuleContext is beschikbaar in LLVM 22
     private org.bytedeco.llvm.LLVM.LLVMContextRef getCtxFromMod() {
         return LLVMGetModuleContext(mod);
     }

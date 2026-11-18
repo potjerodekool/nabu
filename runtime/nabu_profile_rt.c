@@ -10,9 +10,9 @@
  * found through markers of our own in the $A and $Z parts of the same sections (the linker sorts the parts of a
  * grouped section by the text after the $), as compiler-rt does.
  *
- * Usage: build with -Dnabu.pgo.pipeline=pgo-instr-gen,default<O2> (the Linker then links this file), run the program
- * (LLVM_PROFILE_FILE sets the output, default default.profraw), then merge with llvm-profdata or
- * docs/perf-study/pgo_merge.py and build with -Dnabu.pgo.pipeline=pgo-instr-use<profile.profdata>,default<O2>.
+ * Usage: build with -Dnabu.pgo=instrument (the Linker then links this file), run the program (LLVM_PROFILE_FILE sets
+ * the output, default default.profraw; NABU_PROFILE_VERBOSE=1 reports each write), merge with the llvm-profdata of
+ * the same LLVM major version as the backend, and build with -Dnabu.pgo=<profile.profdata>.
  */
 
 #include <stdint.h>

@@ -29,9 +29,9 @@ The jar contains the LLVM libraries of its platform; the jar of this build is fo
 
 | Component | Version | License |
 |---|---|---|
-| JavaCPP (`org.bytedeco:javacpp`) | 1.5.13 | Apache-2.0, or GPL-2.0, or GPL-2.0 with the Classpath Exception (the user chooses; Nabu uses it under Apache-2.0) |
-| JavaCPP Presets for LLVM (`org.bytedeco:llvm`) | 21.1.8-1.5.13 | the same three, for the Java bindings |
-| LLVM and Clang (libraries, headers) | 21.1.8 | Apache-2.0 with LLVM Exceptions (<https://llvm.org/LICENSE.txt>) |
+| JavaCPP (`org.bytedeco:javacpp`) | 1.5.14 | Apache-2.0, or GPL-2.0, or GPL-2.0 with the Classpath Exception (the user chooses; Nabu uses it under Apache-2.0) |
+| JavaCPP Presets for LLVM (`org.bytedeco:llvm`) | 22.1.8-1.5.14 | the same three, for the Java bindings |
+| LLVM and Clang (libraries, headers) | 22.1.8 | Apache-2.0 with LLVM Exceptions (<https://llvm.org/LICENSE.txt>) |
 | ASM | 9.8 | BSD-3-Clause |
 
 The JavaCPP artifact for Windows also carries the Microsoft Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`,

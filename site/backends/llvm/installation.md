@@ -209,12 +209,14 @@ The executable you build is a program of its own: it contains the compiled progr
 | Platform | The executable needs on the machine where it runs |
 |---|---|
 | Windows x64 | nothing of its own: it is linked with the MinGW runtime inside (`-static`, the default) and the Boehm GC as a static library, and it imports only DLLs of Windows itself (`KERNEL32`, `WS2_32` and the Universal C Runtime `api-ms-win-crt-*`, part of Windows 10 and later; Windows 7 and 8.1 need the Universal C Runtime update) |
-| Linux x64 and arm64 | the C library (`glibc`) and the shared Boehm GC, **`libgc.so.1`** (Debian and Ubuntu: `sudo apt install libgc1`; Fedora: `gc`). The link command has no `-static` on Linux, so check with `ldd your-program` that nothing is missing |
-| macOS | the shared Boehm GC (`brew install bdw-gc`); check with `otool -L your-program` |
+| Linux x64 and arm64 | only the C library (`glibc`: `libc.so.6` and `libm.so.6`). `libgc` and `libgcc` are linked into the executable when `libgc.a` is there at build time (Debian and Ubuntu: `libgc-dev` has it); without it the executable needs `libgc.so.1` (`apt install libgc1`) |
+| macOS | by the code: nothing of its own when Homebrew's `libgc.a` exists at build time, else the shared Boehm GC (`brew install bdw-gc`); not tried, check with `otool -L your-program` |
 
-A container image for a Linux executable needs `libgc` in it (a `debian:stable-slim` image with `libgc1`, for example), and the same C library as the one the program was built against or a newer one. Building on an older distribution makes a program that runs on more machines. Linking `libgc` statically on Linux and macOS is not done yet.
+A container image for a Linux executable therefore needs nothing but a C library, at least as new as the one the program was built against (build on an older distribution to run on more machines). Two properties switch the linking in of the libraries off: `-Dnabu.link.staticGc=false` (libgc then comes from `libgc.so.1`) and `-Dnabu.link.staticLibgcc=false` (libgcc then comes from `libgcc_s.so.1`).
 
-The Windows column is checked on a build of the petstore demo (`llvm-objdump -p`); the Linux and macOS columns follow from the link command and are not checked with `ldd` or `otool` yet.
+Linking everything with `-static` works for a small program (`ldd` says "not a dynamic executable") but is **not** what Nabu does: the executable then loses its stack traces (`Throwable.getStackTrace` is empty, and an uncaught exception prints no `at` lines, because they are found through the dynamic symbol table), and glibc's name lookups (`getaddrinfo`, users, groups) and `dlopen` need the shared libraries of the machine anyway. A fully static executable would need another C library (musl), which Nabu does not try.
+
+The Windows column is checked on a build of the petstore demo (`llvm-objdump -p`). The Linux column is checked with `ldd` on Ubuntu 25.10 (WSL, `gcc` 15, `glibc` 2.43) with a program that throws and catches exceptions, runs a thread, opens a server socket, resolves `localhost` and allocates two million arrays: it prints the same output as before and `ldd` lists only `libc`, `libm` and the loader. The macOS column (the archive `libgc.a` of Homebrew goes into the executable when it exists) is not checked with `otool`; the Linux ITs have not been run with this change either.
 
 ## Next steps
 

@@ -149,6 +149,10 @@ public class Linker {
             cmd.add("gcc");
             if (debugInfo) { cmd.add("-g"); }
             cmd.add("-rdynamic");
+            // libgcc (the unwinder) inside the executable: a slim container then needs no libgcc_s.so.1
+            if (!"false".equalsIgnoreCase(System.getProperty("nabu.link.staticLibgcc", "true"))) {
+                cmd.add("-static-libgcc");
+            }
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
             addRuntime(cmd, gcStrategy, runtimeObjects);

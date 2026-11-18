@@ -36,9 +36,7 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
         }
         isInit = true;
 
-        final Path javaHome = systemValue != null
-                ? Paths.get(systemValue)
-                : FileSystems.getDefault().getPath(System.getProperty("java.home"));
+        final Path javaHome = javaHome();
         URI jrtURI = URI.create("jrt:/");
 
         Map<String, String> attrMap =
@@ -64,6 +62,27 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
         } catch (final IOException e) {
             LOGGER.log(LogLevel.WARN, e.getMessage());
         }
+    }
+
+    /**
+     * The Java home whose modules are the system modules: the value of the SYSTEM option when it is one (it has
+     * {@code lib/modules}, which the {@code jrt:} file system reads), otherwise the JDK that runs the compiler. A
+     * SYSTEM path that is not a Java home used to end in a null pointer exception far from the cause (no module,
+     * so no {@code java.lang.Object}); now it is said and the running JDK is used.
+     */
+    private Path javaHome() {
+        final Path running = FileSystems.getDefault().getPath(System.getProperty("java.home"));
+        if (systemValue == null) {
+            return running;
+        }
+        final Path requested = Paths.get(systemValue);
+        if (Files.isRegularFile(requested.resolve("lib").resolve("modules"))) {
+            return requested;
+        }
+        LOGGER.log(LogLevel.WARN, "The system modules option " + requested
+                + " is not a Java home (it has no lib/modules): using the modules of the JDK that runs the compiler, "
+                + running);
+        return running;
     }
 
     @Override

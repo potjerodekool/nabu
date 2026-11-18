@@ -55,7 +55,27 @@ final class NativeToolchain {
         }
         return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
                 ? name.endsWith(".exe")
-                : Files.isExecutable(file);
+                : Files.isExecutable(file) && hasExecutableHeader(file);
+    }
+
+    /**
+     * An ELF (Linux) or Mach-O (macOS) file. The executable bit alone is not enough: the output directory also
+     * has data files that are copied from the JDK (lib/tzdb.dat), and on some machines (the GitHub runners) those
+     * are executable too; the walk over the directory then found tzdb.dat before the program.
+     */
+    private static boolean hasExecutableHeader(final Path file) {
+        try (var in = Files.newInputStream(file)) {
+            final byte[] magic = in.readNBytes(4);
+            if (magic.length < 4) {
+                return false;
+            }
+            final boolean elf = magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F';
+            final boolean machO = (magic[0] & 0xff) == 0xcf && (magic[1] & 0xff) == 0xfa
+                    && (magic[2] & 0xff) == 0xed && (magic[3] & 0xff) == 0xfe;
+            return elf || machO;
+        } catch (final java.io.IOException e) {
+            return false;
+        }
     }
 
     /**

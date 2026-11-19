@@ -154,7 +154,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.4.0</version>
+                <version>3.8.0</version>
                 <executions>
                     <execution>
                         <id>add-source</id>
@@ -186,7 +186,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>3.6.1</version>
                 <configuration>
                     <argLine>-Xss1g @{argLine} -javaagent:${org.mockito:mockito-core:jar} --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.backend.asm=org.junit.platform.commons --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.resolve.method.impl=org.junit.platform.commons</argLine>
                     <useModulePath>false</useModulePath>

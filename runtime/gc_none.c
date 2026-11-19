@@ -55,9 +55,8 @@ void nabu_gc_set_finalizer(void *obj, void (*fn)(void *obj, void *data)) { (void
 int nabu_gc_weak_set(void **slot, void *obj) { (void) slot; (void) obj; return 0; }
 void *nabu_gc_weak_get(void **slot) { return *slot; }
 void nabu_gc_weak_clear(void **slot) { *slot = NULL; }
-void nabu_gc_weak_track(void *ref, void **slot) { (void) ref; (void) slot; }
+void nabu_gc_ref_track(void *ref, void **slot, int soft, int queued) { (void) ref; (void) slot; (void) soft; (void) queued; }
 void *nabu_gc_weak_next_cleared(void) { return NULL; }
-void nabu_gc_soft_track(void *ref, void **slot) { (void) ref; (void) slot; }
 void nabu_gc_pause(void) { }
 void nabu_gc_resume(void) { }
 

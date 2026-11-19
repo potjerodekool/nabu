@@ -13,6 +13,13 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#ifdef __APPLE__
+/* Before any include, as in jcl_lite.c (the two must agree): the ucontext routines of macOS need _XOPEN_SOURCE, and
+ * without it ucontext_t has no room for the machine context that getcontext/makecontext/swapcontext write.
+ * _DARWIN_C_SOURCE keeps the rest of the system interface visible. */
+#define _XOPEN_SOURCE 600
+#define _DARWIN_C_SOURCE
+#endif
 #include "nabu_runtime.h"
 #include "nabu_gc.h"
 #include <stdio.h>
@@ -32,6 +39,7 @@
 #else
 #include <stdatomic.h>
 #include <signal.h>
+#include <unistd.h>
 #include <ucontext.h>
 #include <execinfo.h>
 #endif

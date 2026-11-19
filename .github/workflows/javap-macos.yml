@@ -1,0 +1,22 @@
+name: javap on macOS (diagnostic)
+
+# Prints the members of the macOS-only classes of java.base that the Nabu runtime has to implement natives for. By hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  javap:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: javap
+        run: |
+          java -version
+          javap -p -constants sun.nio.ch.KQueue
+          javap -p sun.nio.ch.KQueueSelectorImpl | head -40

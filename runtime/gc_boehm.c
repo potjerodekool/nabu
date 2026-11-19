@@ -6,11 +6,11 @@
 #error "gc_boehm.c needs -DNABU_GC_BOEHM"
 #endif
 
+#include <pthread.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
 #include <fcntl.h>
-#include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
@@ -23,6 +23,15 @@
 
 #include <gc.h>
 #include "nabu_gc.h"
+
+/* the soft references (further down) are set up by nabu_gc_init */
+extern void GC_push_all_eager(void *bottom, void *top);
+extern void (*GC_get_push_other_roots(void))(void);
+extern void GC_set_push_other_roots(void (*proc)(void));
+static void nabu_soft_push_roots(void);
+static unsigned long nabu_soft_every;
+static size_t nabu_soft_heap_limit;
+static void (*nabu_soft_old_roots)(void);
 
 /* The collector starts before the constructors of the compiled program (default priority) and before main. */
 extern int GC_expand_hp(size_t bytes);
@@ -51,6 +60,13 @@ void nabu_gc_init(void) {
          * takes precedence. */
         if (getenv("GC_INITIAL_HEAP_SIZE") == NULL) {
             GC_expand_hp((size_t) 256 << 20);
+        }
+        {
+            const char *every = getenv("NABU_SOFT_REF_EVERY");
+            if (every != NULL && atol(every) > 0) nabu_soft_every = (unsigned long) atol(every);
+            nabu_soft_heap_limit = GC_get_heap_size() + GC_get_heap_size() / 2;
+            nabu_soft_old_roots = GC_get_push_other_roots();
+            GC_set_push_other_roots(nabu_soft_push_roots);
         }
     }
 }
@@ -267,6 +283,186 @@ void nabu_gc_collect(void) {
 void nabu_gc_set_finalizer(void *obj, void (*fn)(void *obj, void *data)) {
     /* the unordered variant: it also finalizes objects that refer to each other */
     GC_register_finalizer_no_order(obj, fn, NULL, NULL, NULL);
+}
+
+/* ---- weak pointers ----
+ * A weak slot holds the bitwise complement of the pointer: it has its top bit set (a pointer of a program is below 2^63),
+ * so the collector does not take it for a pointer, and it can be told from a plain pointer. The collector clears the slot
+ * (GC_general_register_disappearing_link) when the object is not reachable any more, before anything is finalized. */
+int nabu_gc_weak_set(void **slot, void *obj) {
+    /* only the first word of an object of the collector can be registered: an object of the executable's image or on
+     * the stack never dies anyway, and stays a plain pointer */
+    if (obj == NULL || GC_base(obj) != obj) return 0;
+    *slot = (void *) ~(uintptr_t) obj;
+    const int r = GC_general_register_disappearing_link(slot, obj);
+    if (r == GC_SUCCESS || r == GC_DUPLICATE) return 1;
+    *slot = obj;
+    return 0;
+}
+
+typedef struct { void **slot; void *result; } nabu_weak_read;
+static void *nabu_weak_read_locked(void *arg) {
+    nabu_weak_read *r = (nabu_weak_read *) arg;
+    void *v = *r->slot;
+    r->result = (v != NULL && (intptr_t) v < 0) ? (void *) ~(uintptr_t) v : v;
+    return NULL;
+}
+void *nabu_gc_weak_get(void **slot) {
+    void *v = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+    if ((intptr_t) v >= 0) return v;             /* cleared, or a plain pointer */
+    /* A collection can clear the slot between reading the hidden value and the pointer going to a place where the
+     * collector sees it: the thread would use a pointer to an object that was freed. So the pointer first goes to the
+     * stack, which the collector scans, and then the slot is read again: still the same value means that the object was
+     * alive when the pointer became visible (a collection before that would have cleared the slot). No lock of the
+     * collector: this is called for every get() of every weak and soft reference. */
+    void *volatile guard = (void *) ~(uintptr_t) v;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (__atomic_load_n(slot, __ATOMIC_ACQUIRE) == v) return guard;
+    nabu_weak_read r = { slot, NULL };           /* changed in the meantime: the slow way, under the lock */
+    GC_call_with_alloc_lock(nabu_weak_read_locked, &r);
+    return r.result;
+}
+
+void nabu_gc_weak_clear(void **slot) {
+    GC_unregister_disappearing_link(slot);
+    *slot = NULL;
+}
+
+/* The references whose slot is watched (they have a queue). An entry holds its reference hidden and has the collector
+ * clear that when the reference itself dies, so the entry does not keep it alive. */
+typedef struct nabu_weak_entry {
+    uintptr_t hidden_ref;
+    void **slot;
+    struct nabu_weak_entry *next;
+} nabu_weak_entry;
+static nabu_weak_entry *nabu_weak_tracked = NULL;   /* watched */
+static nabu_weak_entry *nabu_weak_ready = NULL;     /* slot cleared, not yet handed out */
+static unsigned long nabu_weak_count = 0, nabu_weak_purge_at = 4096, nabu_weak_scanned_gc = 0;
+static pthread_mutex_t nabu_weak_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void *nabu_weak_entry_ref(nabu_weak_entry *e) {
+    nabu_weak_read r = { (void **) &e->hidden_ref, NULL };
+    GC_call_with_alloc_lock(nabu_weak_read_locked, &r);
+    return r.result;
+}
+
+/* Walks the watched entries after a collection: an entry whose reference died is dropped, one whose slot was cleared
+ * goes to the ready list. Under nabu_weak_mutex. */
+static void nabu_weak_scan(void) {
+    nabu_weak_entry **link = &nabu_weak_tracked;
+    while (*link != NULL) {
+        nabu_weak_entry *e = *link;
+        if (e->hidden_ref == 0) {                    /* the reference died: the collector cleared the entry */
+            *link = e->next;
+            free(e);
+            nabu_weak_count--;
+        } else if (*e->slot == NULL) {               /* the referent was cleared */
+            *link = e->next;
+            e->next = nabu_weak_ready;
+            nabu_weak_ready = e;
+        } else {
+            link = &e->next;
+        }
+    }
+    nabu_weak_purge_at = nabu_weak_count * 2 + 4096;
+}
+
+void nabu_gc_weak_track(void *ref, void **slot) {
+    nabu_weak_entry *e = (nabu_weak_entry *) malloc(sizeof *e);
+    if (e == NULL) return;
+    e->hidden_ref = ~(uintptr_t) ref;
+    e->slot = slot;
+    if (GC_base(ref) != ref || GC_general_register_disappearing_link((void **) &e->hidden_ref, ref) > GC_DUPLICATE) {
+        free(e);
+        return;
+    }
+    pthread_mutex_lock(&nabu_weak_mutex);
+    e->next = nabu_weak_tracked;
+    nabu_weak_tracked = e;
+    nabu_weak_count++;
+    /* References that nobody polls the queue of would pile up: drop those that died, now and then */
+    if (nabu_weak_count >= nabu_weak_purge_at && GC_get_gc_no() != nabu_weak_scanned_gc) {
+        nabu_weak_scan();
+        nabu_weak_scanned_gc = GC_get_gc_no();
+    }
+    pthread_mutex_unlock(&nabu_weak_mutex);
+}
+
+/* ---- soft references ----
+ * A soft reference is a weak pointer whose referent the collector is told to keep: before the marking, the referents of the
+ * tracked soft references are pushed as roots. Not in every NABU_SOFT_REF_EVERY-th collection, and not when the heap has
+ * grown to more than 1.5 times its initial size: then a referent that nothing else refers to is cleared (the pressure a JVM
+ * clears soft references under). A cache made of soft references then lives through most collections and stays bounded. */
+static nabu_weak_entry *nabu_soft_tracked = NULL;
+static unsigned long nabu_soft_count = 0, nabu_soft_purge_at = 8192;
+static unsigned long nabu_soft_every = 8;
+static size_t nabu_soft_heap_limit = 0;
+static void (*nabu_soft_old_roots)(void) = NULL;
+
+void nabu_gc_soft_track(void *ref, void **slot) {
+    nabu_weak_entry *e = (nabu_weak_entry *) malloc(sizeof *e);
+    if (e == NULL) return;
+    e->hidden_ref = ~(uintptr_t) ref;
+    e->slot = slot;
+    if (GC_base(ref) != ref || GC_general_register_disappearing_link((void **) &e->hidden_ref, ref) > GC_DUPLICATE) {
+        free(e);
+        return;
+    }
+    pthread_mutex_lock(&nabu_weak_mutex);
+    e->next = nabu_soft_tracked;
+    nabu_soft_tracked = e;
+    nabu_soft_count++;
+    if (nabu_soft_count >= nabu_soft_purge_at) {              /* drop the entries of references that died */
+        nabu_weak_entry **link = &nabu_soft_tracked;
+        while (*link != NULL) {
+            nabu_weak_entry *d = *link;
+            if (d->hidden_ref == 0) {
+                *link = d->next;
+                free(d);
+                nabu_soft_count--;
+            } else {
+                link = &d->next;
+            }
+        }
+        nabu_soft_purge_at = nabu_soft_count * 2 + 8192;
+    }
+    pthread_mutex_unlock(&nabu_weak_mutex);
+}
+
+/* Runs in the collector, with the world stopped. */
+static void nabu_soft_push_roots(void) {
+    const int pressure = (GC_get_gc_no() + 1) % nabu_soft_every == 0
+            || (nabu_soft_heap_limit != 0 && GC_get_heap_size() > nabu_soft_heap_limit);
+    if (!pressure) {
+        for (nabu_weak_entry *e = nabu_soft_tracked; e != NULL; e = e->next) {
+            if (e->hidden_ref == 0) continue;                  /* the reference died */
+            void *v = *e->slot;
+            if ((intptr_t) v < 0) {
+                v = (void *) ~(uintptr_t) v;
+                GC_push_all_eager(&v, &v + 1);
+            }
+        }
+    }
+    if (nabu_soft_old_roots != NULL) nabu_soft_old_roots();
+}
+
+void *nabu_gc_weak_next_cleared(void) {
+    void *ref = NULL;
+    pthread_mutex_lock(&nabu_weak_mutex);
+    if (GC_get_gc_no() != nabu_weak_scanned_gc) {
+        nabu_weak_scan();
+        nabu_weak_scanned_gc = GC_get_gc_no();
+    }
+    while (nabu_weak_ready != NULL && ref == NULL) {
+        nabu_weak_entry *e = nabu_weak_ready;
+        nabu_weak_ready = e->next;
+        ref = nabu_weak_entry_ref(e);                /* NULL when the reference died in the meantime */
+        GC_unregister_disappearing_link((void **) &e->hidden_ref);
+        free(e);
+        nabu_weak_count--;
+    }
+    pthread_mutex_unlock(&nabu_weak_mutex);
+    return ref;
 }
 
 void nabu_gc_pause(void) { GC_disable(); }

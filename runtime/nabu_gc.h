@@ -63,16 +63,14 @@ int nabu_gc_weak_set(void **slot, void *obj);
 void *nabu_gc_weak_get(void **slot);
 /* Clears the slot and forgets that it was a weak pointer. */
 void nabu_gc_weak_clear(void **slot);
-/* Remembers a reference (without keeping it alive) whose weak slot is watched: after a collection, nabu_gc_weak_next_cleared
- * returns it once when the collector cleared the slot. */
-void nabu_gc_weak_track(void *ref, void **slot);
-/* A tracked reference whose slot the collector cleared, or NULL. */
+/* Remembers a reference whose slot is a weak pointer (without keeping it alive), when it is a soft reference and/or has a
+ * queue. A soft reference: the collector keeps its referent as a root, except in every NABU_SOFT_REF_EVERY-th collection
+ * (default 8) and when the heap has grown much beyond its initial size, then it is cleared if nothing else refers to it: a
+ * cache of soft references survives most collections and cannot grow without bound. A reference with a queue is returned once
+ * by nabu_gc_weak_next_cleared after the collector cleared its slot. */
+void nabu_gc_ref_track(void *ref, void **slot, int soft, int queued);
+/* A tracked reference with a queue whose slot the collector cleared, or NULL. */
 void *nabu_gc_weak_next_cleared(void);
-/* A soft reference (its slot is a weak pointer): the referents of the soft references are kept by the collector, as roots,
- * except in every NABU_SOFT_REF_EVERY-th collection (default 8) and when the heap has grown much beyond its initial size:
- * then they are cleared if nothing else refers to them. A cache of soft references survives most collections, and cannot
- * grow without bound. */
-void nabu_gc_soft_track(void *ref, void **slot);
 
 /* No collection starts between pause and resume (they nest). */
 void nabu_gc_pause(void);

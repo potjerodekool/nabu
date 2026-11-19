@@ -47,6 +47,10 @@ extern char **environ;   /* the headers of macOS declare it only for code that l
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #endif
+#ifdef __APPLE__
+#include <sys/event.h>
+#include <sys/time.h>
+#endif
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
 #endif
@@ -8285,6 +8289,51 @@ BIND(void, jcl_EPoll_close, "sun.nio.ch.EPoll_close", (int32_t epfd)) {
     if (epfd >= 0) close(epfd);
 #endif
 }
+
+#ifdef __APPLE__
+/* ---- KQueue: the selector of the JDK for macOS (KQueueSelectorImpl). The natives of sun.nio.ch.KQueue (KQueue.c of the
+ * JDK): the layout of struct kevent, kqueue(), one change per register call, and kevent() with a timeout in
+ * milliseconds. ---- */
+BIND(int32_t, jcl_KQueue_keventSize, "sun.nio.ch.KQueue_keventSize", (void)) { return (int32_t) sizeof(struct kevent); }
+BIND(int32_t, jcl_KQueue_identOffset, "sun.nio.ch.KQueue_identOffset", (void)) { return (int32_t) offsetof(struct kevent, ident); }
+BIND(int32_t, jcl_KQueue_filterOffset, "sun.nio.ch.KQueue_filterOffset", (void)) { return (int32_t) offsetof(struct kevent, filter); }
+BIND(int32_t, jcl_KQueue_flagsOffset, "sun.nio.ch.KQueue_flagsOffset", (void)) { return (int32_t) offsetof(struct kevent, flags); }
+BIND(int32_t, jcl_KQueue_create, "sun.nio.ch.KQueue_create", (void)) {
+    const int kq = kqueue();
+    if (kq < 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(strerror(errno))));
+        return -1;
+    }
+    return kq;
+}
+/* 0 on success, the errno otherwise */
+BIND(int32_t, jcl_KQueue_register, "sun.nio.ch.KQueue_register", (int32_t kqfd, int32_t fd, int32_t filter, int32_t flags)) {
+    struct kevent change;
+    EV_SET(&change, (uintptr_t) fd, (int16_t) filter, (uint16_t) flags, 0, 0, NULL);
+    return kevent(kqfd, &change, 1, NULL, 0, NULL) == 0 ? 0 : errno;
+}
+/* The number of events, or -3 (IOStatus.INTERRUPTED) on EINTR */
+BIND(int32_t, jcl_KQueue_poll, "sun.nio.ch.KQueue_poll", (int32_t kqfd, int64_t address, int32_t nevents, int64_t timeout)) {
+    struct kevent *events = (struct kevent *)(intptr_t) address;
+    struct timespec ts;
+    struct timespec *tsp = NULL;
+    if (timeout >= 0) {
+        ts.tv_sec = (time_t) (timeout / 1000);
+        ts.tv_nsec = (long) ((timeout % 1000) * 1000000);
+        tsp = &ts;
+    }
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int result = kevent(kqfd, NULL, 0, events, nevents, tsp);
+    const int err = result < 0 ? errno : 0;
+    JCL_NET_BLOCK_END(released);
+    if (result < 0) {
+        if (err == EINTR) return -3;
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(strerror(err))));
+        return -1;
+    }
+    return result;
+}
+#endif
 
 /* ---- EventFD: used by EPollSelectorImpl to implement Selector.wakeup() on Linux. ---- */
 BIND(int32_t, jcl_EventFD_eventfd0, "sun.nio.ch.EventFD_eventfd0", (void)) {

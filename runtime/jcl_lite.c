@@ -6837,8 +6837,7 @@ BIND(void, jcl_ReferenceSupport_register0, JCL_REFSUP "register0", (void *ref, v
     if (!nabu_instanceof(ref, "java/lang/ref/WeakReference") && (mode == 1 || !nabu_instanceof(ref, "java/lang/ref/SoftReference"))) return;
     const int soft = nabu_instanceof(ref, "java/lang/ref/SoftReference");
     if (!nabu_gc_weak_set(slot, *slot)) return;
-    if (soft) nabu_gc_soft_track(ref, slot);
-    if (queue != NULL) nabu_gc_weak_track(ref, slot);
+    nabu_gc_ref_track(ref, slot, soft, queue != NULL);
 }
 BIND(void *, jcl_ReferenceSupport_nextCleared0, JCL_REFSUP "nextCleared0", (void)) {
     return nabu_gc_weak_next_cleared();

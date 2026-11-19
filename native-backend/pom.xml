@@ -20,7 +20,7 @@
         <javacpp.version>1.5.14</javacpp.version>
         <!-- Zelfde versie als surefire: de IT-tests hieronder draaien op
              dezelfde JUnit-5/JUnit-platform-provider. -->
-        <failsafe.version>3.5.3</failsafe.version>
+        <failsafe.version>3.6.1</failsafe.version>
         <!-- Number of JVMs the integration tests run in side by side. Every test builds an executable, which takes
              half a minute and mostly one core: use -Dit.forks=1 to run them one after the other. -->
         <it.forks>3</it.forks>

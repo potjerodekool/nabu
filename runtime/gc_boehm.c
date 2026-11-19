@@ -218,6 +218,7 @@ static nabu_census_entry nabu_census_table[NABU_CENSUS_SLOTS];
 static uint64_t nabu_census_total_bytes, nabu_census_total_count, nabu_census_other_bytes, nabu_census_other_count;
 static long nabu_census_at = 0;
 static int nabu_census_repeat = 0;
+static int nabu_census_top = 40;
 extern uintptr_t nabu_image_lo, nabu_image_size;
 extern const char *nabu_compiled_type_name(const void *p);
 extern const char *nabu_compiled_type_name(const void *p);
@@ -268,9 +269,7 @@ static void nabu_census_report(unsigned long gc_no) {
             (unsigned long long) nabu_census_total_count, (double) nabu_census_total_bytes / 1048576.0,
             (double) nabu_census_other_bytes / 1048576.0, (unsigned long long) nabu_census_other_count);
     nabu_census_write(line, n);
-    int top = 40;
-    const char *topEnv = getenv("NABU_GC_CENSUS_TOP");
-    if (topEnv != NULL && atoi(topEnv) > 0) top = atoi(topEnv);
+    const int top = nabu_census_top;   /* read at start-up: no getenv while the world is stopped (a lock of the C library) */
     /* the largest entries, by selection (the table is small) */
     for (int rank = 0; rank < top; rank++) {
         long best = -1;
@@ -333,6 +332,8 @@ __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
     if (census != NULL && atol(census) > 0) {
         nabu_census_at = atol(census);
         nabu_census_repeat = strchr(census, '+') != NULL;
+        const char *topEnv = getenv("NABU_GC_CENSUS_TOP");
+        if (topEnv != NULL && atoi(topEnv) > 0) nabu_census_top = atoi(topEnv);
     }
     if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0) GC_set_on_collection_event(nabu_gc_on_event);
 }

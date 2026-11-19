@@ -181,8 +181,13 @@ static void nabu_prof_dump(void) {
     HANDLE f = CreateFileA(nabu_prof_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f == INVALID_HANDLE_VALUE) return;
 #else
+#ifdef __APPLE__
+    extern const char _mh_execute_header;               /* macOS has no __executable_start: the Mach-O header */
+    const uintptr_t base = (uintptr_t) &_mh_execute_header;
+#else
     extern const char __executable_start;
     const uintptr_t base = (uintptr_t) &__executable_start;
+#endif
     const int f = open(nabu_prof_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (f < 0) return;
 #endif

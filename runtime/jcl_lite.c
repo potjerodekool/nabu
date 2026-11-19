@@ -10,6 +10,9 @@
 #endif
 #include "nabu_runtime.h"
 #include "nabu_gc.h"
+#ifdef __APPLE__
+extern char **environ;   /* the headers of macOS declare it only for code that links with crt_externs.h */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

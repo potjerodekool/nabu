@@ -13,6 +13,13 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#ifdef __APPLE__
+/* Before any include, as in jcl_lite.c (the two must agree): the ucontext routines of macOS need _XOPEN_SOURCE, and
+ * without it ucontext_t has no room for the machine context that getcontext/makecontext/swapcontext write.
+ * _DARWIN_C_SOURCE keeps the rest of the system interface visible. */
+#define _XOPEN_SOURCE 600
+#define _DARWIN_C_SOURCE
+#endif
 #include "nabu_runtime.h"
 #include "nabu_gc.h"
 #include <stdio.h>
@@ -32,6 +39,7 @@
 #else
 #include <stdatomic.h>
 #include <signal.h>
+#include <unistd.h>
 #include <ucontext.h>
 #include <execinfo.h>
 #endif
@@ -2340,6 +2348,29 @@ __attribute__((constructor(101))) static void nabu_image_range_init(void) {
     extern const char end;
     nabu_image_lo = (uintptr_t) &__executable_start;
     nabu_image_size = (uintptr_t) &end - (uintptr_t) &__executable_start;
+#elif defined(__APPLE__)
+    /* From the Mach-O header to the end of the last segment; the slide of ASLR is the difference between the header and
+     * where __TEXT asks to be (as in nabu_compiled_type_name). */
+    const struct mach_header_64 *mh = &_mh_execute_header;
+    const struct load_command *lc = (const struct load_command *)(mh + 1);
+    intptr_t slide = 0;
+    for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const struct load_command *)((const char *)lc + lc->cmdsize)) {
+        if (lc->cmd == LC_SEGMENT_64) {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+            if (strcmp(seg->segname, "__TEXT") == 0) slide = (intptr_t)((uintptr_t)mh - seg->vmaddr);
+        }
+    }
+    lc = (const struct load_command *)(mh + 1);
+    const char *hi = (const char *)mh;
+    for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const struct load_command *)((const char *)lc + lc->cmdsize)) {
+        if (lc->cmd == LC_SEGMENT_64) {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+            const char *end = (const char *)(seg->vmaddr + slide + seg->vmsize);
+            if (seg->vmsize > 0 && strcmp(seg->segname, "__PAGEZERO") != 0 && end > hi) hi = end;
+        }
+    }
+    nabu_image_lo = (uintptr_t)mh;
+    nabu_image_size = (uintptr_t)(hi - (const char *)mh);
 #endif
 }
 

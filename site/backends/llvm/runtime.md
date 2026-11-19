@@ -12,7 +12,7 @@ The default collector is the Boehm collector, with allocation from thread-local 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GC_MARKERS` | `1` | the number of marker threads. Marking in parallel has to hand work from thread to thread at every collection, which cost more than it saved for heaps of a few hundred megabytes: the petstore served 10 to 20% more requests per second with one marker. A value in the environment wins. |
-| `GC_INITIAL_HEAP_SIZE` | 256 MB | the heap at the start. A program that builds a large object graph at start-up otherwise collects over and over while all of it is still alive. Against 128 MB the petstore served 13% (one request) to 44% (another) more requests per second, and used 86 MB more memory. The memory of a program that does not allocate that much is not touched. A value in the environment wins. |
+| `GC_INITIAL_HEAP_SIZE` | 128 MB | the heap at the start. A program that builds a large object graph at start-up otherwise collects over and over while all of it is still alive. Between two collections the heap fills with garbage, and that is most of what is resident. On the petstore (live data 25 to 55 MB) a run of 20000 requests per endpoint serves the same number of requests per second with 128 MB as with 256 MB, in 275 MB resident instead of 403 MB; with 96 MB it uses 240 MB, with 64 MB 205 MB and up to 5% fewer requests per second. The memory of a program that does not allocate that much is not touched. A value in the environment wins. |
 
 Other `GC_*` variables are read by the collector itself (see the [bdwgc documentation](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment)).
 

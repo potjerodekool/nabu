@@ -6779,32 +6779,69 @@ BIND(void *, jcl_TimeZone_getSystemTimeZoneID, "java.util.TimeZone_getSystemTime
     return nabu_jstring_new("UTC");
 }
 
-/* java.lang.ref.Reference: a reference is as strong as any other pointer here (the collector does not
- * clear weak references), so a referent is only cleared by clear(). */
+/* java.lang.ref.Reference. The referent of a WeakReference or a SoftReference is a weak pointer (nabu_gc_weak_*): the
+ * collector clears it when nothing else refers to the object. That is what the caches of the frameworks are made for
+ * (Spring's ConcurrentReferenceHashMap, WeakHashMap, the ThreadLocalMap): when a reference was as strong as any other
+ * pointer they never shrank and a server ran out of memory. A soft reference is cleared as readily as a weak one, which
+ * the specification allows. A PhantomReference (and a Cleaner) stays strong. Reference.get() of JDK 25.0.5 and later
+ * calls get0; the code of the JDK before that is patched to call ReferenceSupport.get0 (BytecodeReachabilityCompiler). */
 static void **jcl_referent_slot(void *ref) {
     intptr_t off = ref != NULL ? nabu_instance_field_offset(ref, "referent") : -1;
     return off >= 0 ? (void **)((char *)ref + off) : NULL;
 }
-/* Reference.get() of newer JDK builds calls this native. */
+static void *jcl_referent_of(void *ref) {
+    void **slot = jcl_referent_slot(ref);
+    return slot != NULL ? nabu_gc_weak_get(slot) : NULL;
+}
 BIND(void *, jcl_Reference_get0, "java.lang.ref.Reference_get0", (void *self)) {
-    void **slot = jcl_referent_slot(self);
-    return slot != NULL ? *slot : NULL;
+    return jcl_referent_of(self);
+}
+/* Whether the slot refers to obj, without reading the pointer: a hidden pointer is compared with the hidden obj (obj is
+ * alive, so a collection cannot have cleared a slot that refers to it). */
+static int jcl_slot_refers_to(void **slot, void *obj) {
+    void *v = *slot;
+    return (intptr_t) v < 0 ? v == (void *) ~(uintptr_t) obj : v == obj;
 }
 BIND(int, jcl_Reference_refersTo0, "java.lang.ref.Reference_refersTo0", (void *self, void *obj)) {
     void **slot = jcl_referent_slot(self);
-    return slot != NULL && *slot == obj;
+    return slot != NULL && jcl_slot_refers_to(slot, obj);
 }
 BIND(int, jcl_PhantomReference_refersTo0, "java.lang.ref.PhantomReference_refersTo0", (void *self, void *obj)) {
     void **slot = jcl_referent_slot(self);
-    return slot != NULL && *slot == obj;
+    return slot != NULL && jcl_slot_refers_to(slot, obj);
 }
 BIND(void, jcl_Reference_clear0, "java.lang.ref.Reference_clear0", (void *self)) {
     void **slot = jcl_referent_slot(self);
-    if (slot != NULL) *slot = NULL;
+    if (slot != NULL) nabu_gc_weak_clear(slot);
 }
 BIND(void, jcl_PhantomReference_clear0, "java.lang.ref.PhantomReference_clear0", (void *self)) {
     void **slot = jcl_referent_slot(self);
-    if (slot != NULL) *slot = NULL;
+    if (slot != NULL) nabu_gc_weak_clear(slot);
+}
+#define JCL_REFSUP "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ReferenceSupport_"
+BIND(void *, jcl_ReferenceSupport_get0, JCL_REFSUP "get0", (void *ref)) {
+    return jcl_referent_of(ref);
+}
+/* The constructor of Reference calls this when the reference is made: a WeakReference or SoftReference hides its referent;
+ * one with a queue is watched, so that it is put on the queue after the collector cleared its referent. */
+BIND(void, jcl_ReferenceSupport_register0, JCL_REFSUP "register0", (void *ref, void *queue)) {
+    void **slot = jcl_referent_slot(ref);
+    if (slot == NULL || *slot == NULL) return;
+    /* NABU_WEAK_REFS=0: every reference stays strong (as before); NABU_WEAK_REFS=weak: only WeakReference is weak. */
+    static int mode = -1;
+    if (mode < 0) {
+        const char *env = getenv("NABU_WEAK_REFS");
+        mode = env == NULL ? 2 : (strcmp(env, "0") == 0 ? 0 : (strcmp(env, "weak") == 0 ? 1 : 2));
+    }
+    if (mode == 0) return;
+    if (!nabu_instanceof(ref, "java/lang/ref/WeakReference") && (mode == 1 || !nabu_instanceof(ref, "java/lang/ref/SoftReference"))) return;
+    const int soft = nabu_instanceof(ref, "java/lang/ref/SoftReference");
+    if (!nabu_gc_weak_set(slot, *slot)) return;
+    if (soft) nabu_gc_soft_track(ref, slot);
+    if (queue != NULL) nabu_gc_weak_track(ref, slot);
+}
+BIND(void *, jcl_ReferenceSupport_nextCleared0, JCL_REFSUP "nextCleared0", (void)) {
+    return nabu_gc_weak_next_cleared();
 }
 BIND(int, jcl_Reference_hasReferencePendingList, "java.lang.ref.Reference_hasReferencePendingList", (void)) { return 0; }
 BIND(void *, jcl_Reference_getAndClearReferencePendingList, "java.lang.ref.Reference_getAndClearReferencePendingList", (void)) { return NULL; }

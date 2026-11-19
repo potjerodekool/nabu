@@ -53,6 +53,27 @@ void nabu_gc_collect(void);
 /* Calls fn(obj, NULL) some time after obj became unreachable (also when objects that refer to each other become unreachable
  * together); fn == NULL removes the finalizer. A collector that never collects never calls it. */
 void nabu_gc_set_finalizer(void *obj, void (*fn)(void *obj, void *data));
+/* ---- weak pointers (java.lang.ref.WeakReference and SoftReference) ---- */
+
+/* Makes *slot a weak pointer to obj: the collector does not follow it, and clears it when nothing else refers to obj.
+ * Returns 1 when that is done (the slot holds a hidden pointer: read it with nabu_gc_weak_get only), 0 when the collector
+ * cannot do it (obj is not an object of its own, or it never collects): the slot then holds obj itself. */
+int nabu_gc_weak_set(void **slot, void *obj);
+/* What the slot refers to (NULL: cleared), also when it is a weak pointer; safe against a collection that runs at the same time. */
+void *nabu_gc_weak_get(void **slot);
+/* Clears the slot and forgets that it was a weak pointer. */
+void nabu_gc_weak_clear(void **slot);
+/* Remembers a reference (without keeping it alive) whose weak slot is watched: after a collection, nabu_gc_weak_next_cleared
+ * returns it once when the collector cleared the slot. */
+void nabu_gc_weak_track(void *ref, void **slot);
+/* A tracked reference whose slot the collector cleared, or NULL. */
+void *nabu_gc_weak_next_cleared(void);
+/* A soft reference (its slot is a weak pointer): the referents of the soft references are kept by the collector, as roots,
+ * except in every NABU_SOFT_REF_EVERY-th collection (default 8) and when the heap has grown much beyond its initial size:
+ * then they are cleared if nothing else refers to them. A cache of soft references survives most collections, and cannot
+ * grow without bound. */
+void nabu_gc_soft_track(void *ref, void **slot);
+
 /* No collection starts between pause and resume (they nest). */
 void nabu_gc_pause(void);
 void nabu_gc_resume(void);

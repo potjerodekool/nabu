@@ -16,6 +16,19 @@ The default collector is the Boehm collector, with allocation from thread-local 
 
 Other `GC_*` variables are read by the collector itself (see the [bdwgc documentation](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment)).
 
+### Weak, soft and phantom references
+
+`WeakReference` and `SoftReference` are weak: the collector clears the referent when nothing else refers to the object, and a reference with a `ReferenceQueue` is put on the queue (when the queue is asked, `poll` or `remove`, after a collection; there is no reference handler thread). Caches that are made of them (Spring's `ConcurrentReferenceHashMap`, `WeakHashMap`, the `ThreadLocal` maps) therefore shrink; without this a server grew by a few megabytes every thousand requests until it ran out of memory (the petstore: 25 MB of live data after 3000 requests, 54 MB after 25000). A `PhantomReference` stays strong.
+
+A soft reference is kept longer than a weak one, as in a JVM: the referents of soft references are kept as roots, except in every 8th collection and when the heap has grown to more than one and a half times its initial size. A cache of soft references survives most collections and cannot grow without bound.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NABU_SOFT_REF_EVERY` | `8` | soft references are cleared in every this many collections (when nothing else refers to the referent) |
+| `NABU_WEAK_REFS` | all | `0`: every reference is as strong as any other pointer (how it was before); `weak`: only `WeakReference` is weak |
+
+On the petstore the long run (20000 requests per endpoint) served 1098 requests per second for `/store/inventory` where the build with strong references fell from 1170 to 926 while its live data grew; `/pet/2` is about 3% slower (every weak or soft reference registers itself with the collector).
+
 ### Looking at the collector
 
 | Variable | Meaning |

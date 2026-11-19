@@ -617,6 +617,45 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("java/lang/ref/Reference".equals(classNode.name)) {
+            // Weak and soft references hide their referent and have the collector clear it (ReferenceSupport):
+            // the constructor registers the reference when it is made, get() reads the referent through the runtime.
+            final String support = RuntimeCalls.RUNTIME_PACKAGE + "ReferenceSupport";
+            for (final MethodNode m : classNode.methods) {
+                if ("<init>".equals(m.name) && "(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V".equals(m.desc)) {
+                    for (final var insn : m.instructions.toArray()) {
+                        if (insn.getOpcode() == Opcodes.RETURN) {
+                            final var call = new org.objectweb.asm.tree.InsnList();
+                            call.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                            call.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                            call.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support,
+                                    "register0", "(Ljava/lang/Object;Ljava/lang/Object;)V", false));
+                            m.instructions.insertBefore(insn, call);
+                        }
+                    }
+                } else if ("get".equals(m.name) && "()Ljava/lang/Object;".equals(m.desc)) {
+                    m.instructions.clear();
+                    m.tryCatchBlocks.clear();
+                    m.instructions.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                    m.instructions.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support,
+                            "get0", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    m.instructions.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                }
+            }
+        }
+        if ("java/lang/ref/ReferenceQueue".equals(classNode.name)) {
+            // There is no reference handler thread: the references whose referent the collector cleared are put on
+            // their queues when a queue is asked (after a collection).
+            final String support = RuntimeCalls.RUNTIME_PACKAGE + "ReferenceSupport";
+            for (final MethodNode m : classNode.methods) {
+                final boolean poll = "poll".equals(m.name) && m.desc.startsWith("()");
+                final boolean remove = "remove".equals(m.name) && "(J)Ljava/lang/ref/Reference;".equals(m.desc);
+                if (poll || remove) {
+                    m.instructions.insert(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support,
+                            "process", "()V", false));
+                }
+            }
+        }
         if ("java/util/concurrent/ThreadLocalRandom".equals(classNode.name)) {
             // With -Djava.util.secureRandomSeed=true the seed comes from
             // SecureRandom.getSeed, which drags in the whole security-provider

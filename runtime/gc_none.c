@@ -51,6 +51,13 @@ void nabu_gc_discard(void *p) { free(p); }
 void nabu_gc_init(void) { }
 void nabu_gc_collect(void) { }
 void nabu_gc_set_finalizer(void *obj, void (*fn)(void *obj, void *data)) { (void) obj; (void) fn; }
+/* Nothing is ever collected: a weak pointer is a plain one. */
+int nabu_gc_weak_set(void **slot, void *obj) { (void) slot; (void) obj; return 0; }
+void *nabu_gc_weak_get(void **slot) { return *slot; }
+void nabu_gc_weak_clear(void **slot) { *slot = NULL; }
+void nabu_gc_weak_track(void *ref, void **slot) { (void) ref; (void) slot; }
+void *nabu_gc_weak_next_cleared(void) { return NULL; }
+void nabu_gc_soft_track(void *ref, void **slot) { (void) ref; (void) slot; }
 void nabu_gc_pause(void) { }
 void nabu_gc_resume(void) { }
 

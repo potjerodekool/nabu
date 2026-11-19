@@ -2,6 +2,9 @@ name: javap on macOS (diagnostic)
 
 # Prints the members of the macOS-only classes of java.base that the Nabu runtime has to implement natives for. By hand.
 on:
+  push:
+    branches: [ macos-kqueue ]
+    paths: [ '.github/workflows/javap-macos.yml' ]
   workflow_dispatch:
 
 permissions:

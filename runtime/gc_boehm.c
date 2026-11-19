@@ -22,6 +22,7 @@
 #include <unwind.h>
 
 #include <gc.h>
+#include <gc/gc_mark.h>
 #include "nabu_gc.h"
 
 /* The collector starts before the constructors of the compiled program (default priority) and before main. */
@@ -205,7 +206,104 @@ static void nabu_prof_dump(void) {
 #endif
 }
 
+/* NABU_GC_CENSUS=<n>: at the end of the mark phase of collection number n (and of every later one when the number is
+ * followed by a "+"), a census of the live objects on stderr: per type the number of objects and the bytes that the
+ * collector holds for them, the top NABU_GC_CENSUS_TOP (default 40). The type of an object is the first word of it
+ * (the type info of the compiled code); objects that do not start with a pointer into the executable (arrays of the
+ * runtime, structures of the C code) are counted as "other" per size class of 16 bytes. Meant to find what the live
+ * data of a program consists of, before any change to the layout of objects. */
+#define NABU_CENSUS_SLOTS 32768
+typedef struct { uintptr_t key; const void *sample; uint64_t bytes; uint64_t count; } nabu_census_entry;
+static nabu_census_entry nabu_census_table[NABU_CENSUS_SLOTS];
+static uint64_t nabu_census_total_bytes, nabu_census_total_count, nabu_census_other_bytes, nabu_census_other_count;
+static long nabu_census_at = 0;
+static int nabu_census_repeat = 0;
+extern uintptr_t nabu_image_lo, nabu_image_size;
+extern const char *nabu_compiled_type_name(const void *p);
+extern const char *nabu_compiled_type_name(const void *p);
+
+static void nabu_census_visit(void *obj, size_t bytes, void *client) {
+    (void) client;
+    nabu_census_total_bytes += bytes;
+    nabu_census_total_count++;
+    const uintptr_t first = ((const uintptr_t *) obj)[0];
+    uintptr_t key;
+    if (nabu_image_size != 0 && first - nabu_image_lo < nabu_image_size) {
+        key = first;
+    } else {
+        nabu_census_other_bytes += bytes;
+        nabu_census_other_count++;
+        key = 1 + (bytes >> 4);            /* "other": by size class, a small number cannot be an address */
+    }
+    size_t i = (size_t) ((key >> 3) * 0x9E3779B97F4A7C15ull >> 48) & (NABU_CENSUS_SLOTS - 1);
+    for (int probes = 0; probes < NABU_CENSUS_SLOTS; probes++, i = (i + 1) & (NABU_CENSUS_SLOTS - 1)) {
+        if (nabu_census_table[i].key == 0) {
+            nabu_census_table[i].key = key;
+            nabu_census_table[i].sample = obj;
+        }
+        if (nabu_census_table[i].key == key) {
+            nabu_census_table[i].bytes += bytes;
+            nabu_census_table[i].count++;
+            return;
+        }
+    }
+}
+
+static void nabu_census_write(const char *line, int n) {
+#ifdef _WIN32
+    DWORD written;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), line, (DWORD) n, &written, NULL);
+#else
+    if (write(2, line, (size_t) n) < 0) { /* nothing to do */ }
+#endif
+}
+
+static void nabu_census_report(unsigned long gc_no) {
+    memset(nabu_census_table, 0, sizeof nabu_census_table);
+    nabu_census_total_bytes = nabu_census_total_count = nabu_census_other_bytes = nabu_census_other_count = 0;
+    GC_enumerate_reachable_objects_inner(nabu_census_visit, NULL);   /* the collector holds its lock in the callback */
+    char line[400];
+    int n = snprintf(line, sizeof line, "[nabu/census] collection #%lu: %llu objects, %.1f MB live (%.1f MB of it in "
+            "objects without a type of the compiled code: %llu objects)\n", gc_no,
+            (unsigned long long) nabu_census_total_count, (double) nabu_census_total_bytes / 1048576.0,
+            (double) nabu_census_other_bytes / 1048576.0, (unsigned long long) nabu_census_other_count);
+    nabu_census_write(line, n);
+    int top = 40;
+    const char *topEnv = getenv("NABU_GC_CENSUS_TOP");
+    if (topEnv != NULL && atoi(topEnv) > 0) top = atoi(topEnv);
+    /* the largest entries, by selection (the table is small) */
+    for (int rank = 0; rank < top; rank++) {
+        long best = -1;
+        for (long i = 0; i < NABU_CENSUS_SLOTS; i++) {
+            if (nabu_census_table[i].key != 0 && nabu_census_table[i].bytes != 0
+                    && (best < 0 || nabu_census_table[i].bytes > nabu_census_table[best].bytes)) best = i;
+        }
+        if (best < 0) break;
+        nabu_census_entry *e = &nabu_census_table[best];
+        const char *name = NULL;
+        if (e->key - nabu_image_lo < nabu_image_size) name = nabu_compiled_type_name(e->sample);
+        if (name != NULL) {
+            n = snprintf(line, sizeof line, "[nabu/census] %8.2f MB %9llu objects %6.1f B each  %s\n",
+                    (double) e->bytes / 1048576.0, (unsigned long long) e->count,
+                    (double) e->bytes / (double) e->count, name);
+        } else {
+            n = snprintf(line, sizeof line, "[nabu/census] %8.2f MB %9llu objects %6.1f B each  (other, blocks of %llu bytes)\n",
+                    (double) e->bytes / 1048576.0, (unsigned long long) e->count,
+                    (double) e->bytes / (double) e->count, (unsigned long long) ((e->key - 1) << 4));
+        }
+        nabu_census_write(line, n);
+        e->bytes = 0;
+    }
+}
+
 static void nabu_gc_on_event(GC_EventType e) {
+    if (e == GC_EVENT_MARK_END && nabu_census_at > 0) {
+        const unsigned long no = (unsigned long) GC_get_gc_no();
+        if (no == (unsigned long) nabu_census_at || (nabu_census_repeat && no > (unsigned long) nabu_census_at)) {
+            nabu_census_report(no);
+        }
+        return;
+    }
     if (e == GC_EVENT_START) {
         nabu_gc_started_ms = nabu_gc_now_ms();
     } else if (e == GC_EVENT_END) {
@@ -231,7 +329,12 @@ static void nabu_gc_on_event(GC_EventType e) {
 __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
     nabu_gc_stats_on = getenv("NABU_GC_STATS") != NULL;
     nabu_prof_path = getenv("NABU_ALLOC_PROF");
-    if (nabu_gc_stats_on || nabu_prof_path != NULL) GC_set_on_collection_event(nabu_gc_on_event);
+    const char *census = getenv("NABU_GC_CENSUS");
+    if (census != NULL && atol(census) > 0) {
+        nabu_census_at = atol(census);
+        nabu_census_repeat = strchr(census, '+') != NULL;
+    }
+    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0) GC_set_on_collection_event(nabu_gc_on_event);
 }
 
 static volatile size_t nabu_gc_alloc_bytes = 0;

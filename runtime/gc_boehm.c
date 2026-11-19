@@ -138,6 +138,23 @@ void *nabu_prof_malloc_atomic(size_t n) {
     return nabu_alloc_global_flag() ? GC_malloc_kind_global(n, 0) : GC_malloc_atomic(n);
 }
 
+/* A build with -Dnabu.gc.debugAlloc=true allocates through the debug allocator of the collector: every object gets guard
+ * words around it, and at every collection the collector reports the objects whose guard was overwritten ("GC_check_heap
+ * ... found smashed heap objects") with the "line" that was given at the allocation: here the offset of the caller in
+ * the executable (symbolize with llvm-nm -n, the offset is added to the base of the image). A write past the end of an
+ * object, which the rounding of the block size hides in a normal build, shows up as a smashed object. */
+extern void *GC_debug_malloc(size_t n, const char *file, int line);
+extern void *GC_debug_malloc_atomic(size_t n, const char *file, int line);
+extern uintptr_t nabu_image_lo;
+void *nabu_dbg_malloc(size_t n) __attribute__((noinline));
+void *nabu_dbg_malloc(size_t n) {
+    return GC_debug_malloc(n, "nabu", (int) ((uintptr_t) __builtin_return_address(0) - nabu_image_lo));
+}
+void *nabu_dbg_malloc_atomic(size_t n) __attribute__((noinline));
+void *nabu_dbg_malloc_atomic(size_t n) {
+    return GC_debug_malloc_atomic(n, "nabu", (int) ((uintptr_t) __builtin_return_address(0) - nabu_image_lo));
+}
+
 /* The allocations of the C runtime itself (nabu_gc_alloc: strings, arrays, reflection objects, boxes made in C), counted
  * while NABU_ALLOC_PROF is set. The function that asks is usually a small static helper, so the key is the call chain:
  * the return addresses of the six frames above the allocation, from which a reader takes the first one that is a

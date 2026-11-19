@@ -54,13 +54,16 @@ void nabu_gc_init(void) {
         }
         GC_init();
         /* A program like this starts by building a large object graph. With the small heap the collector begins with it
-         * collects over and over while all of it is still alive (the petstore: 2.7 -> 2.1 s to start, +20 MB resident,
-         * and fewer collections afterwards). 256 MB: the petstore serves 13% (/pet/2) to 44% (/store/inventory) more
-         * requests per second than with 128 MB, for 86 MB more resident memory; the memory of a program that does not
-         * allocate that much is not touched. GC_INITIAL_HEAP_SIZE in the environment, which the collector reads itself,
-         * takes precedence. */
+         * collects over and over while all of it is still alive (the petstore: 2.7 -> 2.1 s to start). The heap is then
+         * mostly garbage between two collections, and that is what is resident: 256 MB was chosen when the weak and soft
+         * references were strong and the live data of the petstore grew by itself (which made every collection longer,
+         * and a small heap expensive). With those fixed the live data stays at 25 to 55 MB, and 128 MB serves the same
+         * number of requests per second (a run of 20000 requests per endpoint: 1586/1201/1133 against 1599/1207/1143
+         * with 256 MB) in 275 MB resident instead of 403 MB; 96 MB: 240 MB, 64 MB: 205 MB and up to 5% slower. The memory
+         * of a program that does not allocate that much is not touched. GC_INITIAL_HEAP_SIZE in the environment, which
+         * the collector reads itself, takes precedence. */
         if (getenv("GC_INITIAL_HEAP_SIZE") == NULL) {
-            GC_expand_hp((size_t) 256 << 20);
+            GC_expand_hp((size_t) 128 << 20);
         }
         {
             const char *every = getenv("NABU_SOFT_REF_EVERY");

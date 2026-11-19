@@ -21,14 +21,23 @@ public final class BoehmGarbageCollector implements GarbageCollector {
         return Boolean.getBoolean("nabu.allocProfile");
     }
 
+    /**
+     * -Dnabu.gc.debugAlloc=true: the compiled code allocates through the debug allocator of the collector, which puts
+     * guard words around every object and reports at each collection the objects that were written past their end
+     * (see nabu_dbg_malloc in gc_boehm.c). Slower and bigger; for finding a heap overrun.
+     */
+    private static boolean debugAlloc() {
+        return Boolean.getBoolean("nabu.gc.debugAlloc");
+    }
+
     @Override
     public String allocateSymbol() {
-        return allocProfile() ? "nabu_prof_malloc" : "GC_malloc";
+        return allocProfile() ? "nabu_prof_malloc" : debugAlloc() ? "nabu_dbg_malloc" : "GC_malloc";
     }
 
     @Override
     public String allocateAtomicSymbol() {
-        return allocProfile() ? "nabu_prof_malloc_atomic" : "GC_malloc_atomic";
+        return allocProfile() ? "nabu_prof_malloc_atomic" : debugAlloc() ? "nabu_dbg_malloc_atomic" : "GC_malloc_atomic";
     }
 
     @Override

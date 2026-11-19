@@ -17,7 +17,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <failsafe.version>3.5.3</failsafe.version>
+        <failsafe.version>3.6.1</failsafe.version>
     </properties>
 
     <dependencies>

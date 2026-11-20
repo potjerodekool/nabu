@@ -336,7 +336,64 @@ static void nabu_census_report(unsigned long gc_no) {
     }
 }
 
+/* NABU_CARD_STATS=1 (with the card marking of the compiler): at every mark end, how many cards were set by a store since the
+ * previous mark end, and how many of them lie in an object that was already live at the previous mark end (an "old" object:
+ * the cards that a nursery collection would have to scan; stores into new objects need no scanning). */
+extern unsigned char nabu_card_table[1 << 24];
+static int nabu_card_stats_on = 0;
+static uintptr_t nabu_old_base = 0, nabu_card_base = 0;
+static int nabu_old_valid = 0;
+static uint64_t nabu_old_bits[1 << 20];   /* one bit per 16 bytes of a window of 1 GB: live at the previous mark end */
+static uint64_t nabu_old2_bits[1 << 20];  /* live at the previous two mark ends: "old" after one aging step */
+
+static void nabu_card_visit(void *obj, size_t bytes, void *client) {
+    (void) client;
+    const uintptr_t a = (uintptr_t) obj;
+    if (nabu_old_base == 0) {
+        nabu_old_base = a & ~(((uintptr_t) 1 << 30) - 1);
+        nabu_card_base = a & ~(((uintptr_t) 1 << 33) - 1);
+    }
+    if (a < nabu_old_base || a - nabu_old_base >= ((uintptr_t) 1 << 30)) return;
+    for (uintptr_t g = (a - nabu_old_base) >> 4, e = (a - nabu_old_base + bytes + 15) >> 4; g < e && g < ((uintptr_t) 1 << 26); g++) {
+        nabu_old_bits[g >> 6] |= (uint64_t) 1 << (g & 63);
+    }
+}
+
+static void nabu_card_mark_end(unsigned long gc_no) {
+    unsigned long total = 0, old = 0, old2 = 0;
+    if (nabu_old_valid) {
+        for (size_t i = 0; i < sizeof nabu_card_table; i++) {
+            if (!nabu_card_table[i]) continue;
+            nabu_card_table[i] = 0;
+            total++;
+            /* a card is one 16-byte granule of a window of 256 MB that wraps: try the four windows of the 1 GB that holds the heap */
+            int in_old = 0, in_old2 = 0;
+            for (uintptr_t k = 0; k < 4; k++) {
+                const uintptr_t addr = nabu_old_base + (k << 28) + ((uintptr_t) i << 4);
+                const uintptr_t g = (addr - nabu_old_base) >> 4;
+                if ((nabu_old_bits[g >> 6] >> (g & 63)) & 1) in_old = 1;
+                if ((nabu_old2_bits[g >> 6] >> (g & 63)) & 1) in_old2 = 1;
+            }
+            old += in_old;
+            old2 += in_old2;
+        }
+    } else {
+        memset(nabu_card_table, 0, sizeof nabu_card_table);
+    }
+    static uint64_t previous[1 << 20];
+    memcpy(previous, nabu_old_bits, sizeof previous);
+    memset(nabu_old_bits, 0, sizeof nabu_old_bits);
+    GC_enumerate_reachable_objects_inner(nabu_card_visit, NULL);
+    for (size_t w = 0; w < (1 << 20); w++) nabu_old2_bits[w] = nabu_old_bits[w] & previous[w];
+    nabu_old_valid = 1;
+    char line[320];
+    const int n = snprintf(line, sizeof line, "[cards] collection %lu: %lu cards set since the last one, %lu in objects live at the previous mark end, %lu KB of them; %lu in objects live at the previous two, %lu KB"
+            "\n", gc_no, total, old, old * 16 / 1024, old2, old2 * 16 / 1024);
+    nabu_census_write(line, n);
+}
+
 static void nabu_gc_on_event(GC_EventType e) {
+    if (e == GC_EVENT_MARK_END && nabu_card_stats_on) nabu_card_mark_end((unsigned long) GC_get_gc_no());
     if (e == GC_EVENT_MARK_END && nabu_census_at > 0) {
         const unsigned long no = (unsigned long) GC_get_gc_no();
         if (no == (unsigned long) nabu_census_at || (nabu_census_repeat && no > (unsigned long) nabu_census_at)) {
@@ -368,6 +425,7 @@ static void nabu_gc_on_event(GC_EventType e) {
 }
 __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
     nabu_gc_stats_on = getenv("NABU_GC_STATS") != NULL;
+    nabu_card_stats_on = getenv("NABU_CARD_STATS") != NULL;
     nabu_prof_path = getenv("NABU_ALLOC_PROF");
     const char *census = getenv("NABU_GC_CENSUS");
     if (census != NULL && atol(census) > 0) {
@@ -376,7 +434,7 @@ __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
         const char *topEnv = getenv("NABU_GC_CENSUS_TOP");
         if (topEnv != NULL && atoi(topEnv) > 0) nabu_census_top = atoi(topEnv);
     }
-    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0) GC_set_on_collection_event(nabu_gc_on_event);
+    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0 || nabu_card_stats_on) GC_set_on_collection_event(nabu_gc_on_event);
 }
 
 static volatile size_t nabu_gc_alloc_bytes = 0;
@@ -534,6 +592,11 @@ static size_t nabu_soft_heap_limit = 0;
 static void (*nabu_soft_old_roots)(void) = NULL;
 
 /* Runs in the collector, with the world stopped. */
+/* The card table of the write barrier experiment (-Dnabu.gc.cardMarking=true, docs/gc-generational-design.md): one byte
+ * per 512 bytes of address space, set by every store of a reference. NABU_CARD_STATS=1 prints how many were set at each
+ * collection (and clears them), which is the share of the heap that a nursery collection would have to scan. */
+unsigned char nabu_card_table[1 << 24];
+
 static void nabu_soft_push_roots(void) {
     const int pressure = (GC_get_gc_no() + 1) % nabu_soft_every == 0
             || (nabu_soft_heap_limit != 0 && GC_get_heap_size() > nabu_soft_heap_limit);

@@ -583,6 +583,11 @@ final class PartitionedCodegen {
             try {
                 if (pipeline != null) {
                     NativeLLVMBackend.runPasses(mod, machine, pipeline);
+                    final int cold = NativeLLVMBackend.placeColdFunctions(ctx, mod, triple);
+                    if (TIMING && cold > 0) {
+                        System.err.println("[NativeLLVMBackend] partition " + partition + ": " + cold
+                                + " functions the profile never entered go to a cold section");
+                    }
                 }
                 final long t2 = System.nanoTime();
                 if (LLVMTargetMachineEmitToFile(machine, mod,

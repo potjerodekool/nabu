@@ -409,6 +409,13 @@ Recipe (the petstore; every step but the builds takes seconds):
 | LLVM 22 + PGO | 2060-2120 | 1515-1560 | 1475-1510 |
 | GraalVM native-image | 2049 | 1664 | 1682 |
 
+With a profile the functions that the training run never entered (function entry count 0) are put in a section of
+their own (`.text$zcold` on Windows, `.text.unlikely.nabu` on Linux, `__TEXT,__nabu_cold` on macOS; `-Dnabu.pgo.cold=false`
+switches it off), so the linker puts them together and their pages are never read into memory. Petstore on Windows,
+same profile, 6000 requests: working set 231 MB without and 215 MB with the cold section (-7%), 1731/1805 against
+1823/1829 requests per second (no slower). Only Windows was measured; the Linux and macOS section names are the
+conventional ones but were not run with a profile.
+
 LLVM 22 alone is +9%; PGO adds little on top of that (the same level as PGO on LLVM 21, within the 5% noise of a run).
 The executable is 146 MB with a profile (151 MB without; the instrumented one is 257 MB).
 

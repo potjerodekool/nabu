@@ -708,6 +708,21 @@ public class NativeLLVMBackend implements Backend {
      * uses are not shared with the cold code and the cold pages are never read into memory. Returns how many.
      */
     static int placeColdFunctions(final LLVMContextRef ctx, final LLVMModuleRef mod, final String triple) {
+        return placeColdFunctions(ctx, mod, triple, false);
+    }
+
+    /** -Dnabu.pgo.coldOptnone=true: the code generation of the functions the profile never entered is not optimized (see PartitionedCodegen). */
+    static boolean coldOptnone() {
+        return pgoUse() && Boolean.getBoolean("nabu.pgo.coldOptnone");
+    }
+
+    /**
+     * As {@link #placeColdFunctions(LLVMContextRef, LLVMModuleRef, String)}; with {@code optnone} the cold functions also
+     * get the attributes optnone and noinline, so the optimizer (run after this) leaves them alone: compile time spent on code
+     * that the training run never executed is saved, and the code of such a function is as slow as unoptimized code.
+     */
+    static int placeColdFunctions(final LLVMContextRef ctx, final LLVMModuleRef mod, final String triple,
+                                  final boolean optnone) {
         if (!"false".equalsIgnoreCase(System.getProperty("nabu.pgo.cold", "true")) && pgoUse()) {
             final String t = triple.toLowerCase(java.util.Locale.ROOT);
             final String section = t.contains("apple") || t.contains("darwin") ? "__TEXT,__nabu_cold"
@@ -733,6 +748,12 @@ public class NativeLLVMBackend implements Backend {
                         && LLVMConstIntGetZExtValue(ops.get(LLVMValueRef.class, 1)) == 0
                         && hasNoSection(f)) {
                     LLVMSetSection(f, section);
+                    if (optnone) {
+                        for (final String attribute : new String[] {"optnone", "noinline"}) {
+                            final int id = LLVMGetEnumAttributeKindForName(attribute, attribute.length());
+                            LLVMAddAttributeAtIndex(f, LLVMAttributeFunctionIndex, LLVMCreateEnumAttribute(ctx, id, 0));
+                        }
+                    }
                     cold++;
                 }
             }

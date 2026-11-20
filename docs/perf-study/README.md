@@ -416,6 +416,13 @@ same profile, 6000 requests: working set 231 MB without and 215 MB with the cold
 1823/1829 requests per second (no slower). Only Windows was measured; the Linux and macOS section names are the
 conventional ones but were not run with a profile.
 
+`-Dnabu.pgo.coldOptnone=true` goes one step further: after the profile is applied, the functions it never entered get
+`optnone` and `noinline`, so the optimizer skips them. Petstore, same profile: the optimize and emit phase 279 s -> 213 s
+(-24%), the whole build 7:38 -> 6:49 (-11%), the executable 146 -> 161 MB. The endpoints the training run called are not
+slower (1759/1817 against 1794/1765 requests per second); the ones it never called are 0-8% slower (`PUT /pet` 1505/1578
+-> 1444/1457, `GET /store/order/1` 1904/1938 -> 1795/1809, the others within the noise). Off by default: it trades the
+speed of untrained code for build time, so use it when the training run covers what the program does.
+
 LLVM 22 alone is +9%; PGO adds little on top of that (the same level as PGO on LLVM 21, within the 5% noise of a run).
 The executable is 146 MB with a profile (151 MB without; the instrumented one is 257 MB).
 

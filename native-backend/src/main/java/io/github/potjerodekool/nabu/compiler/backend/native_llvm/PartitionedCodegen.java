@@ -582,8 +582,17 @@ final class PartitionedCodegen {
                     LLVMRelocPIC, LLVMCodeModelDefault);
             try {
                 if (pipeline != null) {
-                    NativeLLVMBackend.runPasses(mod, machine, pipeline);
-                    final int cold = NativeLLVMBackend.placeColdFunctions(ctx, mod, triple);
+                    final int split = pipeline.indexOf(",default<");
+                    final int cold;
+                    if (NativeLLVMBackend.coldOptnone() && pipeline.startsWith("pgo-instr-use") && split > 0) {
+                        // annotate with the profile first, then keep the optimizer away from the functions that never ran
+                        NativeLLVMBackend.runPasses(mod, machine, pipeline.substring(0, split));
+                        cold = NativeLLVMBackend.placeColdFunctions(ctx, mod, triple, true);
+                        NativeLLVMBackend.runPasses(mod, machine, pipeline.substring(split + 1));
+                    } else {
+                        NativeLLVMBackend.runPasses(mod, machine, pipeline);
+                        cold = NativeLLVMBackend.placeColdFunctions(ctx, mod, triple);
+                    }
                     if (TIMING && cold > 0) {
                         System.err.println("[NativeLLVMBackend] partition " + partition + ": " + cold
                                 + " functions the profile never entered go to a cold section");

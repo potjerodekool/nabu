@@ -27,8 +27,8 @@
         <!-- The platform of the native backend (its LLVM libraries and the name of the release file): windows-x86_64, linux-x86_64, linux-arm64, macosx-x86_64 or macosx-arm64.
              Default is windows-x86_64; the OS-activation profiles below override it on Linux and macOS. -->
         <javacpp.platform>windows-x86_64</javacpp.platform>
-        <maven.gpg.plugin.version>3.2.4</maven.gpg.plugin.version>
-        <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
+        <maven.gpg.plugin.version>3.2.8</maven.gpg.plugin.version>
+        <maven.javadoc.plugin.version>3.12.0</maven.javadoc.plugin.version>
         <surefire.version>3.6.1</surefire.version>
     </properties>
 
@@ -230,7 +230,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-source-plugin</artifactId>
-                    <version>3.3.0</version>
+                    <version>3.4.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -250,7 +250,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-deploy-plugin</artifactId>
-                    <version>3.1.4</version>
+                    <version>3.2.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

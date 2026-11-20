@@ -77,6 +77,34 @@ class ColdFunctionPlacementTest {
     }
 
     @Test
+    void optnoneIsOnlyForTheColdFunctionsAndOnlyWhenAsked() {
+        final String before = System.getProperty("nabu.pgo");
+        System.setProperty("nabu.pgo", "/some/profile.profdata");
+        try {
+            new NativeLLVMBackend();
+            final LLVMContextRef ctx = LLVMContextCreate();
+            final LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+                    new BytePointer(IR), IR.length(), new BytePointer("cold"));
+            final LLVMModuleRef mod = new LLVMModuleRef();
+            assertEquals(0, LLVMParseIRInContext(ctx, buffer, mod, new BytePointer()), "the IR of the test does not parse");
+            assertEquals(1, NativeLLVMBackend.placeColdFunctions(ctx, mod, "x86_64-pc-linux-gnu", true));
+            final int optnone = LLVMGetEnumAttributeKindForName("optnone", 7);
+            final int noinline = LLVMGetEnumAttributeKindForName("noinline", 8);
+            assertTrue(LLVMGetEnumAttributeAtIndex(LLVMGetNamedFunction(mod, "cold"), LLVMAttributeFunctionIndex, optnone) != null);
+            assertTrue(LLVMGetEnumAttributeAtIndex(LLVMGetNamedFunction(mod, "cold"), LLVMAttributeFunctionIndex, noinline) != null);
+            assertEquals(null, LLVMGetEnumAttributeAtIndex(LLVMGetNamedFunction(mod, "hot"), LLVMAttributeFunctionIndex, optnone));
+            assertEquals(null, LLVMGetEnumAttributeAtIndex(LLVMGetNamedFunction(mod, "unknown"), LLVMAttributeFunctionIndex, optnone));
+            assertEquals(false, NativeLLVMBackend.coldOptnone(), "off unless -Dnabu.pgo.coldOptnone=true");
+        } finally {
+            if (before == null) {
+                System.clearProperty("nabu.pgo");
+            } else {
+                System.setProperty("nabu.pgo", before);
+            }
+        }
+    }
+
+    @Test
     void withoutAProfileNothingMoves() {
         final LLVMModuleRef[] mod = new LLVMModuleRef[1];
         assertEquals(0, place(null, "x86_64-pc-linux-gnu", mod));

@@ -20,8 +20,14 @@ public final class TypeConsistency {
 
     private TypeConsistency() {}
 
+    /**
+     * -Dnabu.typeConsistency.trace=true: names every function it runs on. It was printed for every function of every build
+     * (800000 lines for the petstore, which also made the threads of the optimizer wait for each other on System.out).
+     */
+    private static final boolean TRACE = Boolean.getBoolean("nabu.typeConsistency.trace");
+
     public static IRFunction run(final IRFunction function) {
-        System.out.println("[TypeConsistency] Running on " + function.name);
+        if (TRACE) System.out.println("[TypeConsistency] Running on " + function.name);
 
         // Step 1: Collect all temp types per block
         final Map<IRBasicBlock, Map<String, Set<IRType>>> blockTempTypes = new HashMap<>();
@@ -47,11 +53,11 @@ public final class TypeConsistency {
                 .collect(Collectors.toSet());
 
         if (conflictedTemps.isEmpty()) {
-            System.out.println("[TypeConsistency] No conflicts in " + function.name);
+            if (TRACE) System.out.println("[TypeConsistency] No conflicts in " + function.name);
             return function;
         }
 
-        System.out.println("[TypeConsistency] Conflicted temps in " + function.name + ": " + conflictedTemps);
+        if (TRACE) System.out.println("[TypeConsistency] Conflicted temps in " + function.name + ": " + conflictedTemps);
 
         // Step 3: Build CFG
         final var cfg = buildCFG(function);

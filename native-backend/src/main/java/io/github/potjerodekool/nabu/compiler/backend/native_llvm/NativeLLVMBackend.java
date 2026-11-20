@@ -697,6 +697,55 @@ public class NativeLLVMBackend implements Backend {
         };
     }
 
+    /** Whether this build uses a PGO profile (-Dnabu.pgo=&lt;profdata&gt;), so that the functions have entry counts. */
+    static boolean pgoUse() {
+        return pgoProfile() != null;
+    }
+
+    /**
+     * With a PGO profile, the functions the training run never entered (entry count 0) go to a section of their own
+     * ({@code -Dnabu.pgo.cold=false}: off): the linker puts them together, so the pages of the code that a server
+     * uses are not shared with the cold code and the cold pages are never read into memory. Returns how many.
+     */
+    static int placeColdFunctions(final LLVMContextRef ctx, final LLVMModuleRef mod, final String triple) {
+        if (!"false".equalsIgnoreCase(System.getProperty("nabu.pgo.cold", "true")) && pgoUse()) {
+            final String t = triple.toLowerCase(java.util.Locale.ROOT);
+            final String section = t.contains("apple") || t.contains("darwin") ? "__TEXT,__nabu_cold"
+                    : t.contains("windows") || t.contains("mingw") ? ".text$zcold"
+                    : ".text.unlikely.nabu";
+            final BytePointer kindName = new BytePointer("prof");
+            final int kind = LLVMGetMDKindIDInContext(ctx, kindName, 4);
+            int cold = 0;
+            for (LLVMValueRef f = LLVMGetFirstFunction(mod); f != null && !f.isNull(); f = LLVMGetNextFunction(f)) {
+                if (LLVMIsDeclaration(f) != 0) {
+                    continue;
+                }
+                final LLVMValueRef node = LLVMGetMetadata(f, kind);
+                if (node == null || node.isNull() || LLVMGetMDNodeNumOperands(node) < 2) {
+                    continue;
+                }
+                final int n = LLVMGetMDNodeNumOperands(node);
+                final org.bytedeco.javacpp.PointerPointer<LLVMValueRef> ops = new org.bytedeco.javacpp.PointerPointer<>(n);
+                LLVMGetMDNodeOperands(node, ops);
+                final org.bytedeco.javacpp.IntPointer length = new org.bytedeco.javacpp.IntPointer(1);
+                final BytePointer label = LLVMGetMDString(ops.get(LLVMValueRef.class, 0), length);
+                if (label != null && !label.isNull() && "function_entry_count".equals(label.getString())
+                        && LLVMConstIntGetZExtValue(ops.get(LLVMValueRef.class, 1)) == 0
+                        && hasNoSection(f)) {
+                    LLVMSetSection(f, section);
+                    cold++;
+                }
+            }
+            return cold;
+        }
+        return 0;
+    }
+
+    private static boolean hasNoSection(final LLVMValueRef function) {
+        final BytePointer section = LLVMGetSection(function);
+        return section == null || section.isNull() || section.getString().isEmpty();
+    }
+
     static void runPasses(LLVMModuleRef mod,
                           LLVMTargetMachineRef machine,
                           String pipeline) throws CompileException {

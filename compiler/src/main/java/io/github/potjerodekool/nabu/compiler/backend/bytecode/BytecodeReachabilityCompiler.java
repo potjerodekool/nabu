@@ -1234,7 +1234,8 @@ public final class BytecodeReachabilityCompiler {
         final long totalMs = (System.nanoTime() - start) / 1_000_000L;
         System.err.println("[BytecodeReachability] closure done: " + classesShaped
                 + " classes shaped, " + methodsLowered + " methods lowered, "
-                + notFound.size() + " not found/skipped, total " + totalMs + " ms");
+                + notFound.size() + " not found/skipped, total " + totalMs + " ms, of which lowering "
+                + loweringNanos / 1_000_000L + " ms");
         printWhy();
         printStats();
 
@@ -2204,6 +2205,9 @@ public final class BytecodeReachabilityCompiler {
         return classNode;
     }
 
+    /** Wall-clock time spent in BytecodeMethodLowering.lower() (printed with the closure statistics). */
+    private long loweringNanos;
+
     private void lowerOne(final IRBuilder builder,
                           final String qualifiedName,
                           final ClassNode classNode,
@@ -2213,8 +2217,10 @@ public final class BytecodeReachabilityCompiler {
         final var lowering = new BytecodeMethodLowering(
                 builder, qualifiedName, classNode, methodNode, typeRefs, methodRefs);
         final int functionsBefore = builder.build().functions().size();
+        final long loweringStart = System.nanoTime();
         try {
             lowering.lower();
+            loweringNanos += System.nanoTime() - loweringStart;
         } catch (final RuntimeException e) {
             // Zonder deze wrapper verdwijnt de naam van de klasse/methode
             // die daadwerkelijk faalde in een kale stacktrace (bv. een

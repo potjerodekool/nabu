@@ -18,6 +18,8 @@ public class Optimizer {
      * inlint triviale callees over module-grenzen heen, gevolgd door de per-functie passes.
      */
     public static List<IRModule> optimizeAll(final List<IRModule> modules) {
+        final boolean timing = Boolean.getBoolean("nabu.closureStats");
+        long mark = System.nanoTime();
         // Stap 0: TypeConsistency + PhiElimination op alle functies, zodat callees
         // Phi-vrij zijn en de inliner multi-blok callees kan handelen.
         for (final IRModule m : modules) {
@@ -28,6 +30,7 @@ public class Optimizer {
             }
         }
 
+        if (timing) { mark = phase("type consistency + phi elimination", mark); }
         // Globale callee-map.
         final Map<String, IRFunction> globalCallees = new HashMap<>();
         for (final IRModule m : modules) {
@@ -50,6 +53,7 @@ public class Optimizer {
             }
         }
 
+        if (timing) { mark = phase("callee map + call counts", mark); }
         // Escape-analyse (analyse-only): rapporteer niet-ontsnappende allocaties.
         if (Boolean.getBoolean("nabu.escapeStats")) {
             int total = 0, nonEsc = 0;
@@ -75,6 +79,7 @@ public class Optimizer {
             }
         }
 
+        if (timing) { mark = phase("inliner", mark); }
         // Stack-allocation van niet-ontsnappende allocs (opt-in).
         final List<IRModule> stackModules = new ArrayList<>();
         for (final IRModule m : modules) {
@@ -86,6 +91,7 @@ public class Optimizer {
         for (final IRModule m : stackModules) {
             scalarModules.add(ScalarReplacement.run(m, globalCallees));
         }
+        if (timing) { mark = phase("stack allocation + scalar replacement", mark); }
         // use scalarModules for per-function passes
         modules.clear();
         modules.addAll(scalarModules);
@@ -126,6 +132,7 @@ public class Optimizer {
             }
         }
 
+        if (timing) { mark = phase("interprocedural nullness", mark); }
         // Invalideer dataflow-cache voor alle functies (IR is gemuteerd).
         for (final IRModule m : modules) {
             for (final IRFunction f : m.functions()) {
@@ -141,7 +148,15 @@ public class Optimizer {
                     .toList();
             result.add(m.withFunctions(optFns));
         }
+        if (timing) { phase("per-function passes", mark); }
         return result;
+    }
+
+    /** -Dnabu.closureStats=true: the time of each phase of the cross-module optimizer. */
+    private static long phase(final String name, final long since) {
+        final long now = System.nanoTime();
+        System.err.println("[Optimizer] " + name + ": " + (now - since) / 1_000_000L + " ms");
+        return now;
     }
 
     public static IRModule optimize(final IRModule module) {

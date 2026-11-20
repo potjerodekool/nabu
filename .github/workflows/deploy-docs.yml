@@ -57,9 +57,9 @@ jobs:
       - name: Create Jekyll docs directory structure
         run: |
           mkdir -p site/_site/api/compiler-api
-          cp -r compiler-api/target/site/apidocs/* site/_site/api/compiler-api/
+          cp -r compiler-api/target/reports/apidocs/* site/_site/api/compiler-api/
           mkdir -p site/_site/api/compiler
-          cp -r compiler/target/site/apidocs/* site/_site/api/compiler/
+          cp -r compiler/target/reports/apidocs/* site/_site/api/compiler/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

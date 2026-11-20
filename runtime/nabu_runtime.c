@@ -1453,9 +1453,14 @@ const char *nabu_symbol_file(const char *symbol) {
 }
 
 #ifdef _WIN32
+/* The big temporary buffers of the symbol loader come straight from the system: the heap of the C runtime keeps a freed
+ * block of tens of megabytes committed, which was 28 MB of the resident memory of a server for good. */
+static void *nabu_va(size_t n) { return VirtualAlloc(NULL, n, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); }
+static void nabu_va_free(void *p) { if (p != NULL) VirtualFree(p, 0, MEM_RELEASE); }
+
 /* Reads the COFF symbol table of the running executable: the functions in code sections. */
-static void nabu_load_symbols(void) {
-    nabu_syms_loaded = 1;
+static void nabu_load_symbols(int data_only) {
+    if (!data_only) nabu_syms_loaded = 1;
     char path[MAX_PATH];
     if (GetModuleFileNameA(NULL, path, MAX_PATH) == 0) return;
     FILE *f = fopen(path, "rb");
@@ -1465,6 +1470,8 @@ static void nabu_load_symbols(void) {
     IMAGE_SECTION_HEADER *sections = NULL;
     char *strings = NULL;
     unsigned char *table = NULL;
+    int keep_strings = 0;
+    unsigned char *view = NULL;
     do {
         if (fread(&dos, sizeof dos, 1, f) != 1 || dos.e_magic != IMAGE_DOS_SIGNATURE) break;
         if (fseek(f, dos.e_lfanew, SEEK_SET) != 0 || fread(&nt, sizeof nt, 1, f) != 1) break;
@@ -1476,49 +1483,78 @@ static void nabu_load_symbols(void) {
         if (sections == NULL) break;
         long secoff = dos.e_lfanew + 4 + (long) sizeof(IMAGE_FILE_HEADER) + nt.FileHeader.SizeOfOptionalHeader;
         if (fseek(f, secoff, SEEK_SET) != 0 || fread(sections, sizeof *sections, nsec, f) != nsec) break;
-        table = malloc((size_t) nsyms * 18);
-        if (table == NULL) break;
-        if (fseek(f, (long) symoff, SEEK_SET) != 0 || fread(table, 18, nsyms, f) != nsyms) break;
+        /* The symbol table and its string table (28 MB of names in a server) are read through a mapping of the file: the
+         * pages that nothing asks for stay out of the resident memory, and a stack trace needs only a few names. */
+        {
+            HANDLE hf = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hf == INVALID_HANDLE_VALUE) break;
+            HANDLE hm = CreateFileMappingA(hf, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (hm != NULL) view = MapViewOfFile(hm, FILE_MAP_READ, 0, 0, 0);
+            if (hm != NULL) CloseHandle(hm);
+            CloseHandle(hf);
+            if (view == NULL) break;
+        }
+        table = view + symoff;
+        strings = (char *) (view + symoff + (size_t) nsyms * 18);
         uint32_t strsize = 0;
-        if (fread(&strsize, 4, 1, f) != 1 || strsize < 4) break;
-        strings = malloc(strsize);
-        if (strings == NULL) break;
-        memcpy(strings, &strsize, 4);
-        if (strsize > 4 && fread(strings + 4, 1, strsize - 4, f) != strsize - 4) break;
+        memcpy(&strsize, strings, 4);
+        if (strsize < 4) break;
         uintptr_t base = (uintptr_t) GetModuleHandleA(NULL);
         nabu_image_end = base + nt.OptionalHeader.SizeOfImage;
-        nabu_syms = malloc((size_t) nsyms * sizeof *nabu_syms);
-        nabu_dsyms = malloc((size_t) nsyms * sizeof *nabu_dsyms);
-        if (nabu_syms == NULL || nabu_dsyms == NULL) break;
+        /* data_only: only the writable globals (the static fields), copied, for nabu_data_symbol, which a server asks
+         * at start-up; the code symbols and the debug information are read when a stack trace needs them. */
+        nabu_sym *found = nabu_va((size_t) nsyms * sizeof *found);
+        size_t found_count = 0;
+        if (found == NULL) break;
         for (DWORD i = 0; i < nsyms; ) {
             unsigned char *e = table + (size_t) i * 18;
             uint32_t value; int16_t secnum; unsigned char aux = e[17];
             memcpy(&value, e + 8, 4);
             memcpy(&secnum, e + 12, 2);
-            if (secnum > 0 && secnum <= nsec) {
-                int is_code = (sections[secnum - 1].Characteristics & IMAGE_SCN_CNT_CODE) != 0;
+            if (secnum > 0 && secnum <= nsec
+                    && (data_only ? (sections[secnum - 1].Characteristics & IMAGE_SCN_MEM_WRITE) != 0
+                                  : (sections[secnum - 1].Characteristics & IMAGE_SCN_CNT_CODE) != 0)) {
+                int is_code = !data_only;
                 const char *name = NULL;
                 char shortname[9];
                 uint32_t zero, off;
                 memcpy(&zero, e, 4);
                 memcpy(&off, e + 4, 4);
                 if (zero == 0) {
-                    if (off < strsize) name = strings + off;
+                    if (off < strsize) name = strings + off; /* not read here unless the names are copied */
                 } else {
                     memcpy(shortname, e, 8);
                     shortname[8] = 0;
                     name = shortname;
                 }
-                if (name != NULL && name[0] != 0 && name[0] != '.') {
-                    nabu_sym *slot = is_code ? &nabu_syms[nabu_sym_count++] : &nabu_dsyms[nabu_dsym_count++];
+                if (name != NULL && (zero == 0 && !data_only ? 1 : name[0] != 0 && name[0] != '.')) {
+                    nabu_sym *slot = &found[found_count++];
                     slot->addr = base + sections[secnum - 1].VirtualAddress + value;
-                    slot->name = strdup(name);
+                    /* A long name is read from the string table, which stays allocated: a copy of each of the 500 000
+                     * names of a large executable was 40 MB of the resident memory of a server. */
+                    slot->name = data_only || name == shortname ? strdup(name) : name;
                 }
             }
             i += 1 + aux;
         }
+        nabu_sym *exact = malloc((found_count + 1) * sizeof *exact);
+        if (exact == NULL) { nabu_va_free(found); break; }
+        memcpy(exact, found, found_count * sizeof *exact);
+        nabu_va_free(found);
+        if (data_only) {
+            nabu_dsyms = exact;
+            nabu_dsym_count = found_count;
+            qsort(nabu_dsyms, nabu_dsym_count, sizeof *nabu_dsyms, nabu_dsym_cmp);
+            break;
+        }
+        keep_strings = 1;
+        /* the pages of the symbol table that the scan touched leave the resident memory (unlocking a page that is not
+         * locked takes it out of the working set) */
+        VirtualUnlock(table, (size_t) nsyms * 18);
+        nabu_syms = exact;
+        nabu_sym_count = found_count;
         qsort(nabu_syms, nabu_sym_count, sizeof *nabu_syms, nabu_sym_cmp);
-        qsort(nabu_dsyms, nabu_dsym_count, sizeof *nabu_dsyms, nabu_dsym_cmp);
         nabu_debug_sections ds;
         memset(&ds, 0, sizeof ds);
         for (WORD si = 0; si < nsec; si++) {
@@ -1553,19 +1589,19 @@ static void nabu_load_symbols(void) {
         nabu_digest_debug(&ds, (intptr_t) (base - (uintptr_t) nt.OptionalHeader.ImageBase));
     } while (0);
     free(sections);
-    free(table);
-    free(strings);
+    if (!keep_strings && view != NULL) UnmapViewOfFile(view);
     fclose(f);
 }
 
 static volatile int nabu_syms_ready = 0;
+static volatile int nabu_dsyms_ready = 0;
 
 /* The symbol tables are read once, by the first thread that needs them; the others wait for it. */
 static void nabu_ensure_symbols(void) {
     if (__atomic_load_n(&nabu_syms_ready, __ATOMIC_ACQUIRE)) return;
     nabu_rt_lock();
     if (!nabu_syms_loaded) {
-        nabu_load_symbols();
+        nabu_load_symbols(0);
         __atomic_store_n(&nabu_syms_ready, 1, __ATOMIC_RELEASE);
     }
     nabu_rt_unlock();
@@ -1575,7 +1611,14 @@ static void nabu_ensure_debug(void) { nabu_ensure_symbols(); }
 
 /* The address of a global by its symbol name (for example "java.util.concurrent.ForkJoinPool_poolIds"), or NULL. */
 void *nabu_data_symbol(const char *name) {
-    nabu_ensure_symbols();
+    if (!__atomic_load_n(&nabu_dsyms_ready, __ATOMIC_ACQUIRE)) {
+        nabu_rt_lock();
+        if (!nabu_dsyms_ready) {
+            nabu_load_symbols(1);
+            __atomic_store_n(&nabu_dsyms_ready, 1, __ATOMIC_RELEASE);
+        }
+        nabu_rt_unlock();
+    }
     size_t lo = 0, hi = nabu_dsym_count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;

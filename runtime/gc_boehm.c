@@ -523,9 +523,9 @@ extern int GC_get_kind_and_size(const void *p, size_t *psize);
 static int nabu_raw_kind = -1;   /* with NABU_CARD_STATS: the blocks of nabu_gc_alloc (runtime), told apart from the objects of compiled code (kind 1) */
 static uint64_t nabu_pin_bits[1 << 20];
 static uint64_t nabu_pin_shape[6][2];   /* raw blocks that pin: [first word is in the image, a heap pointer, a small number, other, ...][count, bytes] */
-typedef struct { uintptr_t first; unsigned long count; size_t bytes; } nabu_pin_key;
+typedef struct { uintptr_t first; unsigned long count; size_t bytes; int kind; uintptr_t w[4]; } nabu_pin_key;
 static nabu_pin_key nabu_pin_keys[4096];
-static uint64_t nabu_pin_arrays, nabu_pin_objects, nabu_pin_bytes, nabu_pin_from[6];
+static uint64_t nabu_pin_dl_entries, nabu_pin_arrays, nabu_pin_objects, nabu_pin_bytes, nabu_pin_from[6];
 enum { NABU_PIN_STACK, NABU_PIN_IMAGE, NABU_PIN_TYPED, NABU_PIN_RAW, NABU_PIN_LIB, NABU_PIN_ZERO };
 
 typedef struct { uintptr_t start; size_t size; } nabu_pin_obj;
@@ -575,6 +575,14 @@ static void nabu_pin_visit(void *obj, size_t bytes, void *client) {
     if (kind == 0) return;   /* GC_PTRFREE: strings, arrays of numbers: no pointers at all */
     const uintptr_t *words = (const uintptr_t *) obj;
     const uintptr_t first = words[0];
+    /* an entry of the disappearing links of the collector itself (hidden key, next, hidden object): bookkeeping, not program data */
+    if (bytes == 32 && (first >> 56) == 0xFF && (words[2] >> 56) == 0xFF && words[3] == 0) { nabu_pin_dl_entries++; return; }
+    /* a free cell of the collector (not handed out yet): the first word links to the next cell, the rest is zero */
+    if (nabu_old_base != 0 && first >= nabu_old_base && first - nabu_old_base < ((uintptr_t) 1 << 30)) {
+        size_t nonzero = 0;
+        for (size_t i = 1; i < bytes / 8; i++) nonzero += words[i] != 0;
+        if (nonzero == 0) { nabu_pin_dl_entries++; return; }
+    }
     size_t from = 0, to = bytes / 8;
     int source = NABU_PIN_RAW;
     const int32_t *map = NULL;
@@ -605,11 +613,12 @@ static void nabu_pin_visit(void *obj, size_t bytes, void *client) {
             return;   /* numbers or characters: no pointers */
         }
     }
-    if (map == NULL && source == NABU_PIN_RAW) {
-        size_t slot = (first >> 3) * 2654435761u % 4096;
+    if (map == NULL && source == NABU_PIN_ZERO) {
+        const uintptr_t key = (uintptr_t) 0xFF << 56 | bytes;   /* by block size */
+        size_t slot = (key >> 3) * 2654435761u % 4096;
         for (int probe = 0; probe < 4096; probe++, slot = (slot + 1) % 4096) {
-            if (nabu_pin_keys[slot].count == 0) { nabu_pin_keys[slot].first = first; nabu_pin_keys[slot].count = 1; nabu_pin_keys[slot].bytes = bytes; break; }
-            if (nabu_pin_keys[slot].first == first) { nabu_pin_keys[slot].count++; break; }
+            if (nabu_pin_keys[slot].count == 0) { nabu_pin_keys[slot].first = first; nabu_pin_keys[slot].count = 1; nabu_pin_keys[slot].bytes = bytes; nabu_pin_keys[slot].kind = kind; for (int q = 0; q < 4 && q < (int) (bytes / 8); q++) nabu_pin_keys[slot].w[q] = words[q]; break; }
+            if (((uintptr_t) 0xFF << 56 | nabu_pin_keys[slot].bytes) == key) { nabu_pin_keys[slot].count++; break; }
         }
     }
     if (map == NULL) {
@@ -638,6 +647,7 @@ static void nabu_pin_stats(unsigned long gc_no) {
     nabu_pin_objects = nabu_pin_bytes = 0;
     memset(nabu_pin_from, 0, sizeof nabu_pin_from);
     memset(nabu_pin_shape, 0, sizeof nabu_pin_shape);
+    nabu_pin_dl_entries = 0;
     memset(nabu_pin_keys, 0, sizeof nabu_pin_keys);
     volatile char here;
     nabu_pin_count = 0;
@@ -674,13 +684,13 @@ static void nabu_pin_stats(unsigned long gc_no) {
         }
     }
     char line[400];
-    const int n = snprintf(line, sizeof line, "[pin] collection %lu: %lu of %lu young objects pinned (%.1f%%), %lu of %lu KB (%.1f%%); from the stack %lu, the image %lu, typed words outside the map %lu, raw blocks %lu, of them blocks of the runtime (nabu_gc_alloc) %lu, blocks with a zero first word %lu; %lu pages of 8 KB (%lu KB)\n",
+    const int n = snprintf(line, sizeof line, "[pin] collection %lu: %lu of %lu young objects pinned (%.1f%%), %lu of %lu KB (%.1f%%); from the stack %lu, the image %lu, typed words outside the map %lu, raw blocks %lu, of them blocks of the runtime (nabu_gc_alloc) %lu, blocks with a zero first word %lu; %lu pages of 8 KB (%lu KB); bookkeeping of the collector, not counted (disappearing-link entries, free cells) %lu\n",
             gc_no, (unsigned long) nabu_pin_objects, (unsigned long) nabu_young_objects,
             nabu_young_objects ? 100.0 * (double) nabu_pin_objects / (double) nabu_young_objects : 0.0,
             (unsigned long) (nabu_pin_bytes / 1024), (unsigned long) (nabu_young_bytes / 1024),
             nabu_young_bytes ? 100.0 * (double) nabu_pin_bytes / (double) nabu_young_bytes : 0.0,
             (unsigned long) nabu_pin_from[0], (unsigned long) nabu_pin_from[1], (unsigned long) nabu_pin_from[2],
-            (unsigned long) nabu_pin_from[3], (unsigned long) nabu_pin_from[4], (unsigned long) nabu_pin_from[5], pages, pages * 8);
+            (unsigned long) nabu_pin_from[3], (unsigned long) nabu_pin_from[4], (unsigned long) nabu_pin_from[5], pages, pages * 8, (unsigned long) nabu_pin_dl_entries);
     nabu_census_write(line, n);
     const int m = snprintf(line, sizeof line, "[pin]   blocks that are no compiled object or array (all words conservative): first word in the image %lu (%lu KB), a heap pointer %lu (%lu KB), a number below 2^32 %lu (%lu KB), other %lu (%lu KB)\n",
             (unsigned long) nabu_pin_shape[0][0], (unsigned long) (nabu_pin_shape[0][1] / 1024), (unsigned long) nabu_pin_shape[1][0], (unsigned long) (nabu_pin_shape[1][1] / 1024),
@@ -700,6 +710,8 @@ static void nabu_pin_stats(unsigned long gc_no) {
         const int k = snprintf(line, sizeof line, "[pin]     %6lu x first word %p (%s) in blocks of %lu bytes, type size %lu\n", nabu_pin_keys[best].count, (void *) f, what,
                 (unsigned long) nabu_pin_keys[best].bytes, (unsigned long) tisize);
         nabu_census_write(line, k);
+        const int k2 = snprintf(line, sizeof line, "[pin]            kind %d, words %p %p %p %p\n", nabu_pin_keys[best].kind, (void *) nabu_pin_keys[best].w[0], (void *) nabu_pin_keys[best].w[1], (void *) nabu_pin_keys[best].w[2], (void *) nabu_pin_keys[best].w[3]);
+        nabu_census_write(line, k2);
         nabu_pin_keys[best].count = 0;
     }
 }

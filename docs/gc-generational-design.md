@@ -219,6 +219,26 @@ collection in the steady state, 2-10 MB). Copying is not ruled out by this, but 
 (1) precise reference-tracking entries, (2) trace functions for the runtime blocks, (3) the nursery with its collection
 itself, (4) stacks of all threads and fibers, (5) validation by poisoning the from-space.
 
+### Second refinement (2026-11-21): what is bookkeeping, and what is still unexplained
+
+Correction of the paragraph above: the 32-byte blocks with a hidden first word are not entries of `nabu_gc_ref_track` (those are
+`malloc`ed) but the **disappearing-link entries of Boehm itself** (hidden key, next, hidden object; 30,000-45,000 of them),
+and a second large group is **free cells** of the collector's thread-local free lists (first word links to the next cell, the
+rest zero). Both are bookkeeping of the collector, not data of the program, and a copying collector in front of Boehm has to
+live with them (a weak link to a moved object has to be re-registered; the free cells stay in the old space). They are left
+out of the `[pin]` counts now (reported separately).
+
+What is left in the steady state (collections 9-16): 25-45% of the young objects pinned by count, 17-28% by bytes, from
+three kinds of holders that are not explained to the last block: (1) blocks of the runtime (`nabu_gc_alloc`, own kind):
+100-3,200 per collection, among them 32-byte blocks `[0, p, p, 0]` and 48-byte blocks; (2) blocks of compiled code (kind 1) with
+a zero first word and other words that are pointers; (3) the stack, 75-200 objects. After each fix a new class of internal
+structure shows up, and each measurement is a 4 minute build. The result so far: **the exact pinned fraction is not known to
+better than "a quarter to a third"**, and nothing found says it is below the 5% that copying needs.
+
+Stop point: stage 3 (the copying nursery) is not built. What it would still need is listed above (precise runtime blocks, the
+nursery and its collection, all stacks and fibers, validation by poisoning), on top of an unknown pinned fraction. The
+instrumentation stays (`NABU_CARD_STATS=1`, off by default) for whoever continues.
+
 ## Open questions that need an answer before stage 2
 
 - **Safepoints.** Boehm stops threads by signals/`SuspendThread`; a thread in the middle of an inline bump allocation has

@@ -2398,13 +2398,15 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMValueRef itable = layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType);
         LLVMValueRef existing = LLVMGetInitializer(layout.typeInfoGlobal);
         LLVMTypeRef infoType = LLVMGlobalGetValueType(layout.typeInfoGlobal);
-        PointerPointer<Pointer> newFields = new PointerPointer<>(10);
+        PointerPointer<Pointer> newFields = new PointerPointer<>(12);
         for (int i = 0; i < 8; i++) {
             newFields.put(i, LLVMGetOperand(existing, i));
         }
         newFields.put(8, vtable);
         newFields.put(9, itable);
-        LLVMValueRef newInit = LLVMConstNamedStruct(infoType, newFields, 10);
+        newFields.put(10, LLVMGetOperand(existing, 10));
+        newFields.put(11, LLVMGetOperand(existing, 11));
+        LLVMValueRef newInit = LLVMConstNamedStruct(infoType, newFields, 12);
         LLVMSetInitializer(layout.typeInfoGlobal, newInit);
         Reference.reachabilityFence(newFields);
         Reference.reachabilityFence(newInit);
@@ -2813,7 +2815,8 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         final List<String> interfaces = implementedInterfaceNames(module);
 
         // init — vtable/itable filled in later by updateTypeInfoVtableItable
-        PointerPointer<Pointer> initFields = new PointerPointer<>(10);
+        final List<Long> referenceOffsets = referenceOffsets(structType);
+        PointerPointer<Pointer> initFields = new PointerPointer<>(12);
         initFields.put(0, nameGlobalVal);
         initFields.put(1, LLVMConstInt(i64, size, 0));
         initFields.put(2, superPtr);
@@ -2824,7 +2827,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         initFields.put(7, LLVMConstInt(i32, instanceFields.size(), 0));
         initFields.put(8, LLVMConstNull(i8Ptr));  // vtable placeholder
         initFields.put(9, LLVMConstNull(i8Ptr));  // itable placeholder
-        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 10);
+        initFields.put(10, referenceOffsetArray(mod, internalName, referenceOffsets));
+        initFields.put(11, LLVMConstInt(i32, referenceOffsets.size(), 0));
+        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 12);
         LLVMSetInitializer(infoGlobal, init);
         Reference.reachabilityFence(initFields);
         Reference.reachabilityFence(init);
@@ -2876,7 +2881,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         long size = LLVMABISizeOfType(dl, objectHeaderType());
         LLVMDisposeTargetData(dl);
 
-        PointerPointer<Pointer> initFields = new PointerPointer<>(10);
+        PointerPointer<Pointer> initFields = new PointerPointer<>(12);
         initFields.put(0, nameGlobalVal);
         initFields.put(1, LLVMConstInt(i64, size, 0));
         initFields.put(2, parentInfo != null ? parentInfo : LLVMConstNull(i8Ptr));
@@ -2887,7 +2892,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         initFields.put(7, LLVMConstInt(i32, 0, 0));
         initFields.put(8, LLVMConstNull(i8Ptr));  // vtable (none for library super types)
         initFields.put(9, LLVMConstNull(i8Ptr));  // itable
-        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 10);
+        initFields.put(10, LLVMConstNull(i8Ptr)); // no reference map: the class has no fields of its own here
+        initFields.put(11, LLVMConstInt(i32, 0, 0));
+        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 12);
         LLVMSetInitializer(infoGlobal, init);
         Reference.reachabilityFence(initFields);
         Reference.reachabilityFence(init);
@@ -2901,12 +2908,12 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
      * {@code struct nabu_type_info { i8* name, i64 size, i8* super_type,
      * i32 field_count, i8** interfaces, i32 interface_count,
      * nabu_type_field* instance_fields, i32 instance_field_count,
-     * void** vtable, void** itable }} — moet overeenkomen met runtime/nabu_runtime.h.
+     * void** vtable, void** itable, i32* ref_offsets, i32 ref_count }} — moet overeenkomen met runtime/nabu_runtime.h.
      */
     LLVMTypeRef typeInfoStructType() {
         LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
         LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
-        PointerPointer<Pointer> info = new PointerPointer<>(10);
+        PointerPointer<Pointer> info = new PointerPointer<>(12);
         info.put(0, i8Ptr);
         info.put(1, LLVMInt64TypeInContext(ctx));
         info.put(2, i8Ptr);
@@ -2917,9 +2924,51 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         info.put(7, i32);
         info.put(8, i8Ptr);  // vtable
         info.put(9, i8Ptr);  // itable
-        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 10, 0);
+        info.put(10, i8Ptr); // ref_offsets: i32 offsets of the reference fields (see referenceOffsets)
+        info.put(11, i32);   // ref_count
+        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 12, 0);
         Reference.reachabilityFence(info);
         return infoType;
+    }
+
+    /**
+     * The byte offsets of the reference fields of an object of this struct (its own and the inherited ones, the struct is
+     * flat): every element behind the header that is a pointer. The collector's pointer map; the words of a Thread's
+     * room (an array of pointers) are not in it.
+     */
+    private List<Long> referenceOffsets(final LLVMTypeRef structType) {
+        final List<Long> offsets = new ArrayList<>();
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(ClassLayouts.DATA_LAYOUT));
+        try {
+            final int count = LLVMCountStructElementTypes(structType);
+            for (int i = 1; i < count; i++) {
+                if (LLVMGetTypeKind(LLVMStructGetTypeAtIndex(structType, i)) == LLVMPointerTypeKind) {
+                    offsets.add(LLVMOffsetOfElement(dl, structType, i));
+                }
+            }
+        } finally {
+            LLVMDisposeTargetData(dl);
+        }
+        return offsets;
+    }
+
+    /** A private constant {@code [n x i32]} with the offsets, or null when there are none. */
+    private LLVMValueRef referenceOffsetArray(final LLVMModuleRef mod, final String internalName, final List<Long> offsets) {
+        if (offsets.isEmpty()) {
+            return LLVMConstNull(LLVMPointerTypeInContext(ctx, 0));
+        }
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final PointerPointer<Pointer> values = new PointerPointer<>(offsets.size());
+        for (int i = 0; i < offsets.size(); i++) {
+            values.put(i, LLVMConstInt(i32, offsets.get(i), 0));
+        }
+        final LLVMValueRef array = LLVMAddGlobal(mod, LLVMArrayType(i32, offsets.size()),
+                new BytePointer(".type.refs." + typeSymbol(internalName)));
+        LLVMSetLinkage(array, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(array, 1);
+        LLVMSetInitializer(array, LLVMConstArray(i32, values, offsets.size()));
+        Reference.reachabilityFence(values);
+        return array;
     }
 
     /**

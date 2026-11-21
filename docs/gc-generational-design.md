@@ -1,6 +1,6 @@
 # A generational, partly moving collector for the LLVM backend: design
 
-Status: design only (2026-11-20). Nothing of this is built. It is the answer to "how do we get the resident memory of a
+Status: stages 0 and 1 built and measured (2026-11-21); stages 2-4 are design only. It is the answer to "how do we get the resident memory of a
 server down without losing speed", after everything else was tried.
 
 ## Why
@@ -118,6 +118,18 @@ already live at the previous mark end (and at the previous two). Petstore, Windo
 
 Acceptance of stage 1 (barrier at most 5%, most old cards clean): **passed**. The remembered set is small enough for
 generations to pay.
+
+## Result of stage 0 (2026-11-21, measured)
+
+The compiler emits for every class a list of the offsets of its reference fields (`ref_offsets`, `ref_count` in
+`nabu_type_info`, a private constant `.type.refs.<class>` per class; offsets come from the LLVM data layout, so they cannot
+differ from the real layout). `NABU_GC_VERIFY=1` walks every reachable object at each mark end and reports words that
+point into the live heap but are not in the map of the object's class. Petstore (-Opt NONE), ten endpoint types, 6000
+requests, ten collections: 793,542 words checked in the last one, 565,431 of them in a map (71%), the others are numbers
+or pointers to non-heap data. Words outside the map that point into live objects: **four fields in total**, all in
+`Thread` subclasses (`TaskThread` +16/+72, `LogManager$Cleaner` +16, `TomcatWebServer$1` +16): the thread state and room
+words that the C runtime writes (threads-gil-design), not compiled fields. They have to be treated as roots of the
+runtime (pinned) in stage 3. No compiled field was missing from a map.
 
 ## Open questions that need an answer before stage 2
 

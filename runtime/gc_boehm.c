@@ -392,7 +392,101 @@ static void nabu_card_mark_end(unsigned long gc_no) {
     nabu_census_write(line, n);
 }
 
+/* NABU_GC_VERIFY=1 (stage 0 of docs/gc-generational-design.md): at every mark end, check the pointer maps of the compiled classes
+ * (slots 10 and 11 of nabu_type_info) against the heap. For every reachable object whose header points at a type info of the
+ * image, every word of the instance that is NOT in the map and holds a pointer into a live heap object is reported by class
+ * and offset: a reference field that the compiler left out of the map (or a long that holds an address). A precise collector
+ * would not update such a word; an empty report means the map is complete for the objects of this run. */
+typedef struct {
+    const char *name; size_t size; const void *super_type; int field_count; const char *const *interfaces;
+    int interface_count; const void *instance_fields; int instance_field_count; void **vtable; void **itable;
+    const int32_t *ref_offsets; int ref_count;
+} nabu_gc_type_info;
+
+static int nabu_verify_on = 0;
+static uint64_t nabu_verify_bits[1 << 20];   /* one bit per 16 bytes of a window of 1 GB: covered by a reachable object */
+static uintptr_t nabu_verify_base = 0;
+typedef struct { const nabu_gc_type_info *ti; uint32_t offset; unsigned long count; } nabu_verify_hit;
+#define NABU_VERIFY_HITS 8192
+static nabu_verify_hit nabu_verify_hits[NABU_VERIFY_HITS];
+static unsigned long nabu_verify_objects, nabu_verify_typed, nabu_verify_words, nabu_verify_mapped;
+
+static void nabu_verify_cover(void *obj, size_t bytes, void *client) {
+    (void) client;
+    const uintptr_t a = (uintptr_t) obj;
+    if (nabu_verify_base == 0) nabu_verify_base = a & ~(((uintptr_t) 1 << 30) - 1);
+    if (a < nabu_verify_base || a - nabu_verify_base >= ((uintptr_t) 1 << 30)) return;
+    for (uintptr_t g = (a - nabu_verify_base) >> 4, e = (a - nabu_verify_base + bytes + 15) >> 4; g < e && g < ((uintptr_t) 1 << 26); g++) {
+        nabu_verify_bits[g >> 6] |= (uint64_t) 1 << (g & 63);
+    }
+}
+
+static int nabu_verify_is_heap(uintptr_t v) {
+    if (v < nabu_verify_base || v - nabu_verify_base >= ((uintptr_t) 1 << 30)) return 0;
+    const uintptr_t g = (v - nabu_verify_base) >> 4;
+    return (int) ((nabu_verify_bits[g >> 6] >> (g & 63)) & 1);
+}
+
+static void nabu_verify_check(void *obj, size_t bytes, void *client) {
+    (void) client;
+    nabu_verify_objects++;
+    const uintptr_t first = ((const uintptr_t *) obj)[0];
+    if (nabu_image_size == 0 || first - nabu_image_lo >= nabu_image_size || (first & 7) != 0) return;
+    const nabu_gc_type_info *ti = (const nabu_gc_type_info *) first;
+    /* is it a type info? its name and super type point into the image or are null, its size fits the block */
+    if ((uintptr_t) ti->name - nabu_image_lo >= nabu_image_size) return;
+    if (ti->size < 16 || ti->size > bytes || ti->size > (1 << 20)) return;
+    if (ti->super_type != NULL && (uintptr_t) ti->super_type - nabu_image_lo >= nabu_image_size) return;
+    nabu_verify_typed++;
+    const uintptr_t *words = (const uintptr_t *) obj;
+    for (size_t off = 16; off + 8 <= ti->size; off += 8) {
+        int mapped = 0;
+        for (int i = 0; i < ti->ref_count; i++) {
+            if ((size_t) ti->ref_offsets[i] == off) { mapped = 1; break; }
+        }
+        nabu_verify_words++;
+        if (mapped) { nabu_verify_mapped++; continue; }
+        if (!nabu_verify_is_heap(words[off / 8])) continue;
+        size_t slot = (((uintptr_t) ti >> 4) * 31 + off) % NABU_VERIFY_HITS;
+        for (size_t probe = 0; probe < NABU_VERIFY_HITS; probe++, slot = (slot + 1) % NABU_VERIFY_HITS) {
+            nabu_verify_hit *h = &nabu_verify_hits[slot];
+            if (h->ti == NULL) { h->ti = ti; h->offset = (uint32_t) off; h->count = 1; break; }
+            if (h->ti == ti && h->offset == off) { h->count++; break; }
+        }
+    }
+}
+
+static void nabu_verify_mark_end(unsigned long gc_no) {
+    memset(nabu_verify_bits, 0, sizeof nabu_verify_bits);
+    memset(nabu_verify_hits, 0, sizeof nabu_verify_hits);
+    nabu_verify_objects = nabu_verify_typed = nabu_verify_words = nabu_verify_mapped = 0;
+    GC_enumerate_reachable_objects_inner(nabu_verify_cover, NULL);
+    GC_enumerate_reachable_objects_inner(nabu_verify_check, NULL);
+    unsigned long unmapped = 0, sites = 0;
+    for (size_t i = 0; i < NABU_VERIFY_HITS; i++) {
+        if (nabu_verify_hits[i].ti != NULL) { unmapped += nabu_verify_hits[i].count; sites++; }
+    }
+    char line[400];
+    int n = snprintf(line, sizeof line, "[nabu/verify] collection #%lu: %lu reachable objects, %lu with a type info of the image, "
+            "%lu words checked (%lu in a pointer map), %lu words outside the map point into live objects, at %lu fields\n",
+            gc_no, nabu_verify_objects, nabu_verify_typed, nabu_verify_words, nabu_verify_mapped, unmapped, sites);
+    nabu_census_write(line, n);
+    for (int rank = 0; rank < 25; rank++) {
+        long best = -1;
+        for (long i = 0; i < NABU_VERIFY_HITS; i++) {
+            if (nabu_verify_hits[i].ti != NULL && nabu_verify_hits[i].count != 0
+                    && (best < 0 || nabu_verify_hits[i].count > nabu_verify_hits[best].count)) best = i;
+        }
+        if (best < 0) break;
+        n = snprintf(line, sizeof line, "[nabu/verify]   %8lu x  %s +%u\n", nabu_verify_hits[best].count,
+                nabu_verify_hits[best].ti->name, nabu_verify_hits[best].offset);
+        nabu_census_write(line, n);
+        nabu_verify_hits[best].count = 0;
+    }
+}
+
 static void nabu_gc_on_event(GC_EventType e) {
+    if (e == GC_EVENT_MARK_END && nabu_verify_on) nabu_verify_mark_end((unsigned long) GC_get_gc_no());
     if (e == GC_EVENT_MARK_END && nabu_card_stats_on) nabu_card_mark_end((unsigned long) GC_get_gc_no());
     if (e == GC_EVENT_MARK_END && nabu_census_at > 0) {
         const unsigned long no = (unsigned long) GC_get_gc_no();
@@ -426,6 +520,7 @@ static void nabu_gc_on_event(GC_EventType e) {
 __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
     nabu_gc_stats_on = getenv("NABU_GC_STATS") != NULL;
     nabu_card_stats_on = getenv("NABU_CARD_STATS") != NULL;
+    nabu_verify_on = getenv("NABU_GC_VERIFY") != NULL;
     nabu_prof_path = getenv("NABU_ALLOC_PROF");
     const char *census = getenv("NABU_GC_CENSUS");
     if (census != NULL && atol(census) > 0) {
@@ -434,7 +529,7 @@ __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
         const char *topEnv = getenv("NABU_GC_CENSUS_TOP");
         if (topEnv != NULL && atoi(topEnv) > 0) nabu_census_top = atoi(topEnv);
     }
-    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0 || nabu_card_stats_on) GC_set_on_collection_event(nabu_gc_on_event);
+    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0 || nabu_card_stats_on || nabu_verify_on) GC_set_on_collection_event(nabu_gc_on_event);
 }
 
 static volatile size_t nabu_gc_alloc_bytes = 0;

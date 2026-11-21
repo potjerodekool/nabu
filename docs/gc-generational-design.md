@@ -195,6 +195,30 @@ That needs an exact tag for every allocation (object, reference array, array of 
 function) instead of the guess above, and the 20,000 blocks that today carry no layout would have to get one first
 (`nabu_gc_alloc_traced` exists for that). Until then stage 3 would run with a third of the survivors pinned and no memory gain.
 
+### Refined (2026-11-21): the same measurement with exact kinds
+
+The first heuristic mixed up three things. With `NABU_CARD_STATS=1` the runtime now allocates the blocks of `nabu_gc_alloc`
+in a kind of their own and the measurement asks Boehm for the kind of every block (`GC_get_kind_and_size`): pointer-free
+blocks (strings, arrays of numbers) are skipped, blocks of compiled code (kind 1) are a compiled object (type info of the
+image) or an array (every element of a reference array is a precisely known reference), the rest is the runtime's. Same run:
+
+- the large "unknown" group was reference arrays in rounded size classes (a block of 1344 bytes for 128 references) and
+  pointer-free blocks: **no layout problem**;
+- what is really unexplained in steady state (collections 9-16): **about 15,000 young blocks of 32 bytes per collection whose
+  first word is a hidden pointer** (`~ptr`, `FFFFFE6B...`): the entries that `nabu_gc_ref_track` allocates in gc_boehm.c for
+  every `WeakReference`/`SoftReference` with a queue (about 15,000 new references per 100 MB of allocation). They are
+  conservative blocks and so pin the reference objects they point to. They are our own structures: making them precise
+  (the reference slot updated when the object moves) removes most of the pinned objects;
+- **blocks of the runtime (`nabu_gc_alloc`, C structs behind jcl objects): 100-3,000 per collection** after start-up (up to
+  17,000 during start-up); the stack 70-110 objects; statics of the image about 0 after start-up; typed words outside the
+  map 0 (the Thread state words were not in this run).
+
+Rough projection with the entries made precise: 3,000-4,000 of 50,000 young objects pinned (6-8%); with the runtime blocks
+also traced about 100 (the stack). The pages kept by those pinned objects are still scattered (200-1,200 pages per
+collection in the steady state, 2-10 MB). Copying is not ruled out by this, but it is not free: the remaining work is
+(1) precise reference-tracking entries, (2) trace functions for the runtime blocks, (3) the nursery with its collection
+itself, (4) stacks of all threads and fibers, (5) validation by poisoning the from-space.
+
 ## Open questions that need an answer before stage 2
 
 - **Safepoints.** Boehm stops threads by signals/`SuspendThread`; a thread in the middle of an inline bump allocation has

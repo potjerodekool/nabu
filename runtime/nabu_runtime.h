@@ -49,6 +49,10 @@ typedef struct nabu_type_info {
      * NULL voor library-super-types die niet gecompileerd zijn. */
     void **vtable;
     void **itable;
+    /* The byte offsets of the reference fields of an instance (own and inherited, flat), for a precise collector; NULL and 0
+     * when there are none. Slots 10 and 11 of ClassLayouts.typeInfoStructType(). */
+    const int32_t *ref_offsets;
+    int         ref_count;
 } nabu_type_info;
 
 /**

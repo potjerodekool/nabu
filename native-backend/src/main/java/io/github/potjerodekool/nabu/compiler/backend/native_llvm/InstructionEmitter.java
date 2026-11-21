@@ -876,6 +876,31 @@ public class InstructionEmitter {
         storeLocal(al.result(), val);
     }
 
+    /**
+     * -Dnabu.gc.cardMarking=true (an experiment, see docs/gc-generational-design.md): every store of a reference into an
+     * object or an array marks a card, one byte per 16 bytes of address space (a window of 256 MB, wrapping) in nabu_card_table (gc_boehm.c); with
+     * NABU_CARD_STATS=1 the collector reports how many cards were dirty at each collection. Measures what the write
+     * barrier of a generational collector would cost and how many cards a nursery collection would have to scan.
+     */
+    private static final boolean CARD_MARKING = Boolean.getBoolean("nabu.gc.cardMarking");
+
+    private void markCard(final LLVMValueRef address) {
+        final LLVMModuleRef mod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+        final LLVMTypeRef i8 = LLVMInt8TypeInContext(ctx);
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        LLVMValueRef table = LLVMGetNamedGlobal(mod, "nabu_card_table");
+        if (table == null || table.isNull()) {
+            table = LLVMAddGlobal(mod, LLVMArrayType(i8, 1 << 24), "nabu_card_table");
+        }
+        final LLVMValueRef bits = LLVMBuildPtrToInt(builder, address, i64, ".card.addr");
+        final LLVMValueRef shifted = LLVMBuildLShr(builder, bits, LLVMConstInt(i64, 4, 0), ".card.shr");
+        final LLVMValueRef index = LLVMBuildAnd(builder, shifted, LLVMConstInt(i64, (1 << 24) - 1, 0), ".card.idx");
+        final PointerPointer<Pointer> indices = new PointerPointer<>(1);
+        indices.put(0, index);
+        final LLVMValueRef card = LLVMBuildGEP2(builder, i8, table, indices, 1, ".card.ptr");
+        LLVMBuildStore(builder, LLVMConstInt(i8, 1, 0), card);
+    }
+
     private void emitArrayStore(IRInstruction.ArrayStore as) {
         LLVMValueRef array = resolveValue(as.array());
         LLVMTypeRef elemType = types.map(as.elemType());
@@ -884,6 +909,9 @@ public class InstructionEmitter {
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         final LLVMValueRef elementStore = LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
         tbaa.mark(elementStore, "arr." + Tbaa.typeKey(elemType));
+        if (CARD_MARKING && LLVMGetTypeKind(elemType) == LLVMPointerTypeKind) {
+            markCard(elemPtr);
+        }
     }
 
     /**
@@ -1352,6 +1380,9 @@ public class InstructionEmitter {
         if (isVolatileStore) {
             LLVMSetVolatile(storeInstruction, 1);
             makeAtomic(storeInstruction, LLVMTypeOf(value));
+        }
+        if (CARD_MARKING && isObjectFieldAccess(target) && LLVMGetTypeKind(valueType) == LLVMPointerTypeKind) {
+            markCard(ptr);
         }
     }
 

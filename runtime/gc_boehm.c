@@ -520,7 +520,25 @@ extern unsigned GC_new_kind(void **free_list, uintptr_t descriptor, int add_size
 extern void **GC_new_free_list(void);
 extern void *GC_malloc_kind(size_t n, int kind);
 extern int GC_get_kind_and_size(const void *p, size_t *psize);
-static int nabu_raw_kind = -1;   /* with NABU_CARD_STATS: the blocks of nabu_gc_alloc (runtime), told apart from the objects of compiled code (kind 1) */
+static int nabu_raw_kind = -1, nabu_raw_atomic_kind = -1;
+typedef struct { uintptr_t block; uintptr_t site; } nabu_site_entry;
+#define NABU_SITES (1 << 21)
+static nabu_site_entry *nabu_sites;   /* with NABU_CARD_STATS: which code allocated a block of the runtime (return address) */
+static uintptr_t nabu_site_of(uintptr_t block) {
+    if (nabu_sites == NULL) return 0;
+    for (size_t i = (block >> 4) * 2654435761u & (NABU_SITES - 1), n = 0; n < 64; i = (i + 1) & (NABU_SITES - 1), n++) {
+        if (nabu_sites[i].block == block) return nabu_sites[i].site;
+        if (nabu_sites[i].block == 0) return 0;
+    }
+    return 0;
+}
+static void nabu_site_set(uintptr_t block, uintptr_t site) {
+    for (size_t i = (block >> 4) * 2654435761u & (NABU_SITES - 1), n = 0; n < 64; i = (i + 1) & (NABU_SITES - 1), n++) {
+        if (nabu_sites[i].block == block || nabu_sites[i].block == 0) { nabu_sites[i].block = block; nabu_sites[i].site = site; return; }
+    }
+}
+static uintptr_t nabu_pin_holder_site;
+static uint64_t nabu_pin_site_pins[64][2];   /* site, pins */   /* with NABU_CARD_STATS: the blocks of nabu_gc_alloc (runtime), told apart from the objects of compiled code (kind 1) */
 static uint64_t nabu_pin_bits[1 << 20];
 static uint64_t nabu_pin_shape[6][2];   /* raw blocks that pin: [first word is in the image, a heap pointer, a small number, other, ...][count, bytes] */
 typedef struct { uintptr_t first; unsigned long count; size_t bytes; int kind; uintptr_t w[4]; } nabu_pin_key;
@@ -559,6 +577,13 @@ static void nabu_pin_word(uintptr_t w, int source) {
     if (lo == 0) return;
     const nabu_pin_obj *o = &nabu_pin_objs[lo - 1];
     if (w >= o->start + o->size) return;
+    { /* a block of the runtime is allocated in the old generation to begin with: it never has to be pinned */
+        size_t ignored;
+        const int tk = GC_get_kind_and_size((void *) o->start, &ignored);
+        if (tk == nabu_raw_kind || tk == nabu_raw_atomic_kind) return;
+        const uintptr_t *tw = (const uintptr_t *) o->start;   /* an entry of the disappearing links of the collector: not program data */
+        if (o->size == 32 && (tw[0] >> 56) == 0xFF && (tw[2] >> 56) == 0xFF && tw[3] == 0) return;
+    }
     const uintptr_t g = (o->start - nabu_old_base) >> 4;
     if (!((nabu_old_bits[g >> 6] >> (g & 63)) & 1) || ((nabu_prev_bits[g >> 6] >> (g & 63)) & 1)) return;   /* not young */
     if ((nabu_pin_bits[g >> 6] >> (g & 63)) & 1) return;
@@ -566,13 +591,19 @@ static void nabu_pin_word(uintptr_t w, int source) {
     nabu_pin_objects++;
     nabu_pin_bytes += o->size;
     nabu_pin_from[source]++;
+    if (nabu_pin_holder_site != 0) {
+        for (int i = 0; i < 64; i++) {
+            if (nabu_pin_site_pins[i][0] == nabu_pin_holder_site) { nabu_pin_site_pins[i][1]++; break; }
+            if (nabu_pin_site_pins[i][0] == 0) { nabu_pin_site_pins[i][0] = nabu_pin_holder_site; nabu_pin_site_pins[i][1] = 1; break; }
+        }
+    }
 }
 
 static void nabu_pin_visit(void *obj, size_t bytes, void *client) {
     (void) client;
     size_t kind_size;
     const int kind = GC_get_kind_and_size(obj, &kind_size);
-    if (kind == 0) return;   /* GC_PTRFREE: strings, arrays of numbers: no pointers at all */
+    if (kind == 0 || kind == nabu_raw_atomic_kind) return;   /* GC_PTRFREE: strings, arrays of numbers: no pointers at all */
     const uintptr_t *words = (const uintptr_t *) obj;
     const uintptr_t first = words[0];
     /* an entry of the disappearing links of the collector itself (hidden key, next, hidden object): bookkeeping, not program data */
@@ -598,6 +629,7 @@ static void nabu_pin_visit(void *obj, size_t bytes, void *client) {
             source = NABU_PIN_TYPED;
         }
     }
+    nabu_pin_holder_site = kind == nabu_raw_kind ? nabu_site_of((uintptr_t) obj) : 0;
     if (map == NULL && kind == nabu_raw_kind) source = NABU_PIN_LIB;   /* a block of the runtime (nabu_gc_alloc) */
     if (map == NULL && first == 0) source = NABU_PIN_ZERO;
     if (map == NULL) {
@@ -613,7 +645,7 @@ static void nabu_pin_visit(void *obj, size_t bytes, void *client) {
             return;   /* numbers or characters: no pointers */
         }
     }
-    if (map == NULL && source == NABU_PIN_ZERO) {
+    if (map == NULL && source == NABU_PIN_RAW) {
         const uintptr_t key = (uintptr_t) 0xFF << 56 | bytes;   /* by block size */
         size_t slot = (key >> 3) * 2654435761u % 4096;
         for (int probe = 0; probe < 4096; probe++, slot = (slot + 1) % 4096) {
@@ -647,6 +679,8 @@ static void nabu_pin_stats(unsigned long gc_no) {
     nabu_pin_objects = nabu_pin_bytes = 0;
     memset(nabu_pin_from, 0, sizeof nabu_pin_from);
     memset(nabu_pin_shape, 0, sizeof nabu_pin_shape);
+    memset(nabu_pin_site_pins, 0, sizeof nabu_pin_site_pins);
+    nabu_pin_holder_site = 0;
     nabu_pin_dl_entries = 0;
     memset(nabu_pin_keys, 0, sizeof nabu_pin_keys);
     volatile char here;
@@ -696,7 +730,15 @@ static void nabu_pin_stats(unsigned long gc_no) {
             (unsigned long) nabu_pin_shape[0][0], (unsigned long) (nabu_pin_shape[0][1] / 1024), (unsigned long) nabu_pin_shape[1][0], (unsigned long) (nabu_pin_shape[1][1] / 1024),
             (unsigned long) nabu_pin_shape[2][0], (unsigned long) (nabu_pin_shape[2][1] / 1024), (unsigned long) nabu_pin_shape[3][0], (unsigned long) (nabu_pin_shape[3][1] / 1024));
     nabu_census_write(line, m);
-    for (int rank = 0; rank < 8; rank++) {
+    for (int rank = 0; rank < 12; rank++) {
+        int best = -1;
+        for (int i = 0; i < 64; i++) if (nabu_pin_site_pins[i][0] != 0 && (best < 0 || nabu_pin_site_pins[i][1] > nabu_pin_site_pins[best][1])) best = i;
+        if (best < 0) break;
+        const int k = snprintf(line, sizeof line, "[pin]   runtime block allocated at image+0x%lx pins %lu young objects\n", (unsigned long) (nabu_pin_site_pins[best][0] - nabu_image_lo), (unsigned long) nabu_pin_site_pins[best][1]);
+        nabu_census_write(line, k);
+        nabu_pin_site_pins[best][0] = 0;
+    }
+    for (int rank = 0; rank < 10; rank++) {
         int best = -1;
         for (int i = 0; i < 4096; i++) if (nabu_pin_keys[i].count != 0 && (best < 0 || nabu_pin_keys[i].count > nabu_pin_keys[best].count)) best = i;
         if (best < 0) break;
@@ -755,7 +797,11 @@ static void nabu_gc_on_event(GC_EventType e) {
 __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
     nabu_gc_stats_on = getenv("NABU_GC_STATS") != NULL;
     nabu_card_stats_on = getenv("NABU_CARD_STATS") != NULL;
-    if (nabu_card_stats_on) nabu_raw_kind = (int) GC_new_kind(GC_new_free_list(), 0, 1, 1);
+    if (nabu_card_stats_on) {
+        nabu_raw_kind = (int) GC_new_kind(GC_new_free_list(), 0, 1, 1);
+        nabu_raw_atomic_kind = (int) GC_new_kind(GC_new_free_list(), 0, 0, 0);
+        nabu_sites = (nabu_site_entry *) calloc(NABU_SITES, sizeof(nabu_site_entry));
+    }
     nabu_verify_on = getenv("NABU_GC_VERIFY") != NULL;
     nabu_prof_path = getenv("NABU_ALLOC_PROF");
     const char *census = getenv("NABU_GC_CENSUS");
@@ -781,12 +827,17 @@ __attribute__((constructor(102))) static void nabu_gc_alloc_stats_init(void) {
 void *nabu_gc_alloc(size_t n) {
     nabu_gc_alloc_bytes += n;
     if (nabu_prof_path != NULL) nabu_rprof_record(n);
-    return nabu_raw_kind >= 0 ? GC_malloc_kind(n, nabu_raw_kind) : GC_malloc(n);
+    if (nabu_raw_kind >= 0) {
+        void *block = GC_malloc_kind(n, nabu_raw_kind);
+        if (nabu_sites != NULL && block != NULL) nabu_site_set((uintptr_t) block, (uintptr_t) __builtin_return_address(0));
+        return block;
+    }
+    return GC_malloc(n);
 }
 void *nabu_gc_alloc_atomic(size_t n) {
     nabu_gc_alloc_bytes += n;
     if (nabu_prof_path != NULL) nabu_rprof_record(n);
-    return GC_malloc_atomic(n);
+    return nabu_raw_atomic_kind >= 0 ? GC_malloc_kind(n, nabu_raw_atomic_kind) : GC_malloc_atomic(n);
 }
 void *nabu_gc_alloc_pinned(size_t n) { return GC_malloc_uncollectable(n); }
 void *nabu_gc_realloc(void *p, size_t n) { return GC_realloc(p, n); }

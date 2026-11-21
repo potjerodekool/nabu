@@ -235,9 +235,41 @@ a zero first word and other words that are pointers; (3) the stack, 75-200 objec
 structure shows up, and each measurement is a 4 minute build. The result so far: **the exact pinned fraction is not known to
 better than "a quarter to a third"**, and nothing found says it is below the 5% that copying needs.
 
-Stop point: stage 3 (the copying nursery) is not built. What it would still need is listed above (precise runtime blocks, the
+Stop point at that moment (superseded by the third refinement below): stage 3 (the copying nursery) is not built. What it would still need is listed above (precise runtime blocks, the
 nursery and its collection, all stacks and fibers, validation by poisoning), on top of an unknown pinned fraction. The
 instrumentation stays (`NABU_CARD_STATS=1`, off by default) for whoever continues.
+
+### Third refinement (2026-11-21): the pinned fraction is small after all
+
+Two more things in the measurement were wrong, both in how it counted the *targets*:
+
+1. A pinned object that the **runtime itself allocated** (`nabu_gc_alloc`, strings and C structs of jcl_lite such as `s_throw`
+   {kind, msg, cls, cause}) is old from the start in this design: runtime allocations go straight to Boehm, only the objects
+   and arrays of compiled code live in the nursery. Pointers from runtime blocks to such objects are not pins. (Strings of
+   the runtime now have their own pointer-free kind, so they can be told apart.) What counts is whether a runtime block holds
+   a pointer to an object *of compiled code*: **0 young objects per collection**, in every collection measured.
+2. The big group of "raw" holders was **the disappearing-link hash table of Boehm itself** (blocks of 131,088 and 262,160
+   bytes, pointing at its own young link entries). The entries are bookkeeping, not program objects; as targets they are not
+   counted now either.
+
+Result, same run (petstore, Windows, 8000 requests of `/pet/2`, collections 8-16):
+
+| | young objects | pinned | % | of bytes | pages of 8 KB kept |
+|---|---|---|---|---|---|
+| collection 9 | 42,665 | 253 | 0.6% | 1.0% | 147 (1.2 MB) |
+| collection 11 | 43,574 | 245 | 0.6% | 5.6% | 155 |
+| collection 13 | 10,363 | 186 | 1.8% | 4.4% | 137 |
+| collection 15 | 48,632 | 230 | 0.5% | 1.4% | 162 |
+| collection 16 | 14,449 | 217 | 1.5% | 2.8% | 143 |
+
+The pins that remain: the stack of the collecting thread (60-150 objects) and about 140 blocks of compiled code with a zero
+first word. **0.5-2.7% of the young objects (1-8% of the bytes), 1.0-1.3 MB of nursery pages kept**: below the 5% that
+copying needs, and a small price against the 15-30 MB that the fragmented heap holds now. Not yet seen: the stacks of the
+other threads (Tomcat's workers while they wait; they hold few objects), the objects pinned by the Thread state words of
+stage 0 (not in this run), and anything that appears at other traffic than `/pet/2`.
+
+This changes the earlier assessment: the pinned fraction is **not** a reason to stop. What stays open is the work itself
+(nursery and collection, all stacks/fibers, weak links and finalizers of moved objects, validation by poisoning).
 
 ## Open questions that need an answer before stage 2
 

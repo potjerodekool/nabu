@@ -131,6 +131,22 @@ or pointers to non-heap data. Words outside the map that point into live objects
 words that the C runtime writes (threads-gil-design), not compiled fields. They have to be treated as roots of the
 runtime (pinned) in stage 3. No compiled field was missing from a map.
 
+## Result of stage 2, part 1: survival rate (2026-11-21, measured)
+
+`NABU_CARD_STATS=1` also prints `[survival]` at every mark end: the bytes allocated since the previous collection
+(`GC_get_total_bytes` delta), and the bytes of objects that are reachable now and were not at the previous mark end (an
+object whose first 16-byte granule was not live then; an address that was freed and reused by a new object in between
+counts as old, so the figure is a slight underestimate). Petstore, Windows, 15000 requests of `/pet/2`, collections 3-21:
+
+- allocation between two collections 1.6-110 MB (typically about 100 MB), live set 12-31 MB;
+- of everything allocated **2.7-3.4% survives** the next collection in the steady state (about 3 MB of 100 MB, 45-50
+  thousand objects); the first collections during start-up 5-13%; the few collections that came after only 1.6-15 MB of
+  allocation show 6-21% (little time to die).
+
+The generational hypothesis holds for this workload: a nursery of about 100 MB would copy 3 MB per collection, and a
+nursery of 16-32 MB somewhat more (less time to die), in the range of 5-10%. Not yet measured: the speed of a bump
+allocator against `GC_malloc` (the second half of stage 2).
+
 ## Open questions that need an answer before stage 2
 
 - **Safepoints.** Boehm stops threads by signals/`SuspendThread`; a thread in the middle of an inline bump allocation has

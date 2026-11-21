@@ -346,9 +346,21 @@ static int nabu_old_valid = 0;
 static uint64_t nabu_old_bits[1 << 20];   /* one bit per 16 bytes of a window of 1 GB: live at the previous mark end */
 static uint64_t nabu_old2_bits[1 << 20];  /* live at the previous two mark ends: "old" after one aging step */
 
+static uint64_t nabu_prev_bits[1 << 20];  /* nabu_old_bits of the previous mark end */
+static uint64_t nabu_live_bytes, nabu_young_bytes, nabu_young_objects, nabu_live_objects;
+
 static void nabu_card_visit(void *obj, size_t bytes, void *client) {
     (void) client;
     const uintptr_t a = (uintptr_t) obj;
+    if (nabu_old_base != 0 && a >= nabu_old_base && a - nabu_old_base < ((uintptr_t) 1 << 30)) {
+        const uintptr_t g0 = (a - nabu_old_base) >> 4;
+        nabu_live_bytes += bytes;
+        nabu_live_objects++;
+        if (!((nabu_prev_bits[g0 >> 6] >> (g0 & 63)) & 1)) {
+            nabu_young_bytes += bytes;
+            nabu_young_objects++;
+        }
+    }
     if (nabu_old_base == 0) {
         nabu_old_base = a & ~(((uintptr_t) 1 << 30) - 1);
         nabu_card_base = a & ~(((uintptr_t) 1 << 33) - 1);
@@ -380,11 +392,24 @@ static void nabu_card_mark_end(unsigned long gc_no) {
     } else {
         memset(nabu_card_table, 0, sizeof nabu_card_table);
     }
-    static uint64_t previous[1 << 20];
-    memcpy(previous, nabu_old_bits, sizeof previous);
+    uint64_t *const previous = nabu_prev_bits;
+    memcpy(previous, nabu_old_bits, sizeof nabu_prev_bits);
     memset(nabu_old_bits, 0, sizeof nabu_old_bits);
+    nabu_live_bytes = nabu_young_bytes = nabu_young_objects = nabu_live_objects = 0;
     GC_enumerate_reachable_objects_inner(nabu_card_visit, NULL);
     for (size_t w = 0; w < (1 << 20); w++) nabu_old2_bits[w] = nabu_old_bits[w] & previous[w];
+    static size_t last_total = 0;
+    const size_t total_now = GC_get_total_bytes();
+    if (nabu_old_valid) {
+        char sline[400];
+        const size_t allocated = total_now - last_total;
+        const int sn = snprintf(sline, sizeof sline, "[survival] collection %lu: allocated %lu KB since the last, live %lu KB (%lu objects), new and still live %lu KB (%lu objects) = %.1f%% of the allocation\n",
+                gc_no, (unsigned long) (allocated / 1024), (unsigned long) (nabu_live_bytes / 1024), (unsigned long) nabu_live_objects,
+                (unsigned long) (nabu_young_bytes / 1024), (unsigned long) nabu_young_objects,
+                allocated ? 100.0 * (double) nabu_young_bytes / (double) allocated : 0.0);
+        nabu_census_write(sline, sn);
+    }
+    last_total = total_now;
     nabu_old_valid = 1;
     char line[320];
     const int n = snprintf(line, sizeof line, "[cards] collection %lu: %lu cards set since the last one, %lu in objects live at the previous mark end, %lu KB of them; %lu in objects live at the previous two, %lu KB"

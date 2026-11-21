@@ -147,6 +147,29 @@ The generational hypothesis holds for this workload: a nursery of about 100 MB w
 nursery of 16-32 MB somewhat more (less time to die), in the range of 5-10%. Not yet measured: the speed of a bump
 allocator against `GC_malloc` (the second half of stage 2).
 
+## Result of stage 2, part 2: allocation speed (2026-11-21)
+
+A standalone test (libgc 8.2.12, 20 million objects of 24-96 bytes, garbage collected as it goes) gives 24 ns per object for
+`GC_malloc` and 4.7 ns for a bump pointer including zeroing: at most 19 ns saved per object. In the petstore that is about
+1500 objects per request (80 KB per request) = 28 us of 660 us, an upper bound of about 4%. The profile of 2026-11-17 puts the
+whole allocation path at 2-7% of the time, and an earlier attempt with thread-local free lists (GC_malloc_kind samples 27 -> 3)
+did not change requests per second beyond noise. Expectation for a bump nursery: 0-4% faster, not measured in the compiled
+program (that needs the emitter, thread-local regions and a region scan that does not exist yet).
+
+## Assessment before stage 3
+
+- The barrier is free (stage 1), the survival rate is low (stage 2: about 3%), so the design is sound.
+- The speed gain is small (above). The reason to continue is only the memory.
+- Expected memory: old live set 25-55 MB plus a nursery of 16-32 MB plus the fragmentation of the old space, which now gets
+  only the 3% survivors but still frees objects in place. A guess of 95-130 MB for the heap against 113-118 MB today, so
+  perhaps 15-30 MB (7-14%) off the 215 MB working set. The 64 MB heap option gives 10 MB for up to -5% speed with no code.
+- The cost: copying needs precise updating of every pointer to a moved object, pinned handling of all conservative roots
+  (stacks, registers, data segment, the Thread state words found in stage 0, raw runtime blocks, fibers) and the thread
+  suspension rules; a mistake is silent corruption.
+
+Recommendation: do not start stage 3 on the strength of 7-14%. It is the user's decision (the mandate says to write down
+decisions like this): stage 3 is worth it only if a working set near 150 MB matters more than the risk and the weeks of work.
+
 ## Open questions that need an answer before stage 2
 
 - **Safepoints.** Boehm stops threads by signals/`SuspendThread`; a thread in the middle of an inline bump allocation has

@@ -290,3 +290,11 @@ This changes the earlier assessment: the pinned fraction is **not** a reason to 
 
 Stages 0 and 1 are cheap and reversible and answer whether the whole idea is worth the cost; stage 2 onwards is a large
 change to the memory model. The recommended path is to do stage 0 and 1 and decide on the numbers.
+
+## Plan for the nursery build (2026-11-21)
+
+Findings from reading the code before starting:
+
+- The allocation front is one swap point: `GarbageCollector.allocateSymbol()/allocateAtomicSymbol()` (LLVMModuleEmitter:1325), already used for `nabu_prof_malloc` and `nabu_dbg_malloc`. A nursery allocator is a third symbol behind `-Dnabu.gc.nursery=true`; default stays `GC_malloc`.
+- Finalizers and weak/soft links are registered in only three places in gc_boehm.c (finalizer at ~854, weak link at ~866, reference tracking at ~951) and all three need `GC_base(obj) == obj`. An object in the nursery has no Boehm base, so these registrations cannot happen on nursery objects. Decision: the code generator allocates classes that can get such a registration (subclasses of `java.lang.ref.Reference`, classes with `finalize()`, `Thread` and the like) directly in Boehm, by class, at the allocation site. Nothing in the nursery is ever finalized or weakly linked, and no promotion has to move those.
+- Step order, each step flag-gated and validated before the next: (1) nursery region registered as a root region, allocation by bump pointer, fall back to Boehm when full, no collection yet (checks the layout assumptions and the code-generator class filter on the ITs); (2) collection of the nursery: pinning from stacks of all threads and fibers, data segment and runtime roots, precise tracing through `ref_offsets`, promotion by copying into Boehm, pointer updates, from-space poisoned in debug mode; (3) interplay with the Boehm full collection; (4) numbers: RSS and speed against 215 MB and 1500-2100 req/s.

@@ -170,6 +170,31 @@ program (that needs the emitter, thread-local regions and a region scan that doe
 Recommendation: do not start stage 3 on the strength of 7-14%. It is the user's decision (the mandate says to write down
 decisions like this): stage 3 is worth it only if a working set near 150 MB matters more than the risk and the weeks of work.
 
+## Result of stage 3, first measurement: how much would have to be pinned (2026-11-21)
+
+Before building the copying, `NABU_CARD_STATS=1` prints a `[pin]` line per collection: of the young objects (live now, not
+live at the previous mark end) how many are pointed to by a word that a precise collector does not know as a reference:
+words outside the pointer map of a compiled object, every word of a block that is neither a compiled object nor an array,
+the writable sections of the executable (statics), and the stack of the thread that runs the collection (the stacks of
+the other threads are not seen, so these are lower bounds). Reference arrays count as precise. Petstore, Windows, 8000-15000
+requests of `/pet/2`, collections 3-18:
+
+- **25-45% of the young survivors would be pinned** (by bytes 20-35%; 55-80% in the small collections right after a big
+  one). The sources: the stack 50-230 objects, the statics of the image 0-6600 (almost all at the first collections, then
+  about 0), typed words outside the map 0-9, and **blocks without a known layout 10,000-24,000**: that is the whole story.
+- Those blocks are the problem, not the design of the roots: at the end of a run 200,000 reachable blocks are neither a
+  compiled object (type info of the image with a plausible size) nor recognizably an array: 42,000 start with a pointer into
+  the image (not accepted as type info: library types, objects smaller than their type info?), 17,600 with a small number,
+  78,000 with another value (partly large arrays whose block is rounded to pages, which the array test rejects), 16,000 with
+  a heap pointer. The test is a heuristic; the numbers say how far a heap walk without a tag per allocation can get.
+- Pinned objects are scattered, so they would keep **15-30 MB of 8 KB pages** alive per collection although the survivors are
+  only 3 MB: more than the memory the whole design was meant to win.
+
+Conclusion for stage 3: copying pays only if the pinned fraction is far below 5% and the pinned objects are few per page.
+That needs an exact tag for every allocation (object, reference array, array of numbers, runtime block with a trace
+function) instead of the guess above, and the 20,000 blocks that today carry no layout would have to get one first
+(`nabu_gc_alloc_traced` exists for that). Until then stage 3 would run with a third of the survivors pinned and no memory gain.
+
 ## Open questions that need an answer before stage 2
 
 - **Safepoints.** Boehm stops threads by signals/`SuspendThread`; a thread in the middle of an inline bump allocation has

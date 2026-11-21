@@ -262,6 +262,7 @@ static int nabu_census_repeat = 0;
 static int nabu_census_top = 40;
 extern uintptr_t nabu_image_lo, nabu_image_size;
 extern const char *nabu_compiled_type_name(const void *p);
+extern int nabu_jcl_is_object(const void *p);
 extern const char *nabu_compiled_type_name(const void *p);
 
 static void nabu_census_visit(void *obj, size_t bytes, void *client) {
@@ -510,9 +511,172 @@ static void nabu_verify_mark_end(unsigned long gc_no) {
     }
 }
 
+/* NABU_CARD_STATS=1, second half (stage 3 of docs/gc-generational-design.md): how many of the young objects (live now, not
+ * live at the previous mark end) a mostly-copying nursery collection would have to pin, because some word that is not a
+ * precisely known reference points into them: a word of a reachable object outside its pointer map (all words of a block
+ * that is not a compiled object or a reference array), a word of the executable image (statics), a word of the stack of
+ * the thread that runs the collection. The stacks of the other threads are not seen: a lower bound. */
+static uint64_t nabu_pin_bits[1 << 20];
+static uint64_t nabu_pin_shape[6][2];   /* raw blocks that pin: [first word is in the image, a heap pointer, a small number, other, ...][count, bytes] */
+static uint64_t nabu_pin_arrays, nabu_pin_objects, nabu_pin_bytes, nabu_pin_from[6];
+enum { NABU_PIN_STACK, NABU_PIN_IMAGE, NABU_PIN_TYPED, NABU_PIN_RAW, NABU_PIN_LIB, NABU_PIN_ZERO };
+
+typedef struct { uintptr_t start; size_t size; } nabu_pin_obj;
+static nabu_pin_obj *nabu_pin_objs;
+static size_t nabu_pin_count, nabu_pin_cap;
+
+static void nabu_pin_collect(void *obj, size_t bytes, void *client) {
+    (void) client;
+    if (nabu_pin_count == nabu_pin_cap) {
+        nabu_pin_cap = nabu_pin_cap ? nabu_pin_cap * 2 : 1 << 20;
+        nabu_pin_objs = (nabu_pin_obj *) realloc(nabu_pin_objs, nabu_pin_cap * sizeof *nabu_pin_objs);
+    }
+    nabu_pin_objs[nabu_pin_count].start = (uintptr_t) obj;
+    nabu_pin_objs[nabu_pin_count].size = bytes;
+    nabu_pin_count++;
+}
+
+static int nabu_pin_compare(const void *a, const void *b) {
+    const uintptr_t x = ((const nabu_pin_obj *) a)->start, y = ((const nabu_pin_obj *) b)->start;
+    return x < y ? -1 : x > y;
+}
+
+static void nabu_pin_word(uintptr_t w, int source) {
+    if (nabu_old_base == 0 || w < nabu_old_base || w - nabu_old_base >= ((uintptr_t) 1 << 30)) return;
+    /* the reachable object that holds w (interior pointers count): the last start at or below w */
+    size_t lo = 0, hi = nabu_pin_count;
+    while (lo < hi) {
+        const size_t mid = (lo + hi) / 2;
+        if (nabu_pin_objs[mid].start <= w) lo = mid + 1; else hi = mid;
+    }
+    if (lo == 0) return;
+    const nabu_pin_obj *o = &nabu_pin_objs[lo - 1];
+    if (w >= o->start + o->size) return;
+    const uintptr_t g = (o->start - nabu_old_base) >> 4;
+    if (!((nabu_old_bits[g >> 6] >> (g & 63)) & 1) || ((nabu_prev_bits[g >> 6] >> (g & 63)) & 1)) return;   /* not young */
+    if ((nabu_pin_bits[g >> 6] >> (g & 63)) & 1) return;
+    nabu_pin_bits[g >> 6] |= (uint64_t) 1 << (g & 63);
+    nabu_pin_objects++;
+    nabu_pin_bytes += o->size;
+    nabu_pin_from[source]++;
+}
+
+static void nabu_pin_visit(void *obj, size_t bytes, void *client) {
+    (void) client;
+    const uintptr_t *words = (const uintptr_t *) obj;
+    const uintptr_t first = words[0];
+    size_t from = 0, to = bytes / 8;
+    int source = NABU_PIN_RAW;
+    const int32_t *map = NULL;
+    int map_count = 0;
+    if (nabu_image_size != 0 && first - nabu_image_lo < nabu_image_size && (first & 7) == 0) {
+        const nabu_gc_type_info *ti = (const nabu_gc_type_info *) first;
+        if ((uintptr_t) ti->name - nabu_image_lo < nabu_image_size && ti->size >= 16 && ti->size <= bytes
+                && (ti->super_type == NULL || (uintptr_t) ti->super_type - nabu_image_lo < nabu_image_size)) {
+            map = ti->ref_offsets;
+            map_count = ti->ref_count;
+            from = 2;
+            to = ti->size / 8;
+            source = NABU_PIN_TYPED;
+        }
+    }
+    if (map == NULL && nabu_jcl_is_object(obj)) source = NABU_PIN_LIB;   /* an object of the runtime (jcl_lite): C structs behind a state word */
+    if (map == NULL && first == 0) source = NABU_PIN_ZERO;
+    if (map == NULL) {
+        /* [i32 length][i32 element size | class id << 8] and the elements: an array of 8-byte elements in a block that is scanned
+         * is an array of references (the arrays of numbers are not scanned); an array of numbers has no pointers */
+        const uint32_t length = (uint32_t) first, esize = (uint32_t) (first >> 32) & 0xff;
+        const uint64_t need = (uint64_t) length * esize + 8;
+        if (esize != 0 && need <= bytes && bytes - need <= need / 8 + 16) {   /* an array (the block is rounded up to a size class) */
+            if (esize == 8) {   /* a reference array: every element is a precisely known reference */
+                nabu_pin_arrays++;
+                return;
+            }
+            return;   /* numbers or characters: no pointers */
+        }
+    }
+    if (map == NULL) {
+        const int shape = (nabu_image_size != 0 && first - nabu_image_lo < nabu_image_size) ? 0
+                : (nabu_old_base != 0 && first >= nabu_old_base && first - nabu_old_base < ((uintptr_t) 1 << 30)) ? 1
+                : first < ((uintptr_t) 1 << 32) ? 2 : 3;
+        nabu_pin_shape[shape][0]++;
+        nabu_pin_shape[shape][1] += bytes;
+    }
+    for (size_t i = from; i < to; i++) {
+        if (map != NULL) {
+            int mapped = 0;
+            for (int k = 0; k < map_count; k++) if ((size_t) map[k] == i * 8) { mapped = 1; break; }
+            if (mapped) continue;
+        }
+        nabu_pin_word(words[i], source);
+    }
+}
+
+static void nabu_pin_scan(const void *lo, const void *hi, int source) {
+    for (const uintptr_t *p = (const uintptr_t *) (((uintptr_t) lo + 7) & ~(uintptr_t) 7); (const void *) (p + 1) <= hi; p++) nabu_pin_word(*p, source);
+}
+
+static void nabu_pin_stats(unsigned long gc_no) {
+    memset(nabu_pin_bits, 0, sizeof nabu_pin_bits);
+    nabu_pin_objects = nabu_pin_bytes = 0;
+    memset(nabu_pin_from, 0, sizeof nabu_pin_from);
+    memset(nabu_pin_shape, 0, sizeof nabu_pin_shape);
+    volatile char here;
+    nabu_pin_count = 0;
+    GC_enumerate_reachable_objects_inner(nabu_pin_collect, NULL);
+    qsort(nabu_pin_objs, nabu_pin_count, sizeof *nabu_pin_objs, nabu_pin_compare);
+#ifdef _WIN32
+    nabu_pin_scan((const void *) &here, (const void *) __readgsqword(0x08), NABU_PIN_STACK);   /* TEB.StackBase: nabu_gc_stack_base would take the lock that the collector holds */
+#endif
+#ifdef _WIN32
+    {   /* the writable sections of the executable: statics (the only part of the image that can hold a heap pointer) */
+        const char *base = (const char *) GetModuleHandle(NULL);
+        const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *) (base + ((const IMAGE_DOS_HEADER *) base)->e_lfanew);
+        const IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+        for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+            if (!(sec[i].Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+            nabu_pin_scan(base + sec[i].VirtualAddress, base + sec[i].VirtualAddress + sec[i].Misc.VirtualSize, NABU_PIN_IMAGE);
+        }
+    }
+#endif
+    GC_enumerate_reachable_objects_inner(nabu_pin_visit, NULL);
+    /* the 8 KB pages of the nursery that these objects would keep: distinct pages among the pinned objects */
+    unsigned long pages = 0;
+    {
+        static uint64_t seen[1 << 14];
+        memset(seen, 0, sizeof seen);
+        for (size_t w = 0; w < (1 << 20); w++) {
+            uint64_t bits = nabu_pin_bits[w];
+            while (bits) {
+                const int b = __builtin_ctzll(bits);
+                bits &= bits - 1;
+                const uintptr_t page = (((uintptr_t) w * 64 + (uintptr_t) b) << 4) >> 13;
+                if (!((seen[(page >> 6) & ((1 << 14) - 1)] >> (page & 63)) & 1)) { seen[(page >> 6) & ((1 << 14) - 1)] |= (uint64_t) 1 << (page & 63); pages++; }
+            }
+        }
+    }
+    char line[400];
+    const int n = snprintf(line, sizeof line, "[pin] collection %lu: %lu of %lu young objects pinned (%.1f%%), %lu of %lu KB (%.1f%%); from the stack %lu, the image %lu, typed words outside the map %lu, raw blocks %lu, of them runtime objects %lu, blocks with a zero first word %lu; %lu pages of 8 KB (%lu KB)\n",
+            gc_no, (unsigned long) nabu_pin_objects, (unsigned long) nabu_young_objects,
+            nabu_young_objects ? 100.0 * (double) nabu_pin_objects / (double) nabu_young_objects : 0.0,
+            (unsigned long) (nabu_pin_bytes / 1024), (unsigned long) (nabu_young_bytes / 1024),
+            nabu_young_bytes ? 100.0 * (double) nabu_pin_bytes / (double) nabu_young_bytes : 0.0,
+            (unsigned long) nabu_pin_from[0], (unsigned long) nabu_pin_from[1], (unsigned long) nabu_pin_from[2],
+            (unsigned long) nabu_pin_from[3], (unsigned long) nabu_pin_from[4], (unsigned long) nabu_pin_from[5], pages, pages * 8);
+    nabu_census_write(line, n);
+    const int m = snprintf(line, sizeof line, "[pin]   blocks that are no compiled object or array (all words conservative): first word in the image %lu (%lu KB), a heap pointer %lu (%lu KB), a number below 2^32 %lu (%lu KB), other %lu (%lu KB)\n",
+            (unsigned long) nabu_pin_shape[0][0], (unsigned long) (nabu_pin_shape[0][1] / 1024), (unsigned long) nabu_pin_shape[1][0], (unsigned long) (nabu_pin_shape[1][1] / 1024),
+            (unsigned long) nabu_pin_shape[2][0], (unsigned long) (nabu_pin_shape[2][1] / 1024), (unsigned long) nabu_pin_shape[3][0], (unsigned long) (nabu_pin_shape[3][1] / 1024));
+    nabu_census_write(line, m);
+}
+
 static void nabu_gc_on_event(GC_EventType e) {
     if (e == GC_EVENT_MARK_END && nabu_verify_on) nabu_verify_mark_end((unsigned long) GC_get_gc_no());
-    if (e == GC_EVENT_MARK_END && nabu_card_stats_on) nabu_card_mark_end((unsigned long) GC_get_gc_no());
+    if (e == GC_EVENT_MARK_END && nabu_card_stats_on) {
+        const int had_previous = nabu_old_valid;
+        nabu_card_mark_end((unsigned long) GC_get_gc_no());
+        if (had_previous) nabu_pin_stats((unsigned long) GC_get_gc_no());
+    }
     if (e == GC_EVENT_MARK_END && nabu_census_at > 0) {
         const unsigned long no = (unsigned long) GC_get_gc_no();
         if (no == (unsigned long) nabu_census_at || (nabu_census_repeat && no > (unsigned long) nabu_census_at)) {

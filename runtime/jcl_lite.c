@@ -113,6 +113,7 @@ typedef struct { int kind; char *name; void *target; void *threadLocals; void *i
                  volatile int cap_request; volatile int cap_done; int cap_count; uintptr_t cap_frames[128];
                  nabu_waiter *cap_requester; void *continuation;
                  void *nio_blocker; /* the channel operation the thread is blocked in (Thread.blockedOn) */ } s_thread;
+#define JCL_STORE_REF(lv, val) do { void *jcl_v_ = (val); (lv) = jcl_v_; NABU_WRITE_BARRIER(256, &(lv), jcl_v_); } while (0)
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -5452,7 +5453,7 @@ static void *jcl_new_thread(const char *name, void *target) {
     s_thread *st = (s_thread *)jcl_alloc(sizeof(s_thread));
     st->kind = K_THREAD;
     st->name = jcl_dup(name);
-    st->target = target;
+    JCL_STORE_REF(st->target, target);
     st->priority = 5;
     st->id = next_id++;
     /* Room behind the object for the fields the JDK reaches with Unsafe (see JCL_THREAD_FIELD). */
@@ -5535,8 +5536,8 @@ static s_thread *jcl_thread_new_state(void) {
     st->kind = K_THREAD;
     st->priority = 5;
     st->id = next_id++;
-    st->group = jcl_thread_state(jcl_current_thread())->group;
-    st->inherit_from = jcl_thread_state(jcl_current_thread())->inheritableThreadLocals;
+    JCL_STORE_REF(st->group, jcl_thread_state(jcl_current_thread())->group);
+    JCL_STORE_REF(st->inherit_from, jcl_thread_state(jcl_current_thread())->inheritableThreadLocals);
     return st;
 }
 
@@ -5556,10 +5557,10 @@ static void jcl_thread_construct(void *self, int n, void **args) {
     const char *name = NULL;
     for (int i = 0; i < n && i < 3; i++) {
         if (args[i] == NULL) continue;
-        if (nabu_compiled_type_name(args[i]) != NULL && nabu_instanceof(args[i], "java/lang/ThreadGroup")) st->group = args[i];
+        if (nabu_compiled_type_name(args[i]) != NULL && nabu_instanceof(args[i], "java/lang/ThreadGroup")) JCL_STORE_REF(st->group, args[i]);
         else if (nabu_is_jstring(args[i]) || (!nabu_jcl_is_object(args[i]) && nabu_compiled_type_name(args[i]) == NULL)
                 || jcl_state_kind(args[i], K_STR) != NULL) name = nabu_cstr(args[i]);
-        else if (st->target == NULL) st->target = args[i];
+        else if (st->target == NULL) JCL_STORE_REF(st->target, args[i]);
     }
     jcl_thread_name(st, name);
     nabu_jcl_set_state(self, st);
@@ -5758,7 +5759,7 @@ BIND(void *, jcl_ThreadSupport_parentLocals0, "io.github.potjerodekool.nabu.comp
     return jcl_thread_of(thread)->inherit_from;
 }
 BIND(void, jcl_ThreadSupport_setLocals0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_setLocals0", (void *thread, void *map)) {
-    jcl_thread_of(thread)->inheritableThreadLocals = map;
+    JCL_STORE_REF(jcl_thread_of(thread)->inheritableThreadLocals, map);
 }
 
 BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
@@ -6015,7 +6016,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
         atexit(jcl_await_threads);
     }
     st->state = 1;
-    st->self = self;
+    JCL_STORE_REF(st->self, self);
     if (!st->daemon) __atomic_fetch_add(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
     /* A virtual thread is meant to be one of very many: a smaller stack than a platform thread. */
     const size_t stack_size = st->is_virtual ? (size_t)4 << 20 : (size_t)16 << 20;
@@ -6043,28 +6044,28 @@ static void jcl_diag_map_set(s_thread *st, void *map) {
 BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) {
     s_thread *st = jcl_thread_of(self);
     jcl_diag_map_set(st, map);
-    st->threadLocals = map;
+    JCL_STORE_REF(st->threadLocals, map);
 }
 BIND(void *, jcl_Thread_inheritableThreadLocals, "java.lang.Thread_inheritableThreadLocals", (void *self)) { return jcl_thread_of(self)->inheritableThreadLocals; }
-BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->inheritableThreadLocals = map; }
+BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { JCL_STORE_REF(jcl_thread_of(self)->inheritableThreadLocals, map); }
 /* The values of a TerminatingThreadLocal live as long as the thread: the NIO buffer cache of the thread is made once.
  * (Their threadTerminated callbacks are not run when a thread ends.) */
 BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { return jcl_thread_of(self)->terminatingThreadLocals; }
-BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->terminatingThreadLocals = map; }
+BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { JCL_STORE_REF(jcl_thread_of(self)->terminatingThreadLocals, map); }
 /* Scoped values (ScopedValue): the bindings and the cache of the running thread. A thread starts without bindings
  * (NULL); findScopedValueBindings, which the JVM answers by walking the stack, then also gives NULL: no bindings. */
 BIND(void *, jcl_Thread_threadContainer, "java.lang.Thread_threadContainer", (void *self)) { return jcl_thread_of(self)->container; }
-BIND(void, jcl_Thread_setThreadContainer, "java.lang.Thread_setThreadContainer", (void *self, void *container)) { jcl_thread_of(self)->container = container; }
-BIND(void, jcl_ThreadSupport_setContainer0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_setContainer0", (void *thread, void *container)) { jcl_thread_of(thread)->container = container; }
+BIND(void, jcl_Thread_setThreadContainer, "java.lang.Thread_setThreadContainer", (void *self, void *container)) { JCL_STORE_REF(jcl_thread_of(self)->container, container); }
+BIND(void, jcl_ThreadSupport_setContainer0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_setContainer0", (void *thread, void *container)) { JCL_STORE_REF(jcl_thread_of(thread)->container, container); }
 BIND(void *, jcl_ThreadSupport_containerOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_containerOf0", (void *thread)) { return jcl_thread_of(thread)->container; }
-BIND(void, jcl_ThreadSupport_inheritBindings0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_inheritBindings0", (void *thread)) { jcl_thread_of(thread)->sv_bindings = jcl_thread_of(jcl_current_thread())->sv_bindings; }
+BIND(void, jcl_ThreadSupport_inheritBindings0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_inheritBindings0", (void *thread)) { JCL_STORE_REF(jcl_thread_of(thread)->sv_bindings, jcl_thread_of(jcl_current_thread())->sv_bindings); }
 BIND(void *, jcl_Thread_scopedValueBindings, "java.lang.Thread_scopedValueBindings", (void)) { return jcl_thread_of(jcl_current_thread())->sv_bindings; }
-BIND(void, jcl_Thread_setScopedValueBindings, "java.lang.Thread_setScopedValueBindings", (void *bindings)) { jcl_thread_of(jcl_current_thread())->sv_bindings = bindings; }
+BIND(void, jcl_Thread_setScopedValueBindings, "java.lang.Thread_setScopedValueBindings", (void *bindings)) { JCL_STORE_REF(jcl_thread_of(jcl_current_thread())->sv_bindings, bindings); }
 BIND(void *, jcl_Thread_findScopedValueBindings, "java.lang.Thread_findScopedValueBindings", (void)) { return NULL; }
 BIND(void *, jcl_Thread_scopedValueCache, "java.lang.Thread_scopedValueCache", (void)) { return jcl_thread_of(jcl_carrier_thread())->sv_cache; }
-BIND(void, jcl_Thread_setScopedValueCache, "java.lang.Thread_setScopedValueCache", (void *cache)) { jcl_thread_of(jcl_carrier_thread())->sv_cache = cache; }
+BIND(void, jcl_Thread_setScopedValueCache, "java.lang.Thread_setScopedValueCache", (void *cache)) { JCL_STORE_REF(jcl_thread_of(jcl_carrier_thread())->sv_cache, cache); }
 BIND(void *, jcl_Thread_headStackableScopes, "java.lang.Thread_headStackableScopes", (void *self)) { return jcl_thread_of(self)->sv_scope; }
-BIND(void, jcl_Thread_setHeadStackableScope, "java.lang.Thread_setHeadStackableScope", (void *scope)) { jcl_thread_of(jcl_current_thread())->sv_scope = scope; }
+BIND(void, jcl_Thread_setHeadStackableScope, "java.lang.Thread_setHeadStackableScope", (void *scope)) { JCL_STORE_REF(jcl_thread_of(jcl_current_thread())->sv_scope, scope); }
 BIND(void, jcl_Thread_ensureMaterializedForStackWalk, "java.lang.Thread_ensureMaterializedForStackWalk", (void *o)) { (void)o; }
 BIND(void *, jcl_Thread_currentCarrierThread, "java.lang.Thread_currentCarrierThread", (void)) { return jcl_carrier_thread(); }
 /* carrier.setCurrentThread(thread): a virtual thread is mounted on (or unmounted from) the running thread. It takes
@@ -6076,7 +6077,7 @@ BIND(void, jcl_Thread_setCurrentThread, "java.lang.Thread_setCurrentThread", (vo
 }
 BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { return jcl_thread_of(self)->group; }
 BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) {
-    jcl_thread_of(self)->nio_blocker = interruptible;
+    JCL_STORE_REF(jcl_thread_of(self)->nio_blocker, interruptible);
 }
 BIND(void, jcl_Thread_setDaemon, "java.lang.Thread_setDaemon", (void *self, int on)) { jcl_thread_of(self)->daemon = on; }
 BIND(int, jcl_Thread_isDaemon, "java.lang.Thread_isDaemon", (void *self)) { return jcl_thread_of(self)->daemon; }
@@ -6085,7 +6086,7 @@ BIND(int64_t, jcl_Thread_getId, "java.lang.Thread_getId", (void *self)) { return
 BIND(void, jcl_Thread_setPriority, "java.lang.Thread_setPriority", (void *self, int p)) { jcl_thread_of(self)->priority = p; }
 BIND(void, jcl_Thread_setName, "java.lang.Thread_setName", (void *self, void *name)) { jcl_thread_of(self)->name = jcl_dup(nabu_cstr(name)); }
 BIND(void, jcl_Thread_setContextClassLoader, "java.lang.Thread_setContextClassLoader", (void *self, void *loader)) { (void)self; (void)loader; }
-BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { jcl_thread_of(self)->handler = handler; }
+BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { JCL_STORE_REF(jcl_thread_of(self)->handler, handler); }
 /* NABU_DIAG=1: checks of the thread bookkeeping, for hunting threads that share state. A Thread object that does not
  * belong to the running thread, or a ThreadLocal map that two threads hold, is reported on stderr. */
 static int jcl_diag_on(void) {
@@ -6659,7 +6660,7 @@ BIND(void, jcl_Thread_setInterrupt, "java.lang.Thread_setInterrupt", (void *self
 }
 BIND(void *, jcl_Thread_uncaughtExceptionHandler, "java.lang.Thread_uncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
 
-BIND(void, jcl_Thread_setContinuation, "java.lang.Thread_setContinuation", (void *self, void *c)) { jcl_thread_of(self)->continuation = c; }
+BIND(void, jcl_Thread_setContinuation, "java.lang.Thread_setContinuation", (void *self, void *c)) { JCL_STORE_REF(jcl_thread_of(self)->continuation, c); }
 BIND(void *, jcl_Thread_getContinuation, "java.lang.Thread_getContinuation", (void *self)) { return jcl_thread_of(self)->continuation; }
 
 static void *jcl_the_runtime(void) {

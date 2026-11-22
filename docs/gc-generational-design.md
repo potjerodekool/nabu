@@ -334,3 +334,9 @@ Findings:
 - Blocks without a type (runtime structs and reference arrays), the part that holds the C-side stores, are 7-9 MB of 10-15 MB scanned objects on the petstore.
 
 **Open design problem for step 2b** (not solved): a conservative scan of the runtime blocks at each nursery collection (about 9 MB, 2-4 ms) closes the C-side hole without a barrier at every writer, but it pins the objects those blocks point to. A pinned object stays in its nursery page, and Boehm cannot see nursery objects die, so the page must be freed by the nursery collector itself. That needs the mostly-copying scheme (pinned pages stay from-space pages, their other objects are copied out, the pins are re-evaluated at every collection) and a way to drop remembered-set entries of dead old objects after a Boehm collection (mark bits). Without both, the roots the nursery registers with Boehm keep everything they point to alive forever.
+
+### Step 2a, second round: thread state, deduplication, what is left (2026-11-22)
+
+The state struct of `java.lang.Thread` (`s_thread`) is written through `JCL_STORE_REF` (barrier included) at 17 sites. At every verification the remembered set is sorted and deduplicated in place, which keeps it at 0.3-0.7 million slots instead of overflowing. Result on the petstore, 1500 requests, 7 Boehm collections: 0, 0, 12, 5, 9, 4, 2 of about 30,000 old-to-young words not remembered.
+
+All remaining misses are in 1344-byte blocks at words 111-121: that is an x64 `CONTEXT` (1232 bytes) as `GetThreadContext` fills it for the stack capture of another thread (nabu_runtime.c:1865): register snapshots, i.e. stale data, not references the program uses. A collector must not treat them as roots and does not need to update them. The barrier coverage of the stores of compiled code and C primitives is therefore complete for this workload; what remains for the roots is the live registers and stacks of all threads (step 2b).

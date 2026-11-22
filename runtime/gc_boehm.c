@@ -965,6 +965,15 @@ static void nabu_remset_verify(unsigned long gc_no) {
     nabu_rs_sorted = (uintptr_t *) malloc((nabu_rs_count + 1) * sizeof *nabu_rs_sorted);
     memcpy(nabu_rs_sorted, nabu_remset, nabu_rs_count * sizeof *nabu_rs_sorted);
     qsort(nabu_rs_sorted, nabu_rs_count, sizeof *nabu_rs_sorted, nabu_rs_cmp);
+    {   /* distinct slots only, and the buffer keeps just those (the world is stopped): a slot that is stored again and again would fill it */
+        size_t distinct = 0;
+        for (size_t k = 0; k < nabu_rs_count; k++) {
+            if (k == 0 || nabu_rs_sorted[k] != nabu_rs_sorted[k - 1]) nabu_rs_sorted[distinct++] = nabu_rs_sorted[k];
+        }
+        nabu_rs_count = distinct;
+        memcpy(nabu_remset, nabu_rs_sorted, distinct * sizeof *nabu_rs_sorted);
+        nabu_remset_count = distinct;
+    }
     nabu_rs_misses = nabu_rs_words = nabu_rs_objects = nabu_rs_untyped = nabu_rs_bytes_all = nabu_rs_bytes_untyped = 0;
     memset(nabu_rs_table, 0, sizeof nabu_rs_table);
     GC_enumerate_reachable_objects_inner(nabu_rs_visit, NULL);

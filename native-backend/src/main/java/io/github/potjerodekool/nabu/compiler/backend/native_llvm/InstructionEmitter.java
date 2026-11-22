@@ -669,7 +669,7 @@ public class InstructionEmitter {
         if (layout != null) {
             final LLVMValueRef obj = emitGcAlloc(
                     LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false,
-                    nameOf(ha.result()));
+                    nameOf(ha.result()), classLayouts.mustStayOld(layout.internalName));
             initObjectHeader(obj, layout);
             storeLocal(ha.result(), obj);
             knownNonNull.add(obj);
@@ -773,18 +773,27 @@ public class InstructionEmitter {
      * Reserveert {@code size} bytes met de allocator van de gekozen collector (zie {@code GarbageCollector}).
      */
     private LLVMValueRef allocForStrategy(final long size, final String name) {
-        return emitGcAlloc(LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0), false, name);
+        return emitGcAlloc(LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0), false, name, true);
     }
 
     static final String GC_ALLOC = "@nabu.gc.alloc";
     static final String GC_ALLOC_ATOMIC = "@nabu.gc.alloc.atomic";
+    /** The allocation of the old generation: the same as GC_ALLOC unless the collector has a nursery. */
+    static final String GC_ALLOC_OLD = "@nabu.gc.alloc.old";
 
     /**
      * A call to the allocation function of the collector. Zeroed memory that can hold pointers, or (pointerFree) memory
      * without pointers that the collector does not scan: that one is not cleared by the allocator, so it is cleared here.
      */
     private LLVMValueRef emitGcAlloc(final LLVMValueRef bytes, final boolean pointerFree, final String name) {
-        final LLVMValueRef allocFn = globalValueMap.get(pointerFree ? GC_ALLOC_ATOMIC : GC_ALLOC);
+        return emitGcAlloc(bytes, pointerFree, name, false);
+    }
+
+    /** As above; old: the object must not live in a nursery (it can get a finalizer or a weak link, or is initialized by the runtime). */
+    private LLVMValueRef emitGcAlloc(final LLVMValueRef bytes, final boolean pointerFree, final String name,
+                                     final boolean old) {
+        final LLVMValueRef allocFn = globalValueMap.get(old && !pointerFree ? GC_ALLOC_OLD
+                : pointerFree ? GC_ALLOC_ATOMIC : GC_ALLOC);
         if (allocFn == null) {
             throw new IllegalStateException("Allocation helper not defined");
         }
@@ -3334,7 +3343,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             return allocForStrategy(headerSize, ".exc");
         }
         final LLVMValueRef obj = emitGcAlloc(
-                LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false, ".exc");
+                LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false, ".exc", true);
         initObjectHeader(obj, layout);
         return obj;
     }

@@ -32,6 +32,20 @@ public interface GarbageCollector {
      */
     String allocateAtomicSymbol();
 
+    /**
+     * The symbol for memory that has to stay where the collector does not move it and that can take a finalizer or a
+     * weak link (objects of Reference, Thread, FileDescriptor, classes with finalize, and everything the runtime
+     * initializes itself). The same as {@link #allocateSymbol()} unless the collector has a nursery.
+     */
+    default String allocateOldSymbol() {
+        return allocateSymbol();
+    }
+
+    /** Whether {@link #allocateSymbol()} is a nursery: the code generator then allocates what can be finalized with {@link #allocateOldSymbol()}. */
+    default boolean hasNursery() {
+        return false;
+    }
+
     /** The C source of the collector, a file next to {@code nabu_runtime.c}. */
     String runtimeSource();
 

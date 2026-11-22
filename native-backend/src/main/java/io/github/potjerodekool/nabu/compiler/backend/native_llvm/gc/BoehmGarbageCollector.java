@@ -32,12 +32,27 @@ public final class BoehmGarbageCollector implements GarbageCollector {
 
     @Override
     public String allocateSymbol() {
-        return allocProfile() ? "nabu_prof_malloc" : debugAlloc() ? "nabu_dbg_malloc" : "GC_malloc";
+        return hasNursery() ? "nabu_nursery_alloc" : allocProfile() ? "nabu_prof_malloc" : debugAlloc() ? "nabu_dbg_malloc" : "GC_malloc";
     }
 
     @Override
     public String allocateAtomicSymbol() {
-        return allocProfile() ? "nabu_prof_malloc_atomic" : debugAlloc() ? "nabu_dbg_malloc_atomic" : "GC_malloc_atomic";
+        return hasNursery() ? "nabu_nursery_alloc_atomic" : allocProfile() ? "nabu_prof_malloc_atomic" : debugAlloc() ? "nabu_dbg_malloc_atomic" : "GC_malloc_atomic";
+    }
+
+    /**
+     * -Dnabu.gc.nursery=true (experimental, docs/gc-generational-design.md): objects and arrays of compiled code come
+     * from a bump-pointer region in front of the Boehm heap (nabu_nursery_alloc in gc_boehm.c). No nursery collection
+     * yet; a full region falls back to the heap.
+     */
+    @Override
+    public boolean hasNursery() {
+        return Boolean.getBoolean("nabu.gc.nursery") && !allocProfile() && !debugAlloc();
+    }
+
+    @Override
+    public String allocateOldSymbol() {
+        return allocProfile() ? "nabu_prof_malloc" : debugAlloc() ? "nabu_dbg_malloc" : "GC_malloc";
     }
 
     @Override

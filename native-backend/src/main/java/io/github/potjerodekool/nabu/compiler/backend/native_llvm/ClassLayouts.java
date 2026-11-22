@@ -3103,6 +3103,39 @@ public ClassLayout get(String internalName) {
     }
 
     /** De IRModule bij een interne naam, of null. */
+    private final Map<String, Boolean> mustStayOldCache = new java.util.HashMap<>();
+
+    /**
+     * Whether an object of this class has to be allocated in the old generation (Boehm heap) even when there is a nursery:
+     * the runtime registers finalizers and weak links only for blocks of the collector, so everything that gets one cannot
+     * live in the nursery. That is Reference and its subclasses, Thread and its subclasses, FileDescriptor, and a class
+     * that has or inherits a finalize method other than Object's.
+     */
+    public boolean mustStayOld(final String internalName) {
+        final Boolean known = mustStayOldCache.get(internalName);
+        if (known != null) {
+            return known;
+        }
+        boolean old = false;
+        for (String name = internalName; name != null && !old; name = superInternalName(name)) {
+            old = switch (name) {
+                case "java/lang/ref/Reference", "java/lang/Thread", "java/io/FileDescriptor" -> true;
+                default -> false;
+            };
+            final IRModule module = moduleOf(name);
+            if (!old && module != null && !"java/lang/Object".equals(name)) {
+                for (final IRFunction fn : module.functions()) {
+                    if (fn.name.contains("finalize")) {
+                        old = true;
+                        break;
+                    }
+                }
+            }
+        }
+        mustStayOldCache.put(internalName, old);
+        return old;
+    }
+
     public IRModule moduleOf(String internalName) {
         return modulesByInternalName.get(normalizeInternalName(internalName));
     }

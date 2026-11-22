@@ -1325,13 +1325,22 @@ public void setReflectionRegistry(
         final LLVMValueRef alloc = LLVMAddFunction(mod, new BytePointer(gc.allocateSymbol()), allocType);
         LLVMSetLinkage(alloc, LLVMExternalLinkage);
         globalValueMap.put(InstructionEmitter.GC_ALLOC, alloc);
+        final LLVMValueRef old;
+        if (gc.hasNursery()) {
+            old = LLVMAddFunction(mod, new BytePointer(gc.allocateOldSymbol()), allocType);
+            LLVMSetLinkage(old, LLVMExternalLinkage);
+            globalValueMap.put(InstructionEmitter.GC_ALLOC_OLD, old);
+        } else {
+            old = alloc;
+            globalValueMap.put(InstructionEmitter.GC_ALLOC_OLD, alloc);
+        }
         // memory without pointers: not cleared
         final LLVMValueRef atomic = LLVMAddFunction(mod, new BytePointer(gc.allocateAtomicSymbol()), allocType);
         LLVMSetLinkage(atomic, LLVMExternalLinkage);
         globalValueMap.put(InstructionEmitter.GC_ALLOC_ATOMIC, atomic);
         // The memory an allocation returns is not reachable by any other pointer yet (noalias), and the function does not
         // unwind: the optimizer can then tell the new object from everything else.
-        for (final LLVMValueRef allocation : new LLVMValueRef[] {alloc, atomic}) {
+        for (final LLVMValueRef allocation : new LLVMValueRef[] {alloc, atomic, old}) {
             LLVMAddAttributeAtIndex(allocation, 0,
                     LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("noalias", 7), 0));
             LLVMAddAttributeAtIndex(allocation, -1,

@@ -11,6 +11,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
@@ -839,6 +840,79 @@ void *nabu_gc_alloc_atomic(size_t n) {
     if (nabu_prof_path != NULL) nabu_rprof_record(n);
     return nabu_raw_atomic_kind >= 0 ? GC_malloc_kind(n, nabu_raw_atomic_kind) : GC_malloc_atomic(n);
 }
+/* ---- nursery allocation front (docs/gc-generational-design.md, "Plan for the nursery build", step 1) ----
+ * -Dnabu.gc.nursery=true: the compiled code allocates its objects and arrays with nabu_nursery_alloc: a bump pointer in one
+ * region of NABU_NURSERY_MB megabytes (default 64) that is reserved at the start and registered with the collector as a
+ * root region, one megabyte at a time as the pointer reaches it. There is no nursery collection yet: what is in the
+ * region stays, and is scanned conservatively by every Boehm collection like any root. When the region is full the
+ * allocation falls back to the Boehm heap. What this step shows is that nothing in the program or the runtime depends on
+ * its objects being blocks of the collector. Classes that get a finalizer or a weak link (Reference, Thread,
+ * FileDescriptor, and classes with finalize) are allocated in the Boehm heap by the code generator. */
+#define NABU_NURSERY_CHUNK ((size_t) 1 << 20)
+static char *nabu_nursery_base = NULL;
+static char *nabu_nursery_limit = NULL;
+static char *volatile nabu_nursery_registered = NULL;   /* end of what is a root region */
+static char *volatile nabu_nursery_cur = NULL;
+static pthread_mutex_t nabu_nursery_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void nabu_nursery_report(void) {
+    const size_t used = (size_t) (nabu_nursery_cur - nabu_nursery_base);
+    const size_t size = (size_t) (nabu_nursery_limit - nabu_nursery_base);
+    fprintf(stderr, "[nabu/gc] nursery: %zu of %zu bytes used%s\n", used < size ? used : size, size, used > size ? " (full, the rest went to the heap)" : "");
+}
+
+static void nabu_nursery_init(void) {
+    const char *mb = getenv("NABU_NURSERY_MB");
+    size_t size = ((size_t) (mb != NULL && atol(mb) > 0 ? atol(mb) : 64)) << 20;
+#ifdef _WIN32
+    void *p = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void *p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) p = NULL;
+#endif
+    if (p == NULL) { fprintf(stderr, "[nabu/gc] nursery of %zu bytes could not be reserved\n", size); return; }
+    nabu_nursery_base = (char *) p;
+    nabu_nursery_limit = nabu_nursery_base + size;
+    nabu_nursery_registered = nabu_nursery_base;
+    nabu_nursery_cur = nabu_nursery_base;
+    if (getenv("NABU_GC_ALLOC_STATS") != NULL) {
+        atexit(nabu_nursery_report);
+        fprintf(stderr, "[nabu/gc] nursery of %zu bytes reserved\n", size);
+    }
+}
+
+int nabu_in_nursery(const void *p) {
+    return (const char *) p >= nabu_nursery_base && (const char *) p < nabu_nursery_limit;
+}
+
+static void *nabu_nursery_slow(char *start, size_t n) {
+    pthread_mutex_lock(&nabu_nursery_mutex);
+    while (nabu_nursery_registered < start + n && nabu_nursery_registered < nabu_nursery_limit) {
+        GC_add_roots(nabu_nursery_registered, nabu_nursery_registered + NABU_NURSERY_CHUNK);
+        nabu_nursery_registered += NABU_NURSERY_CHUNK;
+    }
+    pthread_mutex_unlock(&nabu_nursery_mutex);
+    return start + n <= nabu_nursery_registered ? start : NULL;
+}
+
+void *nabu_nursery_alloc(size_t n) {
+    if (nabu_nursery_base == NULL) {
+        pthread_mutex_lock(&nabu_nursery_mutex);
+        if (nabu_nursery_base == NULL) nabu_nursery_init();
+        if (nabu_nursery_base == NULL) nabu_nursery_base = nabu_nursery_limit = (char *) 1;   /* none: always the heap */
+        pthread_mutex_unlock(&nabu_nursery_mutex);
+    }
+    n = (n + 15) & ~(size_t) 15;
+    char *start = __atomic_fetch_add(&nabu_nursery_cur, n, __ATOMIC_RELAXED);
+    if (start >= nabu_nursery_base && start + n <= nabu_nursery_limit) {
+        if (start + n <= nabu_nursery_registered) return start;
+        void *r = nabu_nursery_slow(start, n);
+        if (r != NULL) return r;
+    }
+    return GC_malloc(n);
+}
+void *nabu_nursery_alloc_atomic(size_t n) { return nabu_nursery_alloc(n); }
+
 void *nabu_gc_alloc_pinned(size_t n) { return GC_malloc_uncollectable(n); }
 void *nabu_gc_realloc(void *p, size_t n) { return GC_realloc(p, n); }
 void nabu_gc_free(void *p) { GC_free(p); }
@@ -850,6 +924,10 @@ void nabu_gc_collect(void) {
 }
 
 void nabu_gc_set_finalizer(void *obj, void (*fn)(void *obj, void *data)) {
+    if (nabu_in_nursery(obj)) {
+        fprintf(stderr, "[nabu/gc] finalizer for an object in the nursery (%p): its class has to be allocated in the heap\n", obj);
+        abort();
+    }
     /* the unordered variant: it also finalizes objects that refer to each other */
     GC_register_finalizer_no_order(obj, fn, NULL, NULL, NULL);
 }

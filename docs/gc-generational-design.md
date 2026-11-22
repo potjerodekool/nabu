@@ -340,3 +340,15 @@ Findings:
 The state struct of `java.lang.Thread` (`s_thread`) is written through `JCL_STORE_REF` (barrier included) at 17 sites. At every verification the remembered set is sorted and deduplicated in place, which keeps it at 0.3-0.7 million slots instead of overflowing. Result on the petstore, 1500 requests, 7 Boehm collections: 0, 0, 12, 5, 9, 4, 2 of about 30,000 old-to-young words not remembered.
 
 All remaining misses are in 1344-byte blocks at words 111-121: that is an x64 `CONTEXT` (1232 bytes) as `GetThreadContext` fills it for the stack capture of another thread (nabu_runtime.c:1865): register snapshots, i.e. stale data, not references the program uses. A collector must not treat them as roots and does not need to update them. The barrier coverage of the stores of compiled code and C primitives is therefore complete for this workload; what remains for the roots is the live registers and stacks of all threads (step 2b).
+
+## Step 2b, first part: a dry-run collection that only measures (2026-11-23)
+
+`NABU_NURSERY_VERIFY=1` now also runs, at every Boehm mark end, a dry run of a nursery collection (`nabu_nursery_dryrun`, nothing is moved or freed): it walks the used nursery object by object, builds a start bitmap, marks from the remembered set, the stack of the collecting thread and the writable image sections, and traces through the nursery with `ref_offsets` (reference arrays: every element).
+
+Petstore, Windows, 64 MB nursery, collections 2-8:
+- **The nursery can be walked exactly.** 1,002,363 objects, 0 bad headers, 2 zero gaps (type info or the array header `[i32 length][i32 es|id<<8]` gives the extent, rounded to 16). Compiled objects need no extra header or side table for a collector to find object starts.
+- **Live: 8.0-8.2 MB of 64 MB (12.3-12.6%)** and stable over seven collections: the long-lived startup data of Spring. Remembered slots of dead old holders count as roots (an upper bound); stacks of other threads are not scanned (a lower bound).
+- The nursery is **full from the first collections on** (fallback to `GC_malloc` afterwards), so these seven snapshots are the same frozen nursery: this is not yet a steady-state survival rate. That needs a collector that frees the region and reuses it.
+- Bug in the measurement: the bump pointer keeps counting after the region is full; used is clamped to the limit.
+
+What this settles for 2b: the walk, the extent rule and the tracing rule work; what is left is the roots of all other threads and fibers, the copy/promotion with pointer updates, pinning, and the lifecycle of the region (reuse after collection).

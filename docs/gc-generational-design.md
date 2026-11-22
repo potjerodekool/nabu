@@ -311,3 +311,12 @@ Checks (Windows x64, petstore built with -Opt NONE, /pet/2):
 Cost of this step (expected, because nothing is reclaimed yet and Boehm scans the used part of the region as roots at every collection): RSS 372 MB against 277 MB, 850 against 925 req/s at 1500 requests. These numbers say nothing about the finished nursery; they are the price of the part that is not built.
 
 Known gap that step 2 must close: `nabu_gc_weak_set` needs `GC_base(obj) == obj`, so a weak or soft reference to an object in the nursery stays a strong pointer (the referent is not cleared). With a collecting nursery that has to become a real weak link of the nursery collector.
+
+## What step 2 (the collecting nursery) needs, found while sizing it (2026-11-22)
+
+1. **An exact card table.** The stage-1 barrier is an experiment: one byte per 16 bytes of a 256 MB *wrapping* window, so a dirty card cannot be mapped back to one address. A collecting nursery needs a table indexed by `address >> shift` over the whole range of the Boehm heap (reserved, committed lazily) and a way to walk the objects in a dirty card (Boehm: `GC_base` plus the size; typed objects through `ref_offsets`, runtime blocks conservatively).
+2. **Barriers in the runtime.** `jcl_lite.c` and `nabu_runtime.c` contain no card marks. The stores of a reference into a compiled object or array from C are: `Unsafe_putReference*`, `Unsafe_compareAndSetReference`/`getAndSetReference`, `System.arraycopy`, clone, reflective `Field.set`, and the helpers that fill arrays and fields (varargs, `nabu_instance_field_offset` users). Each needs a card mark, found by grepping the writes of `void *` through offsets; a missed one shows up as a poisoned from-space object (validation in step 2).
+3. **Roots of all threads and fibers**, not only the collecting thread (the measurement saw one stack): the GIL makes every other thread stop at a handoff point, so their saved registers and stacks are known; fibers (ucontext/Windows) have their own stacks, registered with Boehm through `GC_set_stackbottom`.
+4. **Weak and soft links of nursery objects** (see step 1): a nursery-owned weak table, cleared by the nursery collector for objects that were not reached.
+
+None of this is started. Step 1 is complete and flag-gated; steps 2-4 are a multi-day piece of work whose first verifiable part is item 1 together with item 2 behind the same flag, validated by poisoning.

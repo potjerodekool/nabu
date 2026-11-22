@@ -3117,13 +3117,18 @@ public ClassLayout get(String internalName) {
             return known;
         }
         boolean old = false;
-        for (String name = internalName; name != null && !old; name = superInternalName(name)) {
+        // Walk the superclasses through the modules themselves: superInternalName stops at a superclass that is not a
+        // compiled module (Thread, FileDescriptor are library classes), and that is the one to recognize.
+        for (String name = internalName; name != null && !old; ) {
             old = switch (name) {
                 case "java/lang/ref/Reference", "java/lang/Thread", "java/io/FileDescriptor" -> true;
                 default -> false;
             };
             final IRModule module = moduleOf(name);
-            if (!old && module != null && !"java/lang/Object".equals(name)) {
+            if (module == null) {
+                break;
+            }
+            if (!old && !"java/lang/Object".equals(name)) {
                 for (final IRFunction fn : module.functions()) {
                     if (fn.name.contains("finalize")) {
                         old = true;
@@ -3131,6 +3136,8 @@ public ClassLayout get(String internalName) {
                     }
                 }
             }
+            name = module.superType() instanceof IRType.Ptr p && p.jvmDescriptor() != null
+                    ? fromDescriptor(p.jvmDescriptor()) : null;
         }
         mustStayOldCache.put(internalName, old);
         return old;

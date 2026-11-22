@@ -23,6 +23,23 @@
 #define NABU_GC_CONTINUATIONS 0
 #endif
 
+/* The remembered-set barrier of the nursery (-Dnabu.gc.nursery=true, gc_boehm.c): C code that stores references into objects
+ * or arrays of compiled code tells the collector, as the barrier of the compiled code does. NABU_WRITE_BARRIER(slot, value)
+ * after storing value in *slot; NABU_WRITE_BARRIER_RANGE(start, bytes) after copying words (arraycopy, clone). */
+#if defined(NABU_GC_BOEHM)
+#include <stdint.h>
+#include <stddef.h>
+extern uint64_t nabu_nursery_lo, nabu_nursery_span;
+void nabu_remember(void **slot);
+void nabu_remember_range(void *start, size_t bytes);
+extern unsigned nabu_wb_mask;
+#define NABU_WRITE_BARRIER(site, slot, value)     do { if ((uint64_t) (uintptr_t) (value) - nabu_nursery_lo < nabu_nursery_span && (nabu_wb_mask & (site)) != 0) nabu_remember((void **) (slot)); } while (0)
+#define NABU_WRITE_BARRIER_RANGE(start, bytes)     do { if (nabu_nursery_span != 0 && (nabu_wb_mask & 64) != 0) nabu_remember_range((start), (bytes)); } while (0)
+#else
+#define NABU_WRITE_BARRIER(site, slot, value) ((void) 0)
+#define NABU_WRITE_BARRIER_RANGE(start, bytes) ((void) 0)
+#endif
+
 /* ---- start ---- */
 
 /* Starts the collector; calling it again does nothing. The collector's C file calls it from a constructor, and the

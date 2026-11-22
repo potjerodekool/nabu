@@ -263,6 +263,7 @@ static int nabu_census_repeat = 0;
 static int nabu_census_top = 40;
 extern uintptr_t nabu_image_lo, nabu_image_size;
 extern const char *nabu_compiled_type_name(const void *p);
+extern const char *nabu_array_type_name(int32_t id);
 extern int nabu_jcl_is_object(const void *p);
 extern const char *nabu_compiled_type_name(const void *p);
 
@@ -759,7 +760,11 @@ static void nabu_pin_stats(unsigned long gc_no) {
     }
 }
 
+static int nabu_nursery_verify_on = 0;
+static void nabu_remset_verify(unsigned long gc_no);
+
 static void nabu_gc_on_event(GC_EventType e) {
+    if (e == GC_EVENT_MARK_END && nabu_nursery_verify_on) nabu_remset_verify((unsigned long) GC_get_gc_no());
     if (e == GC_EVENT_MARK_END && nabu_verify_on) nabu_verify_mark_end((unsigned long) GC_get_gc_no());
     if (e == GC_EVENT_MARK_END && nabu_card_stats_on) {
         const int had_previous = nabu_old_valid;
@@ -804,6 +809,8 @@ __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
         nabu_sites = (nabu_site_entry *) calloc(NABU_SITES, sizeof(nabu_site_entry));
     }
     nabu_verify_on = getenv("NABU_GC_VERIFY") != NULL;
+    nabu_nursery_verify_on = getenv("NABU_NURSERY_VERIFY") != NULL;
+    if (getenv("NABU_WB_MASK") != NULL) nabu_wb_mask = (unsigned) strtoul(getenv("NABU_WB_MASK"), NULL, 0);
     nabu_prof_path = getenv("NABU_ALLOC_PROF");
     const char *census = getenv("NABU_GC_CENSUS");
     if (census != NULL && atol(census) > 0) {
@@ -812,7 +819,7 @@ __attribute__((constructor(103))) static void nabu_gc_stats_init(void) {
         const char *topEnv = getenv("NABU_GC_CENSUS_TOP");
         if (topEnv != NULL && atoi(topEnv) > 0) nabu_census_top = atoi(topEnv);
     }
-    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0 || nabu_card_stats_on || nabu_verify_on) GC_set_on_collection_event(nabu_gc_on_event);
+    if (nabu_gc_stats_on || nabu_prof_path != NULL || nabu_census_at > 0 || nabu_card_stats_on || nabu_verify_on || nabu_nursery_verify_on) GC_set_on_collection_event(nabu_gc_on_event);
 }
 
 static volatile size_t nabu_gc_alloc_bytes = 0;
@@ -861,6 +868,124 @@ static void nabu_nursery_report(void) {
     fprintf(stderr, "[nabu/gc] nursery: %zu of %zu bytes used%s\n", used < size ? used : size, size, used > size ? " (full, the rest went to the heap)" : "");
 }
 
+/* The remembered set: the addresses of the slots (in objects of the old generation or in arrays) that were given a pointer
+ * into the nursery, written by the barrier of the compiled code (nabu_remember) and by the C primitives that store
+ * references. Compiled code and the runtime run under the GIL, so there is no lock. nabu_nursery_lo/span are read by the
+ * barrier: a value v points into the nursery when v - lo < span (span is 0 until the first allocation). */
+uint64_t nabu_nursery_lo = 0, nabu_nursery_span = 0;
+unsigned nabu_wb_mask = 0xffffffffu;   /* NABU_WB_MASK: which barriers of the C primitives are on (debugging aid) */
+static uintptr_t *nabu_remset = NULL;
+static size_t nabu_remset_count = 0;
+static int nabu_remset_overflow = 0;
+#define NABU_REMSET_MAX ((size_t) 1 << 24)
+
+static void nabu_nursery_report(void);
+/* Lock-free: more than one thread can be in here (a thread that runs C code while another holds the GIL), and a growing
+ * buffer that is reallocated corrupted the heap. The buffer is reserved once (untouched pages cost nothing). */
+void nabu_remember(void **slot) {
+    if ((uintptr_t) slot - nabu_nursery_lo < nabu_nursery_span) return;   /* a young holder: found by the collector as it copies */
+    const size_t i = __atomic_fetch_add(&nabu_remset_count, 1, __ATOMIC_RELAXED);
+    if (i >= NABU_REMSET_MAX) { nabu_remset_overflow = 1; return; }
+    nabu_remset[i] = (uintptr_t) slot;
+}
+
+void nabu_remember_range(void *start, size_t bytes) {
+    void **p = (void **) (((uintptr_t) start + 7) & ~(uintptr_t) 7);
+    for (; (char *) (p + 1) <= (char *) start + bytes; p++) {
+        if ((uint64_t) (uintptr_t) *p - nabu_nursery_lo < nabu_nursery_span) nabu_remember(p);
+    }
+}
+
+/* NABU_NURSERY_VERIFY=1: at every mark end of the collector, every word of a reachable object of the old generation that
+ * points into the used part of the nursery has to be in the remembered set. A word that is not is a store the barrier did
+ * not see (a store from C, or a store with no barrier), or a number that looks like an address. Reported per holder. */
+static uintptr_t *nabu_rs_sorted = NULL;
+static size_t nabu_rs_count = 0;
+static unsigned long nabu_rs_misses, nabu_rs_words, nabu_rs_objects, nabu_rs_untyped, nabu_rs_bytes_all, nabu_rs_bytes_untyped;
+typedef struct { uintptr_t key; unsigned long count; const char *name; unsigned offset; size_t bytes; } nabu_rs_miss;
+static nabu_rs_miss nabu_rs_table[512];
+
+static int nabu_rs_cmp(const void *a, const void *b) {
+    const uintptr_t x = *(const uintptr_t *) a, y = *(const uintptr_t *) b;
+    return x < y ? -1 : x > y;
+}
+static int nabu_rs_has(uintptr_t slot) {
+    size_t lo = 0, hi = nabu_rs_count;
+    while (lo < hi) {
+        const size_t mid = (lo + hi) / 2;
+        if (nabu_rs_sorted[mid] < slot) lo = mid + 1; else hi = mid;
+    }
+    return lo < nabu_rs_count && nabu_rs_sorted[lo] == slot;
+}
+static void nabu_rs_visit(void *obj, size_t bytes, void *client) {
+    (void) client;
+    size_t ignored;
+    if (GC_get_kind_and_size(obj, &ignored) == 0) return;   /* no pointers */
+    nabu_rs_objects++;
+    nabu_rs_bytes_all += bytes;
+    const uintptr_t *words = (const uintptr_t *) obj;
+    const nabu_gc_type_info *ti = NULL;
+    if (nabu_image_size != 0 && words[0] - nabu_image_lo < nabu_image_size && (words[0] & 7) == 0) {
+        ti = (const nabu_gc_type_info *) words[0];
+        if (!((uintptr_t) ti->name - nabu_image_lo < nabu_image_size && ti->size >= 16 && ti->size <= bytes)) ti = NULL;
+    }
+    if (ti == NULL) { nabu_rs_untyped++; nabu_rs_bytes_untyped += bytes; }
+    for (size_t i = 0; i < bytes / 8; i++) {
+        const uintptr_t w = words[i];
+        if (w - nabu_nursery_lo >= nabu_nursery_span) continue;
+        nabu_rs_words++;
+        if (nabu_rs_has((uintptr_t) &words[i])) continue;
+        nabu_rs_misses++;
+        if (nabu_rs_misses <= 6) {
+            const uintptr_t *tgt = (const uintptr_t *) w;
+            const nabu_gc_type_info *tti = (nabu_image_size != 0 && tgt[0] - nabu_image_lo < nabu_image_size) ? (const nabu_gc_type_info *) tgt[0] : NULL;
+            char dbg[300];
+            const int32_t aid = (int32_t) (words[0] >> 32) >> 8;
+            const char *an = ti == NULL && aid > 0 && aid < 4096 ? nabu_array_type_name(aid) : NULL;
+            const int dn = snprintf(dbg, sizeof dbg, "[remset] miss: holder %p (%s, %zu bytes) word %zu -> %p (%s)\n", obj,
+                    ti != NULL ? ti->name : an != NULL ? an : "untyped", bytes, i, (void *) w, tti != NULL && (uintptr_t) tti->name - nabu_image_lo < nabu_image_size ? tti->name : "?");
+            nabu_census_write(dbg, dn);
+        }
+        const uintptr_t key = ti != NULL ? (uintptr_t) ti * 1031 + i : (uintptr_t) 0xFF << 56 | bytes << 8 | (i & 0xff);
+        size_t slot = (key >> 3) * 2654435761u % 512;
+        for (int probe = 0; probe < 512; probe++, slot = (slot + 1) % 512) {
+            if (nabu_rs_table[slot].count == 0) {
+                nabu_rs_table[slot].key = key; nabu_rs_table[slot].count = 1;
+                nabu_rs_table[slot].name = ti != NULL ? ti->name : NULL;
+                nabu_rs_table[slot].offset = (unsigned) (i * 8); nabu_rs_table[slot].bytes = bytes;
+                break;
+            }
+            if (nabu_rs_table[slot].key == key) { nabu_rs_table[slot].count++; break; }
+        }
+    }
+}
+static void nabu_remset_verify(unsigned long gc_no) {
+    if (nabu_nursery_span == 0) return;
+    nabu_rs_count = nabu_remset_count < NABU_REMSET_MAX ? nabu_remset_count : NABU_REMSET_MAX;
+    nabu_rs_sorted = (uintptr_t *) malloc((nabu_rs_count + 1) * sizeof *nabu_rs_sorted);
+    memcpy(nabu_rs_sorted, nabu_remset, nabu_rs_count * sizeof *nabu_rs_sorted);
+    qsort(nabu_rs_sorted, nabu_rs_count, sizeof *nabu_rs_sorted, nabu_rs_cmp);
+    nabu_rs_misses = nabu_rs_words = nabu_rs_objects = nabu_rs_untyped = nabu_rs_bytes_all = nabu_rs_bytes_untyped = 0;
+    memset(nabu_rs_table, 0, sizeof nabu_rs_table);
+    GC_enumerate_reachable_objects_inner(nabu_rs_visit, NULL);
+    char line[300];
+    int n = snprintf(line, sizeof line, "[remset] collection %lu: %lu remembered slots%s, %lu objects scanned, %lu words point into the nursery, %lu of them not remembered; scanned %lu KB, of which blocks without a type %lu (%lu KB)\n",
+            gc_no, (unsigned long) nabu_rs_count, nabu_remset_overflow ? " (overflow)" : "", nabu_rs_objects, nabu_rs_words, nabu_rs_misses,
+            nabu_rs_bytes_all / 1024, nabu_rs_untyped, nabu_rs_bytes_untyped / 1024);
+    nabu_census_write(line, n);
+    for (int rank = 0; rank < 12; rank++) {
+        int best = -1;
+        for (int i = 0; i < 512; i++) if (nabu_rs_table[i].count != 0 && (best < 0 || nabu_rs_table[i].count > nabu_rs_table[best].count)) best = i;
+        if (best < 0) break;
+        if (nabu_rs_table[best].name != NULL) n = snprintf(line, sizeof line, "[remset]   %8lu x  %s +%u\n", nabu_rs_table[best].count, nabu_rs_table[best].name, nabu_rs_table[best].offset);
+        else n = snprintf(line, sizeof line, "[remset]   %8lu x  untyped block of %zu bytes, word %u\n", nabu_rs_table[best].count, nabu_rs_table[best].bytes, nabu_rs_table[best].offset / 8);
+        nabu_census_write(line, n);
+        nabu_rs_table[best].count = 0;
+    }
+    free(nabu_rs_sorted);
+    nabu_rs_sorted = NULL;
+}
+
 static void nabu_nursery_init(void) {
     const char *mb = getenv("NABU_NURSERY_MB");
     size_t size = ((size_t) (mb != NULL && atol(mb) > 0 ? atol(mb) : 64)) << 20;
@@ -875,6 +1000,15 @@ static void nabu_nursery_init(void) {
     nabu_nursery_limit = nabu_nursery_base + size;
     nabu_nursery_registered = nabu_nursery_base;
     nabu_nursery_cur = nabu_nursery_base;
+#ifdef _WIN32
+    nabu_remset = (uintptr_t *) VirtualAlloc(NULL, NABU_REMSET_MAX * sizeof(uintptr_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    nabu_remset = (uintptr_t *) mmap(NULL, NABU_REMSET_MAX * sizeof(uintptr_t), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (nabu_remset == (uintptr_t *) MAP_FAILED) nabu_remset = NULL;
+#endif
+    if (nabu_remset == NULL) { fprintf(stderr, "[nabu/gc] remembered set could not be reserved\n"); abort(); }
+    nabu_nursery_lo = (uint64_t) (uintptr_t) nabu_nursery_base;
+    nabu_nursery_span = size;
     if (getenv("NABU_GC_ALLOC_STATS") != NULL) {
         atexit(nabu_nursery_report);
         fprintf(stderr, "[nabu/gc] nursery of %zu bytes reserved\n", size);

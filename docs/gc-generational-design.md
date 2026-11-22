@@ -320,3 +320,17 @@ Known gap that step 2 must close: `nabu_gc_weak_set` needs `GC_base(obj) == obj`
 4. **Weak and soft links of nursery objects** (see step 1): a nursery-owned weak table, cleared by the nursery collector for objects that were not reached.
 
 None of this is started. Step 1 is complete and flag-gated; steps 2-4 are a multi-day piece of work whose first verifiable part is item 1 together with item 2 behind the same flag, validated by poisoning.
+
+## Result of nursery step 2a: the remembered set and its verification (2026-11-22)
+
+With `-Dnabu.gc.nursery=true` a store of a reference into an object or array does not mark a card but records the *slot address* when the stored value points into the nursery (`nabu_remember`, a call behind one unsigned comparison against `nabu_nursery_lo/span`; the holder is skipped when it is itself in the nursery). The C primitives that store references have the same barrier (`NABU_WRITE_BARRIER`, `NABU_WRITE_BARRIER_RANGE` in nabu_gc.h): `Unsafe` put/CAS of references, `System.arraycopy` of 8-byte elements, `clone`, `Arrays.copyOf` of references, `Field.set`, `nabu_reflect_set_ref`, `jcl_arr_set`. `NABU_WB_MASK` (bits 1,2,4,8,16,32,64,128) switches the C sites off one by one; it found a bug below.
+
+**Verification** (`NABU_NURSERY_VERIFY=1`): at each Boehm mark end every word of every reachable old object that points into the nursery must be in the remembered set. Result on the petstore, 3000 requests: of about 30,000 old-to-young words, 1787 were missed before the C barriers, 16-39 after them (0.1%). The remaining misses are all in the state structs that the runtime allocates for `java.lang.Thread` (`s_thread`: target, group, thread locals, container...), written by about 15 sites in jcl_lite.c.
+
+Findings:
+- The remembered-set buffer was first a growing array (`realloc`). That corrupted the heap (a crash in `nabu_array_type_id` that only appeared when the Unsafe barrier was on): more than one thread executes these primitives at the same time, so the GIL does not serialize everything that runs C. The buffer is now reserved once and filled with an atomic index. This also matters for the stage-1 assumption that a global bump pointer needs no atomics: it uses one.
+- `ClassLayouts.mustStayOld` stopped at a superclass that is not a compiled module (`Thread`), so `TaskThread` and other Thread subclasses were allocated in the nursery. Fixed by walking `IRModule.superType()`.
+- Barrier cost cannot be told from noise: 880-950 req/s with the barrier against 850-925 without (the build with -Opt NONE).
+- Blocks without a type (runtime structs and reference arrays), the part that holds the C-side stores, are 7-9 MB of 10-15 MB scanned objects on the petstore.
+
+**Open design problem for step 2b** (not solved): a conservative scan of the runtime blocks at each nursery collection (about 9 MB, 2-4 ms) closes the C-side hole without a barrier at every writer, but it pins the objects those blocks point to. A pinned object stays in its nursery page, and Boehm cannot see nursery objects die, so the page must be freed by the nursery collector itself. That needs the mostly-copying scheme (pinned pages stay from-space pages, their other objects are copied out, the pins are re-evaluated at every collection) and a way to drop remembered-set entries of dead old objects after a Boehm collection (mark bits). Without both, the roots the nursery registers with Boehm keep everything they point to alive forever.

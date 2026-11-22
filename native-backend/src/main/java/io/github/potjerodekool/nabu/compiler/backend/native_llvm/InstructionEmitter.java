@@ -910,6 +910,58 @@ public class InstructionEmitter {
         LLVMBuildStore(builder, LLVMConstInt(i8, 1, 0), card);
     }
 
+    /**
+     * -Dnabu.gc.nursery=true: the remembered-set barrier. A store of a reference into an object or array puts the address of
+     * the slot in a buffer (nabu_remember) when the stored value points into the nursery, so that a nursery collection finds
+     * the references from the old generation to young objects without scanning the old generation. The test is one
+     * unsigned comparison against two globals of gc_boehm.c; the call is out of line.
+     */
+    private static final boolean NURSERY = Boolean.getBoolean("nabu.gc.nursery");
+
+    private void rememberStore(final LLVMValueRef slot, final LLVMValueRef value) {
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final LLVMModuleRef mod = LLVMGetGlobalParent(function);
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        LLVMValueRef lo = LLVMGetNamedGlobal(mod, "nabu_nursery_lo");
+        if (lo == null || lo.isNull()) {
+            lo = LLVMAddGlobal(mod, i64, "nabu_nursery_lo");
+        }
+        LLVMValueRef span = LLVMGetNamedGlobal(mod, "nabu_nursery_span");
+        if (span == null || span.isNull()) {
+            span = LLVMAddGlobal(mod, i64, "nabu_nursery_span");
+        }
+        LLVMValueRef fn = LLVMGetNamedFunction(mod, "nabu_remember");
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> params = new PointerPointer<>(1);
+        params.put(0, ptrType);
+        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), params, 1, 0);
+        if (fn == null || fn.isNull()) {
+            fn = LLVMAddFunction(mod, "nabu_remember", fnType);
+            LLVMSetLinkage(fn, LLVMExternalLinkage);
+        }
+        final LLVMValueRef bits = LLVMBuildPtrToInt(builder, value, i64, ".rem.val");
+        final LLVMValueRef loValue = LLVMBuildLoad2(builder, i64, lo, ".rem.lo");
+        final LLVMValueRef spanValue = LLVMBuildLoad2(builder, i64, span, ".rem.span");
+        final LLVMValueRef offset = LLVMBuildSub(builder, bits, loValue, ".rem.off");
+        final LLVMValueRef young = LLVMBuildICmp(builder, LLVMIntULT, offset, spanValue, ".rem.young");
+        // The new blocks belong to the same try region as the current one.
+        final String handler = getHandlerLabel();
+        final LLVMBasicBlockRef callBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("rem.call"));
+        final LLVMBasicBlockRef doneBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("rem.done"));
+        if (handler != null) {
+            continuationHandlers.put(callBB, handler);
+            continuationHandlers.put(doneBB, handler);
+        }
+        LLVMBuildCondBr(builder, young, callBB, doneBB);
+        LLVMPositionBuilderAtEnd(builder, callBB);
+        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        args.put(0, slot);
+        LLVMBuildCall2(builder, fnType, fn, args, 1, "");
+        LLVMBuildBr(builder, doneBB);
+        LLVMPositionBuilderAtEnd(builder, doneBB);
+    }
+
     private void emitArrayStore(IRInstruction.ArrayStore as) {
         LLVMValueRef array = resolveValue(as.array());
         LLVMTypeRef elemType = types.map(as.elemType());
@@ -920,6 +972,9 @@ public class InstructionEmitter {
         tbaa.mark(elementStore, "arr." + Tbaa.typeKey(elemType));
         if (CARD_MARKING && LLVMGetTypeKind(elemType) == LLVMPointerTypeKind) {
             markCard(elemPtr);
+        }
+        if (NURSERY && LLVMGetTypeKind(elemType) == LLVMPointerTypeKind) {
+            rememberStore(elemPtr, LLVMGetOperand(elementStore, 0));
         }
     }
 
@@ -1346,6 +1401,13 @@ public class InstructionEmitter {
         return target instanceof IRValue.Named named && named.isStatic() && classLayouts.isVolatileStatic(named.name());
     }
 
+    /** A store to a stack slot or a static (a global of the image) needs no remembered-set entry: both are roots. */
+    private static boolean isStackSlotOrGlobal(final LLVMValueRef ptr) {
+        final LLVMValueRef alloca = LLVMIsAAllocaInst(ptr);
+        final LLVMValueRef global = LLVMIsAGlobalVariable(ptr);
+        return (alloca != null && !alloca.isNull()) || (global != null && !global.isNull());
+    }
+
     private void emitStore(IRInstruction.Store store) {
         IRValue target = store.ptr();
         LLVMValueRef ptr = isObjectFieldAccess(target)
@@ -1392,6 +1454,9 @@ public class InstructionEmitter {
         }
         if (CARD_MARKING && isObjectFieldAccess(target) && LLVMGetTypeKind(valueType) == LLVMPointerTypeKind) {
             markCard(ptr);
+        }
+        if (NURSERY && LLVMGetTypeKind(valueType) == LLVMPointerTypeKind && !isStackSlotOrGlobal(ptr)) {
+            rememberStore(ptr, value);
         }
     }
 

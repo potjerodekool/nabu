@@ -301,6 +301,7 @@ void nabu_reflect_set_ref(void *obj, const char *type_name, const char *field_na
     size_t off = nabu_field_offset_for(obj, type_name, field_name);
     if (off == (size_t)-1) return;
     memcpy((char *)obj + off, &value, sizeof(value));
+    NABU_WRITE_BARRIER(32, (char *)obj + off, value);
 }
 
 /* -------------------------------------------------------

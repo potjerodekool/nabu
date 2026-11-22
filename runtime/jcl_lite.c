@@ -546,6 +546,7 @@ static void *jcl_arr_copy_of(void **items, int32_t n, const char *type) {
     void *arr = jcl_arr_ref(n);
     nabu_array_tag(arr, type);
     for (int32_t i = 0; i < n; i++) ((void **)((char *)arr + 8))[i] = items[i];
+    NABU_WRITE_BARRIER_RANGE((char *)arr + 8, (size_t)n * sizeof(void *));
     return arr;
 }
 
@@ -567,6 +568,7 @@ static void jcl_arr_set(void *a, int32_t i, void *v) {
     int32_t n = *(int32_t *)a;
     if (i < 0 || i >= n) return;
     *((void **)((char *)a + 8) + i) = v;
+    NABU_WRITE_BARRIER(128, (void **)((char *)a + 8) + i, v);
 }
 
 static void *jcl_strs(const char *comma_text, int32_t count_hint) {
@@ -837,6 +839,7 @@ BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self))
         size_t sz = ti->size > NABU_HEADER_SIZE ? ti->size : NABU_HEADER_SIZE;
         void *c = jcl_alloc(sz);
         memcpy(c, self, sz);
+        NABU_WRITE_BARRIER_RANGE(c, sz);
         ((nabu_object *)c)->monitor_count = 0;
         ((nabu_object *)c)->thread_id = 0;
         return c;
@@ -847,6 +850,7 @@ BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self))
         size_t es = jcl_arr_esize(self);
         void *c = jcl_alloc(8 + (size_t)len * es + 1);
         memcpy(c, self, 8 + (size_t)len * es);
+        if (es == 8) NABU_WRITE_BARRIER_RANGE(c, 8 + (size_t)len * es);
         return c;
     }
     nabu_object *h = (nabu_object *)self;
@@ -854,6 +858,7 @@ BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self))
     size_t sz = (ti != NULL && ti->size > 40) ? ti->size : 48;
     void *c = jcl_alloc(sz);
     memcpy(c, self, sz);
+    NABU_WRITE_BARRIER_RANGE(c, sz);
     return c;
 }
 static const char *jcl_compiled_type_name(const void *p) { return nabu_compiled_type_name(p); }
@@ -957,6 +962,7 @@ BIND(void, jcl_java_lang_System_arraycopy, "java.lang.System_arraycopy", (void *
      * het einde van de doel-array, dwars door de heap. */
     size_t es = jcl_arr_esize(src);
     memmove((char *)dst + 8 + (size_t)dstPos * es, (const char *)src + 8 + (size_t)srcPos * es, (size_t)len * es);
+    if (es == 8) NABU_WRITE_BARRIER_RANGE((char *)dst + 8 + (size_t)dstPos * es, (size_t)len * es);
 }
 
 /* ---- Lever 2: JDK string intrinsics ----------------------------------------
@@ -3977,6 +3983,7 @@ BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void
     char *a = jcl_field_addr(f, obj);
     if (a == NULL) return;
     *(void **)a = val;
+    NABU_WRITE_BARRIER(16, a, val);
 }
 /* java.lang.reflect.Method and Constructor: a declaring class, a name
  * ("<init>" for a constructor), a JVM descriptor, the access flags, the
@@ -5175,7 +5182,7 @@ BIND(void *, jcl_java_util_Arrays_copyOf_refs, "java.util.Arrays_copyOf$P7b09cd3
     void *copy = jcl_arr_ref(new_length);
     int32_t n = jcl_arr_len(original);
     if (n > new_length) n = new_length;
-    if (n > 0) memcpy((char *)copy + 8, (char *)original + 8, (size_t)n * sizeof(void *));
+    if (n > 0) { memcpy((char *)copy + 8, (char *)original + 8, (size_t)n * sizeof(void *)); NABU_WRITE_BARRIER_RANGE((char *)copy + 8, (size_t)n * sizeof(void *)); }
     /* Same class as the original (Arrays.copyOf(T[], int) keeps the type). */
     if (original != NULL) ((int32_t *)copy)[1] = ((int32_t *)original)[1];
     return copy;
@@ -5406,8 +5413,8 @@ BIND(void, jcl_Unsafe_putLong, "jdk.internal.misc.Unsafe_putLong", (void *self, 
 BIND(void, jcl_Unsafe_putLongVolatile, "jdk.internal.misc.Unsafe_putLongVolatile", (void *self, void *o, int64_t off, int64_t v)) { (void)self; __atomic_store_n((int64_t *)UNSAFE_ADDR(o, off), v, __ATOMIC_SEQ_CST); }
 BIND(void, jcl_Unsafe_putFloat, "jdk.internal.misc.Unsafe_putFloat", (void *self, void *o, int64_t off, float v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 BIND(void, jcl_Unsafe_putDouble, "jdk.internal.misc.Unsafe_putDouble", (void *self, void *o, int64_t off, double v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
-BIND(void, jcl_Unsafe_putReference, "jdk.internal.misc.Unsafe_putReference", (void *self, void *o, int64_t off, void * v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
-BIND(void, jcl_Unsafe_putReferenceVolatile, "jdk.internal.misc.Unsafe_putReferenceVolatile", (void *self, void *o, int64_t off, void * v)) { (void)self; __atomic_store_n((void **)UNSAFE_ADDR(o, off), v, __ATOMIC_SEQ_CST); }
+BIND(void, jcl_Unsafe_putReference, "jdk.internal.misc.Unsafe_putReference", (void *self, void *o, int64_t off, void * v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); NABU_WRITE_BARRIER(1, UNSAFE_ADDR(o, off), v); }
+BIND(void, jcl_Unsafe_putReferenceVolatile, "jdk.internal.misc.Unsafe_putReferenceVolatile", (void *self, void *o, int64_t off, void * v)) { (void)self; __atomic_store_n((void **)UNSAFE_ADDR(o, off), v, __ATOMIC_SEQ_CST); NABU_WRITE_BARRIER(2, UNSAFE_ADDR(o, off), v); }
 BIND(void, jcl_Unsafe_putBoolean, "jdk.internal.misc.Unsafe_putBoolean", (void *self, void *o, int64_t off, int v)) { (void)self; *(int8_t *)UNSAFE_ADDR(o, off) = (int8_t)(v != 0); }
 BIND(void, jcl_Unsafe_putChar, "jdk.internal.misc.Unsafe_putChar$Pa86c5f3aP5f790d9cI64I16", (void *self, void *o, int64_t off, uint16_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 
@@ -5415,9 +5422,9 @@ BIND(void, jcl_Unsafe_putChar, "jdk.internal.misc.Unsafe_putChar$Pa86c5f3aP5f790
 BIND(int, jcl_Unsafe_compareAndSetInt, "jdk.internal.misc.Unsafe_compareAndSetInt", (void *self, void *o, int64_t off, int32_t expected, int32_t x)) { (void)self; return __atomic_compare_exchange_n((int32_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
 BIND(int32_t, jcl_Unsafe_compareAndExchangeInt, "jdk.internal.misc.Unsafe_compareAndExchangeInt", (void *self, void *o, int64_t off, int32_t expected, int32_t x)) { (void)self; __atomic_compare_exchange_n((int32_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
 BIND(int, jcl_Unsafe_compareAndSetLong, "jdk.internal.misc.Unsafe_compareAndSetLong", (void *self, void *o, int64_t off, int64_t expected, int64_t x)) { (void)self; return __atomic_compare_exchange_n((int64_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
-BIND(int, jcl_Unsafe_compareAndSetReference, "jdk.internal.misc.Unsafe_compareAndSetReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; return __atomic_compare_exchange_n((void **)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+BIND(int, jcl_Unsafe_compareAndSetReference, "jdk.internal.misc.Unsafe_compareAndSetReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; NABU_WRITE_BARRIER(4, UNSAFE_ADDR(o, off), x); return __atomic_compare_exchange_n((void **)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
 BIND(int64_t, jcl_Unsafe_compareAndExchangeLong, "jdk.internal.misc.Unsafe_compareAndExchangeLong", (void *self, void *o, int64_t off, int64_t expected, int64_t x)) { (void)self; __atomic_compare_exchange_n((int64_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
-BIND(void *, jcl_Unsafe_compareAndExchangeReference, "jdk.internal.misc.Unsafe_compareAndExchangeReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; __atomic_compare_exchange_n((void **)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
+BIND(void *, jcl_Unsafe_compareAndExchangeReference, "jdk.internal.misc.Unsafe_compareAndExchangeReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; NABU_WRITE_BARRIER(8, UNSAFE_ADDR(o, off), x); __atomic_compare_exchange_n((void **)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
 BIND(int64_t, jcl_Unsafe_allocateMemory0, "jdk.internal.misc.Unsafe_allocateMemory0", (void *self, int64_t bytes)) { (void)self; return (int64_t)(intptr_t)malloc((size_t)bytes); }
 BIND(void, jcl_Unsafe_freeMemory0, "jdk.internal.misc.Unsafe_freeMemory0", (void *self, int64_t address)) { (void)self; free((void *)(intptr_t)address); }
 BIND(void, jcl_Unsafe_setMemory0, "jdk.internal.misc.Unsafe_setMemory0", (void *self, void *o, int64_t off, int64_t bytes, int8_t value)) { (void)self; memset(UNSAFE_ADDR(o, off), value, (size_t)bytes); }

@@ -352,3 +352,20 @@ Petstore, Windows, 64 MB nursery, collections 2-8:
 - Bug in the measurement: the bump pointer keeps counting after the region is full; used is clamped to the limit.
 
 What this settles for 2b: the walk, the extent rule and the tracing rule work; what is left is the roots of all other threads and fibers, the copy/promotion with pointer updates, pinning, and the lifecycle of the region (reuse after collection).
+
+## Step 2b, roots of all threads: a blocker found (2026-11-23)
+
+Task: exact roots (stack and registers) of every thread at a nursery collection. Findings from reading the runtime and the build:
+
+- **The GIL is not the default.** `nabu_parallel` is 1 unless `NABU_GIL=1`: threads run truly in parallel, so there is no handoff point where "all other threads are parked with known stacks". The GIL paths (`nabu_gil_*`) are the exception.
+- **Compiled code has no safepoints.** The only place where all threads are stopped is inside a Boehm collection (its signal/`SuspendThread` stop-the-world), i.e. at `GC_EVENT_MARK_END` with the world stopped, which is where the dry run runs.
+- **libgc does not expose the stacks.** Boehm pushes thread stacks internally (`GC_push_all_stacks`); the public API has `GC_set_push_other_roots` (called after the stacks), `GC_get_my_stackbottom`, `GC_stop_world_external`, but no way to read another thread's stack range or its saved registers. And libgc is the system package everywhere (apt `libgc-dev`, brew `bdw-gc`, mingw), so it cannot be patched without shipping our own build.
+- The runtime does not track the stack extent of other threads either (only `jcl_stack_hi` of each thread's own base; the current sp of a running or suspended thread is nowhere).
+
+So the dry run (collecting thread's stack only) is as far as the portable design gets. Ways on, all with a cost:
+1. **Ship our own libgc build** (vendored source, patched to expose `GC_push_all_stacks` as a callback or the thread table). Exact and portable, but a new dependency to build on three OSes plus release packaging.
+2. **Platform code**: Windows via thread enumeration + `GetThreadContext` while Boehm has the world stopped (partly exists in nabu_runtime.c:1865 for stack traces), Linux/macOS via our own suspend signal. Fragile, three implementations, interplay with Boehm's own signals.
+3. **Make the runtime a cooperating mutator**: safepoint polls in compiled code (loop back-edges, calls) and a runtime-owned stop-the-world. Cost in speed and code size, and a change to every compiled function.
+4. **Stop here**: keep the nursery as a flagged experiment (allocation front + barrier + dry run), because the 12% measured live fraction does not yet justify one of 1-3. Boehm's own generational mode (`GC_enable_incremental`, dirty bits) is the cheaper alternative to compare against first.
+
+This is a decision for the owner (a new build dependency or a safepoint mechanism in compiled code is not something to introduce unasked). Nothing in main depends on it: the flag stays off.

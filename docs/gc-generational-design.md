@@ -402,3 +402,18 @@ Pauses (Windows, petstore, `GC_PRINT_STATS=1 GC_LOG_FILE=...`, 8000 requests aft
 The longest pause drops from 78 to 47 ms, the average hardly moves, and there are 2.4 times as many collections, so the total pause time doubles: consistent with the 5-10% lower throughput. (`NABU_GC_STATS` is silent in this mode; use `GC_PRINT_STATS` with `GC_LOG_FILE`.)
 
 Linux (WSL2, Ubuntu, gcc 15, system libgc, the native ITs run with `GC_ENABLE_INCREMENTAL=1` in the environment): ThreadsE2eIT (74 tests), WeakReferenceE2eIT, StackTraceE2eIT, ThreadSubclassE2eIT all pass. The collector log of the run shows `Using soft-dirty bit feature`: on this kernel libgc takes its dirty bits from the kernel's soft-dirty page flag, not from `mprotect`, so it installs no SIGSEGV handler and does not meet `nabu_sigsegv_handler` (which replaces any earlier handler without chaining). **Not covered:** a kernel or container without soft-dirty support (libgc then falls back to `mprotect` and its own SIGSEGV handler, which the runtime's crash handler would override: untested), macOS, arm64, and throughput/RSS on Linux (no petstore build there; the 11 collections of the small ITs say nothing about it).
+
+### Incremental mode on Linux: throughput, memory and the no-soft-dirty case (2026-11-23)
+
+Petstore built natively in WSL2 (Ubuntu, gcc 15, system libgc; `-Opt NONE`; same Nabu-compiled classes as the Windows build), 1000 warm-up + 8000 requests of `/pet/2`, three runs per mode, `GC_PRINT_STATS=1 GC_LOG_FILE`:
+
+| mode | req/s | RSS | collections | avg / max / total pause |
+|---|---|---|---|---|
+| default | 1059, 1197, 1195 | 452-454 MB | 9 | 22 / 32-44 / ~200 ms |
+| `GC_ENABLE_INCREMENTAL=1` (soft-dirty) | 875, 906, 906 | 242-244 MB | 179-181 | 9 / 25-27 / ~1600 ms |
+| `GC_ENABLE_INCREMENTAL=1`, `/proc` read-only (no soft-dirty) | 1171, 1162, 1146 | 454 MB | 9 | like default |
+
+- On Linux the incremental mode saves **47% RSS (453 -> 243 MB) for 24% throughput** (about 1150 -> 900 req/s). Pauses are much shorter (max 26 ms against 32-44) but there are 20 times as many collections and the total pause time is 8 times larger. A bigger price per saved megabyte than on Windows (-15..-27% RSS for -5..-10%).
+- **Without soft-dirty** (simulated: a user namespace with `/proc` remounted read-only, so that writing `/proc/self/clear_refs` fails): libgc does not fall back to `mprotect` in this build; it keeps running non-incrementally (RSS, speed, collection count identical to the default). No crash, no clash with `nabu_sigsegv_handler`; the variable is simply a no-op on such kernels. (Not tested: a libgc built with `MPROTECT_VDB`, e.g. macOS or other distributions.)
+- The default build uses **453 MB RSS on Linux against about 310 MB on Windows** for the same program and the same 128 MB initial heap. A lead for the memory work, not looked into yet (glibc arenas of 30 threads, the 128 MB initial heap touched by the collector, stacks).
+- Still not covered: macOS and arm64, an -O2/PGO build.

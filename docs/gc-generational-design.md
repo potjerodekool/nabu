@@ -369,3 +369,20 @@ So the dry run (collecting thread's stack only) is as far as the portable design
 4. **Stop here**: keep the nursery as a flagged experiment (allocation front + barrier + dry run), because the 12% measured live fraction does not yet justify one of 1-3. Boehm's own generational mode (`GC_enable_incremental`, dirty bits) is the cheaper alternative to compare against first.
 
 This is a decision for the owner (a new build dependency or a safepoint mechanism in compiled code is not something to introduce unasked). Nothing in main depends on it: the flag stays off.
+
+## Decision (2026-11-23): option 4, and the comparison with Boehm's incremental mode
+
+The owner chose option 4: the nursery stays a flagged experiment (allocation front, barrier, dry run; nothing collects), and Boehm's own incremental/generational mode is measured first.
+
+`GC_ENABLE_INCREMENTAL=1` (read by libgc itself, no code change; dirty bits from `GetWriteWatch` on Windows) on the petstore build (-Opt NONE, Windows, 8000 requests of `/pet/2` after a 1000 request warm-up, each line one start):
+
+| mode | req/s | RSS |
+|---|---|---|
+| default (full collections) | 947, 985, 1019, 1024 | 308-319 MB |
+| incremental | 930, 913, 914, 918 | 259, 260, 260, 259 MB |
+| incremental, `GC_FULL_FREQUENCY=3` | 918, 913 | 234, 226 MB |
+| incremental, `GC_FULL_FREQUENCY=20` | 917, 914 | 258, 260 MB |
+
+Reading: incremental mode costs 5-10% of the speed and saves 15-27% of the resident memory (the more often it runs a full collection, the smaller the RSS). That is not a free win, so the default stays as it is; the mode is available to anyone who prefers memory over speed, by environment variable alone. Pause times were not measured: `NABU_GC_STATS` prints nothing in incremental mode (the collection event it hooks is not raised for the partial collections), so a comparison of pauses needs `GC_PRINT_STATS`. Not measured on Linux (dirty bits there come from `mprotect`, which behaves very differently and which the GIL-less runtime may not tolerate: untested) and not with an -O2/PGO build.
+
+For comparison the nursery would have to beat 15-27% of RSS at no speed loss; its first dry-run number (about 8 MB live of a 64 MB nursery) says nothing about that yet, and its price is the new root machinery above. Parked.

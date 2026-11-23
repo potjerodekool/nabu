@@ -101,8 +101,7 @@ public class Optimizer {
             for (final IRFunction f : m.functions()) {
                 if (f.isExternal()) continue;
                 try {
-                    final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
-                            f, new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis());
+                    final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.analyzeChecked(f);
                     // Vind return-instructies
                     io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness rn =
                         io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
@@ -115,9 +114,8 @@ public class Optimizer {
                                         ? t.name()
                                         : (r.value() instanceof io.github.potjerodekool.nabu.backend.ir.values.IRValue.Named n) ? n.name() : null;
                                 if (vname != null) {
-                                    final var m2 = res.in(b.label());
-                                    if (m2 != null) {
-                                        final var nv = m2.get(vname);
+                                    {
+                                    final var nv = res.inAt(b.label(), vname);
                                         if (nv != null) {
                                             if (!any) { rn = nv; any = true; }
                                             else if (rn != nv) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
@@ -197,8 +195,7 @@ public class Optimizer {
         for (final IRFunction f : optimizedFunctions) {
             if (f.isExternal()) continue;
             try {
-                final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
-                        f, new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis());
+                final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.analyzeChecked(f);
                 io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness rn =
                         io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
                 boolean any = false;
@@ -210,9 +207,8 @@ public class Optimizer {
                                     ? t.name()
                                     : (r.value() instanceof io.github.potjerodekool.nabu.backend.ir.values.IRValue.Named n) ? n.name() : null;
                             if (vname != null) {
-                                final var m2 = res.in(b.label());
-                                if (m2 != null) {
-                                    final var nv = m2.get(vname);
+                                {
+                                final var nv = res.inAt(b.label(), vname);
                                     if (nv != null) {
                                         if (!any) { rn = nv; any = true; }
                                         else if (rn != nv) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;

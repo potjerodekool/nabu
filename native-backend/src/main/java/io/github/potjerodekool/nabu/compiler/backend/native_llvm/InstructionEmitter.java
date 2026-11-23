@@ -72,7 +72,7 @@ public class InstructionEmitter {
     // Dataflow-analyses per functie (null/bounds). Null als niet beschikbaar.
     private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis nullnessAnalysis;
     private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis intervalAnalysis;
-    private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> nullnessResult;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.Result nullnessResult;
     private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> intervalResult;
     private java.util.function.Supplier<io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>>> intervalSupplier;
     private boolean intervalAsked;
@@ -167,7 +167,7 @@ public class InstructionEmitter {
         this.intervalAnalysis = a;
     }
 
-    public void setNullnessResult(io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> r) {
+    public void setNullnessResult(io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.Result r) {
         this.nullnessResult = r;
     }
 
@@ -1009,8 +1009,8 @@ public class InstructionEmitter {
         // Dataflow: als de array bewezen non-null is, sla de null-check over.
         boolean skipNull = false;
         if (nullnessResult != null && arrayIr instanceof IRValue.Temp at) {
-            final var m = nullnessResult.in(currentIrBlockLabel);
-            if (m != null && m.get(at.name()) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
+            final var m = nullnessResult;
+            if (m != null && m.inAt(currentIrBlockLabel, at.name()) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
                 skipNull = true;
             }
         }
@@ -2509,8 +2509,8 @@ public class InstructionEmitter {
         if (nullnessResult != null) {
             final String tn = tempNameOf(obj);
             if (tn != null) {
-                final var m = nullnessResult.in(currentIrBlockLabel);
-                if (m != null && m.get(tn) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
+                final var m = nullnessResult;
+                if (m != null && m.inAt(currentIrBlockLabel, tn) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
                     knownNonNull.add(obj);
                     return;
                 }

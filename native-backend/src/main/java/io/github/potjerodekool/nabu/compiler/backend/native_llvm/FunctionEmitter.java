@@ -434,11 +434,9 @@ public class FunctionEmitter {
 
         // Dataflow-analyses voor null/bounds-check eliminatie.
         try {
-            final var nullnessAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis();
             final var intervalAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis();
             final long statsStart = System.nanoTime();
-            final var nullnessResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
-                    fn, nullnessAnalysis);
+            final var nullnessResult = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.analyzeChecked(fn);
             final long statsNullness = System.nanoTime() - statsStart;
             // The intervals only remove bounds checks. Every block holds a map with an interval per variable, so the
             // cost grows with blocks x variables: on a huge function (a generated initializer, a parser table) it

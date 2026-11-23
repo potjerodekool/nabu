@@ -340,3 +340,51 @@ Findings:
 The state struct of `java.lang.Thread` (`s_thread`) is written through `JCL_STORE_REF` (barrier included) at 17 sites. At every verification the remembered set is sorted and deduplicated in place, which keeps it at 0.3-0.7 million slots instead of overflowing. Result on the petstore, 1500 requests, 7 Boehm collections: 0, 0, 12, 5, 9, 4, 2 of about 30,000 old-to-young words not remembered.
 
 All remaining misses are in 1344-byte blocks at words 111-121: that is an x64 `CONTEXT` (1232 bytes) as `GetThreadContext` fills it for the stack capture of another thread (nabu_runtime.c:1865): register snapshots, i.e. stale data, not references the program uses. A collector must not treat them as roots and does not need to update them. The barrier coverage of the stores of compiled code and C primitives is therefore complete for this workload; what remains for the roots is the live registers and stacks of all threads (step 2b).
+
+## Step 2b, first part: a dry-run collection that only measures (2026-11-23)
+
+`NABU_NURSERY_VERIFY=1` now also runs, at every Boehm mark end, a dry run of a nursery collection (`nabu_nursery_dryrun`, nothing is moved or freed): it walks the used nursery object by object, builds a start bitmap, marks from the remembered set, the stack of the collecting thread and the writable image sections, and traces through the nursery with `ref_offsets` (reference arrays: every element).
+
+Petstore, Windows, 64 MB nursery, collections 2-8:
+- **The nursery can be walked exactly.** 1,002,363 objects, 0 bad headers, 2 zero gaps (type info or the array header `[i32 length][i32 es|id<<8]` gives the extent, rounded to 16). Compiled objects need no extra header or side table for a collector to find object starts.
+- **Live: 8.0-8.2 MB of 64 MB (12.3-12.6%)** and stable over seven collections: the long-lived startup data of Spring. Remembered slots of dead old holders count as roots (an upper bound); stacks of other threads are not scanned (a lower bound).
+- The nursery is **full from the first collections on** (fallback to `GC_malloc` afterwards), so these seven snapshots are the same frozen nursery: this is not yet a steady-state survival rate. That needs a collector that frees the region and reuses it.
+- Bug in the measurement: the bump pointer keeps counting after the region is full; used is clamped to the limit.
+
+What this settles for 2b: the walk, the extent rule and the tracing rule work; what is left is the roots of all other threads and fibers, the copy/promotion with pointer updates, pinning, and the lifecycle of the region (reuse after collection).
+
+## Step 2b, roots of all threads: a blocker found (2026-11-23)
+
+Task: exact roots (stack and registers) of every thread at a nursery collection. Findings from reading the runtime and the build:
+
+- **The GIL is not the default.** `nabu_parallel` is 1 unless `NABU_GIL=1`: threads run truly in parallel, so there is no handoff point where "all other threads are parked with known stacks". The GIL paths (`nabu_gil_*`) are the exception.
+- **Compiled code has no safepoints.** The only place where all threads are stopped is inside a Boehm collection (its signal/`SuspendThread` stop-the-world), i.e. at `GC_EVENT_MARK_END` with the world stopped, which is where the dry run runs.
+- **libgc does not expose the stacks.** Boehm pushes thread stacks internally (`GC_push_all_stacks`); the public API has `GC_set_push_other_roots` (called after the stacks), `GC_get_my_stackbottom`, `GC_stop_world_external`, but no way to read another thread's stack range or its saved registers. And libgc is the system package everywhere (apt `libgc-dev`, brew `bdw-gc`, mingw), so it cannot be patched without shipping our own build.
+- The runtime does not track the stack extent of other threads either (only `jcl_stack_hi` of each thread's own base; the current sp of a running or suspended thread is nowhere).
+
+So the dry run (collecting thread's stack only) is as far as the portable design gets. Ways on, all with a cost:
+1. **Ship our own libgc build** (vendored source, patched to expose `GC_push_all_stacks` as a callback or the thread table). Exact and portable, but a new dependency to build on three OSes plus release packaging.
+2. **Platform code**: Windows via thread enumeration + `GetThreadContext` while Boehm has the world stopped (partly exists in nabu_runtime.c:1865 for stack traces), Linux/macOS via our own suspend signal. Fragile, three implementations, interplay with Boehm's own signals.
+3. **Make the runtime a cooperating mutator**: safepoint polls in compiled code (loop back-edges, calls) and a runtime-owned stop-the-world. Cost in speed and code size, and a change to every compiled function.
+4. **Stop here**: keep the nursery as a flagged experiment (allocation front + barrier + dry run), because the 12% measured live fraction does not yet justify one of 1-3. Boehm's own generational mode (`GC_enable_incremental`, dirty bits) is the cheaper alternative to compare against first.
+
+This is a decision for the owner (a new build dependency or a safepoint mechanism in compiled code is not something to introduce unasked). Nothing in main depends on it: the flag stays off.
+
+## Decision (2026-11-23): option 4, and the comparison with Boehm's incremental mode
+
+The owner chose option 4: the nursery stays a flagged experiment (allocation front, barrier, dry run; nothing collects), and Boehm's own incremental/generational mode is measured first.
+
+`GC_ENABLE_INCREMENTAL=1` (read by libgc itself, no code change; dirty bits from `GetWriteWatch` on Windows) on the petstore build (-Opt NONE, Windows, 8000 requests of `/pet/2` after a 1000 request warm-up, each line one start):
+
+| mode | req/s | RSS |
+|---|---|---|
+| default (full collections) | 947, 985, 1019, 1024 | 308-319 MB |
+| incremental | 930, 913, 914, 918 | 259, 260, 260, 259 MB |
+| incremental, `GC_FULL_FREQUENCY=3` | 918, 913 | 234, 226 MB |
+| incremental, `GC_FULL_FREQUENCY=20` | 917, 914 | 258, 260 MB |
+
+Reading: incremental mode costs 5-10% of the speed and saves 15-27% of the resident memory (the more often it runs a full collection, the smaller the RSS). That is not a free win, so the default stays as it is; the mode is available to anyone who prefers memory over speed, by environment variable alone. Pause times were not measured: `NABU_GC_STATS` prints nothing in incremental mode (the collection event it hooks is not raised for the partial collections), so a comparison of pauses needs `GC_PRINT_STATS`. Not measured on Linux (dirty bits there come from `mprotect`, which behaves very differently and which the GIL-less runtime may not tolerate: untested) and not with an -O2/PGO build.
+
+For comparison the nursery would have to beat 15-27% of RSS at no speed loss; its first dry-run number (about 8 MB live of a 64 MB nursery) says nothing about that yet, and its price is the new root machinery above. Parked.
+
+Note: the dry-run collection described under "Step 2b, first part" (`nabu_nursery_dryrun`, `NABU_NURSERY_VERIFY=1`) lives on branch `gc-nursery` only; main has the nursery up to step 2a.

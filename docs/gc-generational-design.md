@@ -417,3 +417,13 @@ Petstore built natively in WSL2 (Ubuntu, gcc 15, system libgc; `-Opt NONE`; same
 - **Without soft-dirty** (simulated: a user namespace with `/proc` remounted read-only, so that writing `/proc/self/clear_refs` fails): libgc does not fall back to `mprotect` in this build; it keeps running non-incrementally (RSS, speed, collection count identical to the default). No crash, no clash with `nabu_sigsegv_handler`; the variable is simply a no-op on such kernels. (Not tested: a libgc built with `MPROTECT_VDB`, e.g. macOS or other distributions.)
 - The default build uses **453 MB RSS on Linux against about 310 MB on Windows** for the same program and the same 128 MB initial heap. A lead for the memory work, not looked into yet (glibc arenas of 30 threads, the 128 MB initial heap touched by the collector, stacks).
 - Still not covered: macOS and arm64, an -O2/PGO build.
+
+### Linux RSS gap found: the initial heap was 256 MB, not 128 MB
+
+Linux used 453 MB resident for the petstore against about 310 MB on Windows. smaps showed 316 MB anonymous memory (a 260 MB
+heap mapping) and 135 MB of clean file pages of the executable. The collector's own statistics said the heap was 256 MB from
+the first collection on, where Windows stays at 128 MB. The system libgc on Linux already has about 128 MB after `GC_init`,
+and `GC_expand_hp(128 MB)` came on top of that. The runtime now expands only by the difference. Paired runs, 8000 requests
+after 1000 warm-up, three each (256 MB heap forced with `GC_INITIAL_HEAP_SIZE` against the new default): 1104/1120/1137 req/s
+at 463 MB against 1124/1138/1148 req/s at 324 MB. Same speed, 30% less resident, 17 -> 25 collections of the same length.
+

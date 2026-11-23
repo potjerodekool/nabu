@@ -64,7 +64,10 @@ void nabu_gc_init(void) {
          * of a program that does not allocate that much is not touched. GC_INITIAL_HEAP_SIZE in the environment, which
          * the collector reads itself, takes precedence. */
         if (getenv("GC_INITIAL_HEAP_SIZE") == NULL) {
-            GC_expand_hp((size_t) 128 << 20);
+            /* Not every libgc starts empty: the system libgc on Linux (apt) already has about 128 MB after GC_init, and
+             * expanding by 128 MB more gave a 256 MB heap and 453 MB resident instead of 322 MB (same speed). */
+            size_t have = GC_get_heap_size(), want = (size_t) 128 << 20;
+            if (have < want) GC_expand_hp(want - have);
         }
         {
             const char *every = getenv("NABU_SOFT_REF_EVERY");

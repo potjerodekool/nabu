@@ -202,8 +202,7 @@ final class ChunkedCodegen {
     }
 
     /**
-     * Writes the module as bitcode (with the data layout and the target of the machine, as the code generator would
-     * have them) and compiles that on a thread of the pool. At most two chunks are being compiled or are waiting.
+     * Writes the module as bitcode and compiles that on a thread of the pool. At most two chunks are being compiled or are waiting.
      */
     private void generateAsync(final Path output) throws CompileException {
         if (pool == null) {
@@ -217,11 +216,12 @@ final class ChunkedCodegen {
         inFlight.acquireUninterruptibly();
         final LLVMMemoryBufferRef buffer;
         try {
-            LLVMSetTarget(mod, new BytePointer(triple));
-            final var layout = LLVMCreateTargetDataLayout(machine);
-            LLVMSetModuleDataLayout(mod, layout);
-            LLVMDisposeTargetData(layout);
+            final long w0 = System.nanoTime();
             buffer = LLVMWriteBitcodeToMemoryBuffer(mod);
+            if (Boolean.getBoolean("nabu.llvm.phaseTiming")) {
+                System.err.println("[ChunkedCodegen] bitcode " + LLVMGetBufferSize(buffer) / 1024 / 1024 + " MB in "
+                        + (System.nanoTime() - w0) / 1_000_000 + " ms");
+            }
         } finally {
             LLVMSetDataLayout(mod, new BytePointer(""));
             LLVMSetTarget(mod, new BytePointer(""));
@@ -252,6 +252,11 @@ final class ChunkedCodegen {
             }
             threadMachine = LLVMCreateTargetMachine(target, new BytePointer(triple), new BytePointer("generic"),
                     new BytePointer(""), LLVMCodeGenLevelNone, LLVMRelocPIC, LLVMCodeModelDefault);
+            // set here and not before the bitcode is written: with a target the writer also builds a symbol table
+            LLVMSetTarget(copy, new BytePointer(triple));
+            final var layout = LLVMCreateTargetDataLayout(threadMachine);
+            LLVMSetModuleDataLayout(copy, layout);
+            LLVMDisposeTargetData(layout);
             if (LLVMTargetMachineEmitToFile(threadMachine, copy, new BytePointer(output.toString()), LLVMObjectFile,
                     err) != 0) {
                 throw new CompileException("Codegen failed: " + err.getString());

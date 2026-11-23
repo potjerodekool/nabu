@@ -3700,11 +3700,16 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         if (found != null || globalValueMap.size() == suffixIndexSize) {
             return found;
         }
+        // The same scan without a string per key (three concatenations per key took 7 s of a build of the petstore).
+        final int length = name.length();
         for (var entry : globalValueMap.entrySet()) {
-            if (entry.getKey().endsWith("$" + name)
-                    || entry.getKey().endsWith("." + name)
-                    || entry.getKey().endsWith("_" + name)) {
-                return entry.getValue();
+            final String key = entry.getKey();
+            final int at = key.length() - length - 1;
+            if (at >= 0 && key.regionMatches(at + 1, name, 0, length)) {
+                final char c = key.charAt(at);
+                if (c == '$' || c == '.' || c == '_') {
+                    return entry.getValue();
+                }
             }
         }
         return null;

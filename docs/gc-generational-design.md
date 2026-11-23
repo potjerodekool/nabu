@@ -388,3 +388,17 @@ Reading: incremental mode costs 5-10% of the speed and saves 15-27% of the resid
 For comparison the nursery would have to beat 15-27% of RSS at no speed loss; its first dry-run number (about 8 MB live of a 64 MB nursery) says nothing about that yet, and its price is the new root machinery above. Parked.
 
 Note: the dry-run collection described under "Step 2b, first part" (`nabu_nursery_dryrun`, `NABU_NURSERY_VERIFY=1`) lives on branch `gc-nursery` only; main has the nursery up to step 2a.
+
+### Incremental mode: pause times and Linux (2026-11-23)
+
+Pauses (Windows, petstore, `GC_PRINT_STATS=1 GC_LOG_FILE=...`, 8000 requests after warm-up; pause = "World-stopped marking took"):
+
+| mode | collections | average pause | longest | total pause |
+|---|---|---|---|---|
+| default | 16 | 36 ms | 78 ms | 577 ms |
+| incremental | 38 | 31 ms | 47 ms | 1161 ms |
+| incremental, `GC_FULL_FREQUENCY=3` | 42 | 31 ms | 47 ms | 1311 ms |
+
+The longest pause drops from 78 to 47 ms, the average hardly moves, and there are 2.4 times as many collections, so the total pause time doubles: consistent with the 5-10% lower throughput. (`NABU_GC_STATS` is silent in this mode; use `GC_PRINT_STATS` with `GC_LOG_FILE`.)
+
+Linux (WSL2, Ubuntu, gcc 15, system libgc, the native ITs run with `GC_ENABLE_INCREMENTAL=1` in the environment): ThreadsE2eIT (74 tests), WeakReferenceE2eIT, StackTraceE2eIT, ThreadSubclassE2eIT all pass. The collector log of the run shows `Using soft-dirty bit feature`: on this kernel libgc takes its dirty bits from the kernel's soft-dirty page flag, not from `mprotect`, so it installs no SIGSEGV handler and does not meet `nabu_sigsegv_handler` (which replaces any earlier handler without chaining). **Not covered:** a kernel or container without soft-dirty support (libgc then falls back to `mprotect` and its own SIGSEGV handler, which the runtime's crash handler would override: untested), macOS, arm64, and throughput/RSS on Linux (no petstore build there; the 11 collections of the small ITs say nothing about it).

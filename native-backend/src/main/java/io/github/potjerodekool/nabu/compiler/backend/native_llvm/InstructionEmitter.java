@@ -98,19 +98,6 @@ public class InstructionEmitter {
         this.inConstructor = on;
     }
 
-    /**
-     * The null-check state of one function: the LLVM values that are known to be non-null, and the lengths of the
-     * arrays, belong to the function that is emitted (a value of an earlier function that is freed can give its address
-     * to a new one: the sets compare by address). {@link #beginFunction} would do this too, but it is not called, and it
-     * also switches on things (the release fence of a constructor) that this does not.
-     */
-    public void beginNullState(IRFunction fn) {
-        this.knownNonNull.clear();
-        this.blockNonNull.clear();
-        this.blockNonNullOwner = null;
-        this.arrayLengths.clear();
-    }
-
     /** The same LLVM block (the Java objects of JavaCPP are new on every call: compare the addresses). */
     private static boolean sameBlock(final LLVMBasicBlockRef a, final LLVMBasicBlockRef b) {
         return a != null && b != null && a.address() == b.address();
@@ -126,7 +113,7 @@ public class InstructionEmitter {
         this.blockNonNull.clear();
         this.blockNonNullOwner = null;
         this.arrayLengths.clear();
-        this.inConstructor = fn != null && fn.isConstructor();
+        this.inConstructor = false; // setConstructorFence decides (only constructors of a class with a final field)
         this.thisParameterName = fn != null && fn.isConstructor() && !fn.params.isEmpty()
                 ? nameOf(fn.params.get(0))
                 : null;

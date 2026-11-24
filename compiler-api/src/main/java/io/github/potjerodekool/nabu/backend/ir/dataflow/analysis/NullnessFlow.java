@@ -24,9 +24,10 @@ import java.util.Map;
  * {@code byte[]} (0: not known, 1: NULL, 2: NON_NULL, 3: UNKNOWN) and the copy, the merge and the comparison are loops
  * over bytes. The semantics are those of {@link NullnessAnalysis}, including its quirks: an instruction reads the state
  * at the start of its block, a variable that is known on one side of a merge only is UNKNOWN, the blocks that the
- * dominator tree does not reach (exception handlers) keep an empty state, and the refinement on a null comparison
- * of that class never changes anything (it looks at the constant instead of the other operand). -Dnabu.nullness.verify=true
- * runs both and reports a difference.
+ * dominator tree does not reach (exception handlers) keep an empty state. After {@code t == null} or {@code t != null}
+ * on a Temp that is defined once, the successor knows t is NULL or NON_NULL (the refinement of that class did nothing
+ * before: it looked at the constant instead of the other operand). -Dnabu.nullness.verify=true runs both and reports a
+ * difference, -Dnabu.nullness.refine=false switches the refinement off.
  */
 public final class NullnessFlow {
 
@@ -108,6 +109,8 @@ public final class NullnessFlow {
         }
     }
 
+    /** -Dnabu.nullness.refine=false switches the refinement on a null comparison off. */
+    private static final boolean REFINE = !"false".equalsIgnoreCase(System.getProperty("nabu.nullness.refine"));
     private static final boolean VERIFY = Boolean.getBoolean("nabu.nullness.verify");
     private static final java.util.concurrent.atomic.AtomicLong VERIFIED = new java.util.concurrent.atomic.AtomicLong();
     private static final java.util.concurrent.atomic.AtomicLong DIFFERENT = new java.util.concurrent.atomic.AtomicLong();
@@ -144,12 +147,16 @@ public final class NullnessFlow {
 
         // Numbers for the names that an instruction defines.
         final Map<String, Integer> ids = new HashMap<>();
+        final java.util.BitSet redefined = new java.util.BitSet();
         for (final var block : blocks) {
             for (final var instr : block.instructions()) {
                 final var res = instr.result();
                 final String name = res == null ? null : valueName(res);
                 if (name != null) {
-                    ids.putIfAbsent(name, ids.size());
+                    final Integer old = ids.putIfAbsent(name, ids.size());
+                    if (old != null) {
+                        redefined.set(old);
+                    }
                 }
             }
         }
@@ -226,6 +233,28 @@ public final class NullnessFlow {
             }
         }
 
+        // The refinement of a null comparison on the edges of a conditional branch: block, the name and the value on
+        // the true edge and on the false edge (0: none).
+        final int[] refId = new int[n];
+        final byte[] refTrue = new byte[n];
+        final byte[] refFalse = new byte[n];
+        Arrays.fill(refId, -1);
+        if (REFINE) {
+            for (int i = 0; i < n; i++) {
+                if (blocks.get(i).getTerminator() instanceof IRInstruction.CondBranch cb
+                        && !cb.trueLabel().equals(cb.falseLabel())) {
+                    final var t = NullnessAnalysis.refineTarget(blocks.get(i), cb.condition());
+                    final Integer id = t == null ? null : ids.get(t.name());
+                    // a Temp that is defined once: what the comparison shows holds for the use in the successor
+                    if (id != null && !redefined.get(id)) {
+                        refId[i] = id;
+                        refTrue[i] = encode(t.refined(true));
+                        refFalse[i] = encode(t.refined(false));
+                    }
+                }
+            }
+        }
+
         // The order of the blocks: the preorder of the dominator tree.
         final int[] order = order(function, blockIndex);
 
@@ -249,8 +278,16 @@ public final class NullnessFlow {
                 newIn = empty;
             } else {
                 newIn = out[ps[0]].clone();
+                applyRefine(newIn, ps[0], b, refId, refTrue, refFalse, succs);
                 for (int k = 1; k < ps.length; k++) {
-                    meet(newIn, out[ps[k]]);
+                    final int p = ps[k];
+                    if (refId[p] < 0) {
+                        meet(newIn, out[p]);
+                    } else {
+                        final byte[] o = out[p].clone();
+                        applyRefine(o, p, b, refId, refTrue, refFalse, succs);
+                        meet(newIn, o);
+                    }
                 }
             }
             if (!Arrays.equals(newIn, in[b])) {
@@ -276,6 +313,19 @@ public final class NullnessFlow {
             }
         }
         return new Result(blockIndex, ids, in);
+    }
+
+    /** The state on the edge from p to b: what the comparison at the end of p shows about its name. */
+    private static void applyRefine(byte[] state, int p, int b, int[] refId, byte[] refTrue, byte[] refFalse,
+                                    int[][] succs) {
+        if (refId[p] < 0) {
+            return;
+        }
+        // succs[p] is the true target, then the false target (when it is a block of the function)
+        final int[] s = succs[p];
+        if (s.length == 2) {
+            state[refId[p]] = (s[0] == b) ? refTrue[p] : refFalse[p];
+        }
     }
 
     private static void edge(Map<String, Integer> blockIndex, List<java.util.LinkedHashSet<Integer>> preds,

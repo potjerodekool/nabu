@@ -122,6 +122,11 @@ public class Optimizer {
                                         }
                                     }
                                 }
+                                else if (r.value() instanceof io.github.potjerodekool.nabu.backend.ir.values.IRValue.ConstNull) {
+                                    // a "return null" counts: without it a function with "return t" under "t != null" and "return null" was NON_NULL
+                                    if (!any) { rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NULL; any = true; }
+                                    else if (rn != io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NULL) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
+                                }
                             }
                         }
                     }
@@ -214,6 +219,11 @@ public class Optimizer {
                                         else if (rn != nv) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
                                     }
                                 }
+                            }
+                            else if (r.value() instanceof io.github.potjerodekool.nabu.backend.ir.values.IRValue.ConstNull) {
+                                // a "return null" counts: without it a function with "return t" under "t != null" and "return null" was NON_NULL
+                                if (!any) { rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NULL; any = true; }
+                                else if (rn != io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NULL) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
                             }
                         }
                     }

@@ -86,4 +86,39 @@ class NullnessFlowTest {
         // and the fixpoint does not recover); the dense one is the same on purpose, the compare above proves it.
         assertEquals(Nullness.UNKNOWN, result.inAt(exit.label(), name(a)));
     }
+
+    /** After "t != null" the true successor knows t is NON_NULL and the false successor that it is NULL. */
+    @Test
+    void nullComparisonRefinesTheSuccessors() {
+        for (final boolean eq : new boolean[]{false, true}) {
+            final var builder = new IRBuilder("test");
+            builder.beginFunction("f", IRType.VOID, List.of(), 0);
+            final var entry = builder.currentBlock();
+            final var v = builder.emitCall(io.github.potjerodekool.nabu.backend.ir.CallKind.STATIC, "get", PTR,
+                    List.of(), List.of());
+            final var cmp = builder.emitBinaryOp(
+                    eq ? IRInstruction.BinaryOp.Op.EQ : IRInstruction.BinaryOp.Op.NEQ, v,
+                    IRValue.nullPtr(IRType.I32));
+            final var t = builder.beginBlock("t");
+            final var e = builder.beginBlock("e");
+            final var m = builder.beginBlock("m");
+            builder.setCurrentBlock(entry);
+            builder.emitCondBranch(cmp, t, e);
+            builder.setCurrentBlock(t);
+            builder.emitBranch(m);
+            builder.setCurrentBlock(e);
+            builder.emitBranch(m);
+            builder.setCurrentBlock(m);
+            builder.emitReturn(null);
+            builder.endFunction();
+            final var fn = builder.build().functions().getFirst();
+
+            final var result = NullnessFlow.analyze(fn);
+            assertNull(NullnessFlow.compareWithReference(fn, result));
+            assertEquals(eq ? Nullness.NULL : Nullness.NON_NULL, result.inAt(t.label(), name(v)));
+            assertEquals(eq ? Nullness.NON_NULL : Nullness.NULL, result.inAt(e.label(), name(v)));
+            // both edges meet again: nothing is known
+            assertEquals(Nullness.UNKNOWN, result.inAt(m.label(), name(v)));
+        }
+    }
 }

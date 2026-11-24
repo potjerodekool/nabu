@@ -143,45 +143,52 @@ public class NullnessAnalysis implements DataFlowAnalysis<Map<String, Nullness>>
     @Override
     public Map<String, Nullness> refine(Map<String, Nullness> v, IRBasicBlock predecessorBlock,
                                        IRValue condition, boolean truthValue) {
-        // Zoek de BinaryOp die `condition` definieert in het predecessor-blok.
-        IRInstruction.BinaryOp cmp = null;
-        if (condition instanceof IRValue.Temp ct || condition instanceof IRValue.Named cn) {
-            final String cname = (condition instanceof IRValue.Temp t) ? t.name() : ((IRValue.Named) condition).name();
-            for (final var instr : predecessorBlock.instructions()) {
-                if (instr instanceof IRInstruction.BinaryOp b && instr.result() != null) {
-                    final String rname = (instr.result() instanceof IRValue.Temp t) ? t.name()
-                            : (instr.result() instanceof IRValue.Named n) ? n.name() : null;
-                    if (cname.equals(rname)) { cmp = b; break; }
-                }
+        // Only a Temp is refined, and only when the comparison is in the predecessor block: a Temp is defined once, so
+        // what the comparison shows holds for the use in the successor (a Named variable may be assigned again).
+        final RefineTarget t = refineTarget(predecessorBlock, condition);
+        if (t == null) return v;
+        final var result = new LinkedHashMap<>(v);
+        result.put(t.name(), t.refined(truthValue));
+        return result;
+    }
+
+    /** What a null comparison that decides a conditional branch says about a Temp. */
+    public record RefineTarget(String name, boolean isEq) {
+        /** The nullness of the name on the edge that is taken when the condition is {@code truthValue}. */
+        public Nullness refined(boolean truthValue) {
+            // "ref == null": true edge => NULL, false edge => NON_NULL; "ref != null": the other way around
+            return (isEq == truthValue) ? Nullness.NULL : Nullness.NON_NULL;
+        }
+    }
+
+    /**
+     * The Temp that {@code condition} (a Temp defined by {@code ref == null} or {@code ref != null} in {@code block})
+     * compares with null, or null when the condition is something else or the Temp is assigned after the comparison.
+     */
+    public static RefineTarget refineTarget(IRBasicBlock block, IRValue condition) {
+        if (!(condition instanceof IRValue.Temp ct)) return null;
+        final var instrs = block.instructions();
+        int at = -1;
+        for (int i = 0; i < instrs.size(); i++) {
+            final var instr = instrs.get(i);
+            if (instr instanceof IRInstruction.BinaryOp && instr.result() instanceof IRValue.Temp t
+                    && ct.name().equals(t.name())) {
+                at = i;
+                break;
             }
         }
-        if (cmp == null) return v;
-        if (cmp.op() != IRInstruction.BinaryOp.Op.EQ && cmp.op() != IRInstruction.BinaryOp.Op.NEQ) return v;
-
-        // Vind de referentie-zijde en de null-zijde.
-        IRValue refSide = null;
-        boolean leftIsNull = cmp.right() instanceof IRValue.ConstNull;
-        boolean rightIsNull = cmp.left() instanceof IRValue.ConstNull;
-        if (leftIsNull) refSide = cmp.right();
-        else if (rightIsNull) refSide = cmp.left();
-        else return v;
-
-        final String refName = valueName(refSide);
-        if (refName == null) return v;
-
-        final var result = new LinkedHashMap<>(v);
-        boolean isEq = cmp.op() == IRInstruction.BinaryOp.Op.EQ;
-        // truthValue: true-branch genomen
-        // conditie "ref == null": true-branch => ref is NULL; false-branch => NON_NULL
-        // conditie "ref != null": true-branch => NON_NULL; false-branch => NULL
-        Nullness refined;
-        if (isEq) {
-            refined = truthValue ? Nullness.NULL : Nullness.NON_NULL;
-        } else {
-            refined = truthValue ? Nullness.NON_NULL : Nullness.NULL;
+        if (at < 0) return null;
+        final var cmp = (IRInstruction.BinaryOp) instrs.get(at);
+        if (cmp.op() != IRInstruction.BinaryOp.Op.EQ && cmp.op() != IRInstruction.BinaryOp.Op.NEQ) return null;
+        final IRValue ref;
+        if (cmp.right() instanceof IRValue.ConstNull) ref = cmp.left();
+        else if (cmp.left() instanceof IRValue.ConstNull) ref = cmp.right();
+        else return null;
+        if (!(ref instanceof IRValue.Temp rt)) return null;
+        for (int i = at + 1; i < instrs.size(); i++) {
+            if (instrs.get(i).result() instanceof IRValue.Temp t && t.name().equals(rt.name())) return null;
         }
-        result.put(refName, refined);
-        return result;
+        return new RefineTarget(rt.name(), cmp.op() == IRInstruction.BinaryOp.Op.EQ);
     }
 
     private String valueName(IRValue v) {

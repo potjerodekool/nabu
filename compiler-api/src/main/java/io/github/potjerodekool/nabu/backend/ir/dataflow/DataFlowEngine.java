@@ -99,7 +99,8 @@ public final class DataFlowEngine {
                         final var pb = blockByLabel.get(p);
                         if (pb != null) {
                             final var t = pb.getTerminator();
-                            if (t instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.CondBranch cb) {
+                            if (t instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.CondBranch cb
+                                    && !cb.trueLabel().equals(cb.falseLabel())) {
                                 final boolean truthValue = cb.trueLabel().equals(label);
                                 pv = analysis.refine(pv, pb, cb.condition(), truthValue);
                             }

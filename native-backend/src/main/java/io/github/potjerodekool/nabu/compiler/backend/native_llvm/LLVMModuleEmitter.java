@@ -275,7 +275,9 @@ public void setReflectionRegistry(
         }
         if (Boolean.getBoolean("nabu.llvm.phaseTiming")) {
             System.err.println("[LLVMModuleEmitter] chunk " + chunker.objects().size() + ": "
-                    + (System.nanoTime() - t) / 1_000_000L + " ms; " + InstructionEmitter.nullCheckStats());
+                    + (System.nanoTime() - t) / 1_000_000L + " ms; " + InstructionEmitter.nullCheckStats()
+                    + "; constructors " + FunctionEmitter.CTORS.get()
+                    + ", with a release fence " + FunctionEmitter.CTORS_FENCED.get());
         }
     }
 

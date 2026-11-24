@@ -91,6 +91,14 @@ public class InstructionEmitter {
     private final java.util.Set<String> warnedUnsupportedFields = new java.util.LinkedHashSet<>();
 
     /**
+     * Whether the function that is emitted ends in a release fence: a constructor of a class with a final field.
+     * ({@link #beginFunction} was meant to set this but is not called.)
+     */
+    public void setConstructorFence(final boolean on) {
+        this.inConstructor = on;
+    }
+
+    /**
      * The null-check state of one function: the LLVM values that are known to be non-null, and the lengths of the
      * arrays, belong to the function that is emitted (a value of an earlier function that is freed can give its address
      * to a new one: the sets compare by address). {@link #beginFunction} would do this too, but it is not called, and it

@@ -126,6 +126,26 @@ public class FunctionEmitter {
      * initialization. Not an instance method: an object can exist before its class is initialized (the String
      * constants of the image are there before String's initializer has set COMPACT_STRINGS).
      */
+    /** -Dnabu.ctorFence=0 none, 1 (default) constructors of a class with a final field, 2 every constructor. */
+    private final int ctorFence = Integer.getInteger("nabu.ctorFence", 1);
+
+    /** Counts the constructors that end in a fence (-Dnabu.llvm.phaseTiming shows it). */
+    static final java.util.concurrent.atomic.AtomicLong CTORS = new java.util.concurrent.atomic.AtomicLong(),
+            CTORS_FENCED = new java.util.concurrent.atomic.AtomicLong();
+
+    private boolean constructorNeedsFence(final IRFunction fn) {
+        CTORS.incrementAndGet();
+        boolean fence = ctorFence >= 2;
+        if (!fence && fn.name != null) {
+            final var layout = classLayouts.get(classLayouts.ownerInternalName(fn.name));
+            fence = layout != null && layout.hasFinalFields;
+        }
+        if (fence) {
+            CTORS_FENCED.incrementAndGet();
+        }
+        return fence;
+    }
+
     boolean currentFunctionImpliesClassInit() {
         final IRFunction fn = currentFn;
         if (fn == null || fn.name == null || classLayouts == null) {
@@ -540,6 +560,8 @@ public class FunctionEmitter {
         instructions.setFunctionEmitter(this);
         currentFnNameForDiagnostics = fn.name;
         currentFn = fn;
+        instructions.setConstructorFence(ctorFence != 0 && fn.isConstructor() && classLayouts != null
+                && constructorNeedsFence(fn));
         instructions.beginNullState(fn);
 
         // Parameters koppelen

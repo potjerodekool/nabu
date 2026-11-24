@@ -148,6 +148,11 @@ public class ClassLayouts {
         public boolean isInterface;
         /** True iff this class carries the {@code final} modifier. */
         public boolean isFinal;
+        /**
+         * True iff the class has an instance field with the {@code final} modifier that is in the struct: the end of
+         * its constructors is the freeze of that field (JLS 17.5), so they end in a release fence.
+         */
+        public boolean hasFinalFields;
         // full-method-naam (Owner_method) -> vtable-slot
         private final Map<String, Integer> virtualSlots = new LinkedHashMap<>();
         /**
@@ -1911,6 +1916,16 @@ for (IRModule m : modules) {
         // Een interface heeft geen klassen-vtable; dispatch loopt via de itable.
         layout.isInterface = Flags.hasFlag(module.flags, Flags.INTERFACE);
         layout.isFinal     = Flags.hasFlag(module.flags, Flags.FINAL);
+        {
+            int c = 0;
+            for (IRField field : module.fields()) {
+                if (indexMap.containsKey(c++) && Flags.hasFlag(field.flags(), Flags.FINAL)
+                        && !Flags.hasFlag(field.flags(), Flags.STATIC)) {
+                    layout.hasFinalFields = true;
+                    break;
+                }
+            }
+        }
         layout.fieldIndexToStructIndex.putAll(indexMap);
         layout.eliminatedFieldNames.addAll(eliminatedHere);
         addEliminatedFieldCount(eliminatedHere.size());

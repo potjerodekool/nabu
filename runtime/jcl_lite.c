@@ -43,6 +43,7 @@ extern char **environ;   /* the headers of macOS declare it only for code that l
 #include <poll.h>
 #include <sched.h>
 #include <sys/syscall.h>
+#include <sys/mman.h>
 #ifdef __linux__
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
@@ -1059,6 +1060,49 @@ static void jcl_note_process_start(void) {
     clock_gettime(CLOCK_REALTIME, &ts);
     jcl_process_start_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
+#if defined(__linux__)
+/* NABU_PAGEOUT_AFTER_STARTUP=<ms>: that long after the start, the file-backed pages of the executable that the start
+ * touched (and the kernel's fault-around read in) are given back with MADV_PAGEOUT; what the program uses comes back by
+ * itself. Petstore: RSS 297 -> 165 MB at equal speed. Off by default: it only lowers the RSS (the page cache of a
+ * cgroup stays charged until it is reclaimed). A plain thread: it touches no heap and the collector does not know it. */
+static void *jcl_pageout_thread(void *arg) {
+    struct timespec ts = { (time_t)((long)(intptr_t)arg / 1000), ((long)(intptr_t)arg % 1000) * 1000000L };
+    nanosleep(&ts, NULL);
+    char exe[4096];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    FILE *maps = n > 0 ? fopen("/proc/self/maps", "r") : NULL;
+    if (maps == NULL) return NULL;
+    exe[n] = 0;
+    char line[4608];
+    while (fgets(line, sizeof line, maps) != NULL) {
+        unsigned long lo, hi;
+        char perms[8];
+        int off = 0;
+        if (sscanf(line, "%lx-%lx %7s %*s %*s %*s %n", &lo, &hi, perms, &off) < 3 || off == 0) continue;
+        if (perms[1] == 'w') continue;                       /* only read-only (text, rodata, relro) */
+        char *path = line + off;
+        path[strcspn(path, "\n")] = 0;
+        if (strcmp(path, exe) != 0) continue;
+#ifndef MADV_PAGEOUT
+#define MADV_PAGEOUT 21
+#endif
+        madvise((void *)lo, hi - lo, MADV_PAGEOUT);
+    }
+    fclose(maps);
+    return NULL;
+}
+static void jcl_start_pageout(void) {
+    const char *ms = getenv("NABU_PAGEOUT_AFTER_STARTUP");
+    if (ms == NULL || atol(ms) <= 0) return;
+    pthread_t t;
+    pthread_attr_t a;
+    pthread_attr_init(&a);
+    pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+    pthread_create(&t, &a, jcl_pageout_thread, (void *)(intptr_t)atol(ms));
+}
+static void jcl_pageout_ctor(void) __attribute__((constructor));
+static void jcl_pageout_ctor(void) { jcl_start_pageout(); }
+#endif
 BIND(int64_t, jcl_ManagementSupport_startTime0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ManagementSupport_startTime0", (void)) {
     return jcl_process_start_ms;
 }

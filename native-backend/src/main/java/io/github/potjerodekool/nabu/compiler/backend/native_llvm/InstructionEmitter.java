@@ -90,6 +90,24 @@ public class InstructionEmitter {
     // waarschuwen per veld).
     private final java.util.Set<String> warnedUnsupportedFields = new java.util.LinkedHashSet<>();
 
+    /**
+     * The null-check state of one function: the LLVM values that are known to be non-null, and the lengths of the
+     * arrays, belong to the function that is emitted (a value of an earlier function that is freed can give its address
+     * to a new one: the sets compare by address). {@link #beginFunction} would do this too, but it is not called, and it
+     * also switches on things (the release fence of a constructor) that this does not.
+     */
+    public void beginNullState(IRFunction fn) {
+        this.knownNonNull.clear();
+        this.blockNonNull.clear();
+        this.blockNonNullOwner = null;
+        this.arrayLengths.clear();
+    }
+
+    /** The same LLVM block (the Java objects of JavaCPP are new on every call: compare the addresses). */
+    private static boolean sameBlock(final LLVMBasicBlockRef a, final LLVMBasicBlockRef b) {
+        return a != null && b != null && a.address() == b.address();
+    }
+
     /** Reset de per-functie staat aan het begin van elke functie-body. */
     public void beginFunction(IRFunction fn) {
         this.currentFunctionName = fn != null ? fn.name : null;
@@ -2501,10 +2519,23 @@ public class InstructionEmitter {
         return null;
     }
 
+    /** Null checks: candidates, removed by the nullness analysis, by this block, emitted. */
+    static final java.util.concurrent.atomic.AtomicLong NC_CANDIDATES = new java.util.concurrent.atomic.AtomicLong(),
+            NC_BY_ANALYSIS = new java.util.concurrent.atomic.AtomicLong(),
+            NC_BY_BLOCK = new java.util.concurrent.atomic.AtomicLong(),
+            NC_EMITTED = new java.util.concurrent.atomic.AtomicLong();
+
+    static String nullCheckStats() {
+        return "null checks: " + NC_CANDIDATES.get() + " candidates, " + NC_BY_ANALYSIS.get() + " by the analysis, "
+                + NC_BY_BLOCK.get() + " by the block, "
+                + NC_EMITTED.get() + " emitted";
+    }
+
     private void emitReceiverNullCheck(final LLVMValueRef obj, final String callee) {
         if (LLVMIsConstant(obj) != 0 && LLVMIsNull(obj) == 0) {
             return; // niet-null constante, bv. een String-literal
         }
+        NC_CANDIDATES.incrementAndGet();
         // Dataflow: als de bijbehorende IR-temp bewezen non-null is, sla over.
         if (nullnessResult != null) {
             final String tn = tempNameOf(obj);
@@ -2512,18 +2543,21 @@ public class InstructionEmitter {
                 final var m = nullnessResult;
                 if (m != null && m.inAt(currentIrBlockLabel, tn) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
                     knownNonNull.add(obj);
+                    NC_BY_ANALYSIS.incrementAndGet();
                     return;
                 }
             }
         }
         final LLVMBasicBlockRef here = LLVMGetInsertBlock(builder);
-        if (here != blockNonNullOwner) {
+        if (!sameBlock(here, blockNonNullOwner)) {
             blockNonNull.clear();
             blockNonNullOwner = here;
         }
         if (knownNonNull.contains(obj) || blockNonNull.contains(obj)) {
+            NC_BY_BLOCK.incrementAndGet();
             return; // reeds bekend niet-null in dit blok
         }
+        NC_EMITTED.incrementAndGet();
         LLVMValueRef npe = globalValueMap.get("@nabu_throw_npe");
         final PointerPointer<Pointer> npeParams = new PointerPointer<>(1);
         npeParams.put(0, LLVMPointerTypeInContext(ctx, 0));

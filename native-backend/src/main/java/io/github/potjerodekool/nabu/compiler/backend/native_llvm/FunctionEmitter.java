@@ -540,6 +540,7 @@ public class FunctionEmitter {
         instructions.setFunctionEmitter(this);
         currentFnNameForDiagnostics = fn.name;
         currentFn = fn;
+        instructions.beginNullState(fn);
 
         // Parameters koppelen
         final int declaredParams = LLVMCountParams(llvmFn);

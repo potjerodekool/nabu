@@ -562,6 +562,7 @@ public class FunctionEmitter {
         currentFn = fn;
         instructions.setConstructorFence(ctorFence != 0 && fn.isConstructor() && classLayouts != null
                 && constructorNeedsFence(fn));
+        instructions.beginNullState(fn);
 
         // Parameters koppelen
         final int declaredParams = LLVMCountParams(llvmFn);

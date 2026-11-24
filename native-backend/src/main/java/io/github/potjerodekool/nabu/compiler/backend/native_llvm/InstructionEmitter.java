@@ -90,6 +90,14 @@ public class InstructionEmitter {
     // waarschuwen per veld).
     private final java.util.Set<String> warnedUnsupportedFields = new java.util.LinkedHashSet<>();
 
+    /**
+     * Whether the function that is emitted ends in a release fence: a constructor of a class with a final field.
+     * ({@link #beginFunction} was meant to set this but is not called.)
+     */
+    public void setConstructorFence(final boolean on) {
+        this.inConstructor = on;
+    }
+
     /** Reset de per-functie staat aan het begin van elke functie-body. */
     public void beginFunction(IRFunction fn) {
         this.currentFunctionName = fn != null ? fn.name : null;

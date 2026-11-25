@@ -101,7 +101,7 @@ final class ModuleCtors {
             final LLVMValueRef driver = LLVMAddFunction(mod, new BytePointer("nabu_run_constructors"), voidFn);
             LLVMSetLinkage(driver, LLVMExternalLinkage);
             final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
-            LLVMPositionBuilderAtEnd(builder, LLVMAppendBasicBlock(driver, "entry"));
+            LLVMPositionBuilderAtEnd(builder, LLVMAppendBasicBlockInContext(ctx, driver, new BytePointer("entry")));
             for (final Ctor ctor : ordered) {
                 LLVMBuildCall2(builder, LLVMGlobalGetValueType(ctor.fn()), ctor.fn(), new PointerPointer<>(0), 0, "");
             }

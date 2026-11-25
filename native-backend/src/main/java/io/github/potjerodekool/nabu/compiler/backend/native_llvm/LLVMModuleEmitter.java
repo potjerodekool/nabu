@@ -1404,7 +1404,7 @@ public void setReflectionRegistry(
         final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0);
         final LLVMValueRef thunk = LLVMAddFunction(mod, new BytePointer("nabu_gc_init_thunk"), fnType);
         LLVMSetLinkage(thunk, LLVMExternalLinkage);
-        final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
+        final LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx, thunk, new BytePointer("entry"));
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
         LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit, new PointerPointer<>(0), 0, "");
@@ -1450,7 +1450,7 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_object_vtable_init"), fnType);
         LLVMSetLinkage(thunk, LLVMInternalLinkage);
 
-        final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
+        final LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx, thunk, new BytePointer("entry"));
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
         if (vtable != null) {

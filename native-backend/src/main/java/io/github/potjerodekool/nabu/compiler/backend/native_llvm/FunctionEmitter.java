@@ -529,6 +529,9 @@ public class FunctionEmitter {
         if (compiledNames != null && compiledNames.contains(LLVMGetValueName(llvmFn).getString())) {
             return;
         }
+        if (shared.claimedSymbols != null && !shared.claimedSymbols.add(LLVMGetValueName(llvmFn).getString())) {
+            return;
+        }
 
         debugLines.begin(fn, llvmFn, LLVMGetValueName(llvmFn).getString());
 

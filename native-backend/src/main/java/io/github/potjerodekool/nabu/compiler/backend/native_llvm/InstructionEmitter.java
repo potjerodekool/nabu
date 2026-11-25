@@ -562,12 +562,12 @@ public class InstructionEmitter {
 
 
     private int arrayTypeId(final String arrayClass) {
-        return shared.arrayTypeIds.computeIfAbsent(arrayClass, k -> shared.arrayTypeIds.size() + 1);
+        return shared.arrayTypeId(arrayClass);
     }
 
     /** The array type names in index order, starting at index 1. */
     List<String> arrayTypeNames() {
-        return new ArrayList<>(shared.arrayTypeIds.keySet());
+        return shared.arrayTypeNames();
     }
 
     /**

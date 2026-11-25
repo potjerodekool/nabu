@@ -44,6 +44,7 @@ public class LLVMModuleEmitter {
     private final ModuleEmitState shared;
     private final InstructionEmitter instructions;
     private final FunctionEmitter functions;
+    private final EmitWorker worker;
 
     private final CompileOptions opts;
 
@@ -69,6 +70,7 @@ public class LLVMModuleEmitter {
         this.functions   = new FunctionEmitter(
                 shared, ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts,
                 opts.debugInfo());
+        this.worker      = new EmitWorker(functions);
     }
 
 public void setReflectionRegistry(
@@ -235,19 +237,10 @@ public void setReflectionRegistry(
         long sinceChunk = 0;
         for (var module : modules) {
             for (IRFunction fn : module.functions()) {
-                // Dezelfde voorstap als het ASM-backend: phi's zijn SSA-
-                // artefacten; vóór de emissie vervangen door per-
-                // predecessor Stores (anders verwijst een phi-incoming
-                // naar een temp die in een ander blok gedefinieerd is).
-                if (!fn.isExternal()) {
-                    io.github.potjerodekool.nabu.backend.ir.PhiElimination.run(fn);
-                    if (chunker != null) {
-                        for (final var block : fn.blocks()) {
-                            sinceChunk += block.instructions().size();
-                        }
-                    }
+                final long size = worker.emitBody(fn);
+                if (chunker != null) {
+                    sinceChunk += size;
                 }
-                functions.emitBody(fn);
             }
             if (chunker != null && sinceChunk >= chunkInstructions) {
                 flushChunk();
@@ -261,7 +254,7 @@ public void setReflectionRegistry(
                     + " (indirect " + InstructionEmitter.VIRTUAL_CALLS[0] + "), interface "
                     + InstructionEmitter.DEVIRTUALIZED[1] + " (indirect " + InstructionEmitter.INTERFACE_CALLS[0] + ")");
         }
-        functions.finishDebugInfo();
+        worker.finishDebugInfo();
 
         // 5. Array classes, after the bodies that allocate the arrays.
         emitArrayTypeTable(instructions.arrayTypeNames());
@@ -269,7 +262,7 @@ public void setReflectionRegistry(
 
     private void flushChunk() {
         final long t = System.nanoTime();
-        functions.finishDebugInfo();
+        worker.finishDebugInfo();
         try {
             chunker.flush();
         } catch (final io.github.potjerodekool.nabu.util.CompileException e) {

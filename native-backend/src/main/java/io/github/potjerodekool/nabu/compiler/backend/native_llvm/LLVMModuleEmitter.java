@@ -41,6 +41,7 @@ public class LLVMModuleEmitter {
     private final ConstantResolver   constants;
     private final GlobalEmitter globals;
     private final ClassLayouts classLayouts;
+    private final ModuleEmitState shared;
     private final InstructionEmitter instructions;
     private final FunctionEmitter functions;
 
@@ -62,10 +63,11 @@ public class LLVMModuleEmitter {
         this.constants   = new ConstantResolver(ctx, mod, types, globalValueMap);
         this.classLayouts = new ClassLayouts(ctx, globalValueMap);
         this.globals     = new GlobalEmitter(mod, types, constants, globalValueMap);
+        this.shared      = new ModuleEmitState();
         this.instructions = new InstructionEmitter(
-                builder, ctx, types, constants, globalValueMap, blockMap, opts, classLayouts);
+                shared, builder, ctx, types, constants, globalValueMap, blockMap, opts, classLayouts);
         this.functions   = new FunctionEmitter(
-                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts,
+                shared, ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts,
                 opts.debugInfo());
     }
 

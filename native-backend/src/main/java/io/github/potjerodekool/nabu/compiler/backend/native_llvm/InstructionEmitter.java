@@ -42,11 +42,11 @@ public class InstructionEmitter {
     private final TypeMapper types;
     private final ConstantResolver constants;
     private final Map<String, LLVMValueRef>   globalValueMap;
-    /** Name -> global found by the suffix scan in {@link #resolveValue}. */
-    private final Map<String, LLVMValueRef>   suffixMatches = new HashMap<>();
     private final Map<String, LLVMBasicBlockRef> blockMap;
     private final CompileOptions opts;
     private final ClassLayouts classLayouts;
+    /** The module state that the bodies share. */
+    private final ModuleEmitState shared;
 
     // Per-functie lokale registers
     private Map<String, LLVMValueRef> localValueMap;
@@ -56,9 +56,6 @@ public class InstructionEmitter {
     private final Deque<IRValue> pendingConstructorAllocs = new ArrayDeque<>();
     /** The class (internal name) of each open allocation of {@link #pendingConstructorAllocs}. */
     private final Map<IRValue, String> pendingAllocClasses = new HashMap<>();
-    // Per call-site-shape (naam, parameters, resultaattype) gedeclareerde
-    // externen voor signature-polymorfe methoden.
-    private final Map<String, LLVMValueRef> polymorphicDeclarations = new HashMap<>();
     // De meest recente HeapAlloc in de huidige functie. Nodig als de
     // wachtrij leeg is bij een constructor-aanroep: een delegerende
     // constructor ('this(...)') deelt het object van de eerste aanroep, dus
@@ -86,9 +83,6 @@ public class InstructionEmitter {
     // Of de huidige functie een constructor is.
     private boolean inConstructor;
 
-    // Velden waarvan al gemeld is dat ze niet benaderbaar zijn (eenmalig
-    // waarschuwen per veld).
-    private final java.util.Set<String> warnedUnsupportedFields = new java.util.LinkedHashSet<>();
 
     /**
      * Whether the function that is emitted ends in a release fence: a constructor of a class with a final field.
@@ -140,7 +134,8 @@ public class InstructionEmitter {
     // geÃ«mit (de handler geldt ook voor het gegenereerde continuatie-blok).
     private final Map<LLVMBasicBlockRef, String> continuationHandlers = new HashMap<>();
 
-    public InstructionEmitter(LLVMBuilderRef builder,
+    public InstructionEmitter(ModuleEmitState shared,
+                              LLVMBuilderRef builder,
                               LLVMContextRef ctx,
                               TypeMapper types,
                               ConstantResolver constants,
@@ -148,6 +143,7 @@ public class InstructionEmitter {
                               Map<String, LLVMBasicBlockRef> blockMap,
                               CompileOptions opts,
                               ClassLayouts classLayouts) {
+        this.shared = shared;
         this.builder        = builder;
         this.ctx            = ctx;
         this.types          = types;
@@ -564,33 +560,14 @@ public class InstructionEmitter {
         storeLocal(a.result(), array);
     }
 
-    /**
-     * JVM names of the array types this module allocates, by index (index 0
-     * is "unknown"). The index goes into the upper 24 bits of the array's
-     * element-size word, so the runtime knows the class of an array
-     * ({@code nabu_array_class}); LLVMModuleEmitter emits the table.
-     */
-    private final Map<String, Integer> arrayTypeIds = new java.util.LinkedHashMap<>();
-
-    /** Array types the C runtime allocates itself; always in the table so it can tag them. */
-    private static final List<String> RUNTIME_ARRAY_TYPES = List.of(
-            "[B", "[J", "[Ljava/lang/Object;", "[Ljava/lang/String;", "[Ljava/lang/Class;",
-            "[Ljava/lang/reflect/Field;", "[Ljava/lang/reflect/Method;",
-            "[Ljava/lang/reflect/Constructor;", "[Ljava/lang/reflect/Type;",
-            "[Ljava/lang/reflect/TypeVariable;", "[Ljava/lang/annotation/Annotation;",
-            "[[Ljava/lang/annotation/Annotation;");
-
-    {
-        RUNTIME_ARRAY_TYPES.forEach(this::arrayTypeId);
-    }
 
     private int arrayTypeId(final String arrayClass) {
-        return arrayTypeIds.computeIfAbsent(arrayClass, k -> arrayTypeIds.size() + 1);
+        return shared.arrayTypeIds.computeIfAbsent(arrayClass, k -> shared.arrayTypeIds.size() + 1);
     }
 
     /** The array type names in index order, starting at index 1. */
     List<String> arrayTypeNames() {
-        return new ArrayList<>(arrayTypeIds.keySet());
+        return new ArrayList<>(shared.arrayTypeIds.keySet());
     }
 
     /**
@@ -2355,14 +2332,14 @@ public class InstructionEmitter {
         // Het resultaattype hoort bij de shape: `invokeBasic(Object)` komt
         // voor met een Object-, int- en void-resultaat.
         final String shape = key + "->" + call.returnType();
-        LLVMValueRef fn = polymorphicDeclarations.get(shape);
+        LLVMValueRef fn = shared.polymorphicDeclarations.get(shape);
         if (fn == null) {
             fn = globalValueMap.get(key);
             if (fn == null || fn.isNull() || !returnTypeMatches(fn, call)) {
                 functionEmitter.declareSignature(call);
                 fn = globalValueMap.get(key);
             }
-            polymorphicDeclarations.put(shape, fn);
+            shared.polymorphicDeclarations.put(shape, fn);
         }
         return arityMatches(fn, emittedArgCount(call)) ? fn : null;
     }
@@ -3110,7 +3087,6 @@ public class InstructionEmitter {
         castSeenType = null;
     }
 
-    private int castCaches = 0;
 
     /** A cast to an interface (internal name) or an array type (JVM name), checked by name in the runtime. */
     private LLVMValueRef checkedNameCast(final LLVMValueRef value, final String wanted) {
@@ -3131,7 +3107,7 @@ public class InstructionEmitter {
         // its length and element type, which decide the answer as well, so the cache holds for it too.
         final LLVMModuleRef cacheMod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
         final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
-        final LLVMValueRef cache = LLVMAddGlobal(cacheMod, i64, new BytePointer(".cast.cache." + castCaches++));
+        final LLVMValueRef cache = LLVMAddGlobal(cacheMod, i64, new BytePointer(".cast.cache." + shared.castCaches++));
         LLVMSetLinkage(cache, LLVMInternalLinkage);
         LLVMSetInitializer(cache, LLVMConstInt(i64, 0, 0));
         final LLVMBasicBlockRef slowBB = castFastPath(value, null, cache);
@@ -3185,7 +3161,6 @@ public class InstructionEmitter {
     // InstanceOf
     // -------------------------------------------------------
 
-    private int instanceOfCaches = 0;
 
     private void emitInstanceOf(IRInstruction.InstanceOf instanceOf) {
         LLVMValueRef source   = resolveValue(instanceOf.source());
@@ -3235,7 +3210,7 @@ public class InstructionEmitter {
         if (cachedFn != null && !cachedFn.isNull()) {
             final LLVMModuleRef mod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
             final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
-            final LLVMValueRef cache = LLVMAddGlobal(mod, i64, new BytePointer(".io.cache." + instanceOfCaches++));
+            final LLVMValueRef cache = LLVMAddGlobal(mod, i64, new BytePointer(".io.cache." + shared.instanceOfCaches++));
             LLVMSetLinkage(cache, LLVMInternalLinkage);
             LLVMSetInitializer(cache, LLVMConstInt(i64, 0, 0));
             args.put(2, cache);
@@ -3552,7 +3527,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     v = globalValueMap.get("@" + n.name());
                 }
                 if (v == null) {
-                    v = suffixMatches.get(n.name());
+                    v = shared.suffixMatches.get(n.name());
                 }
                 if (v == null) {
                     // Legacy owner-in-name-codeing (wat het ASM-backend via
@@ -3562,7 +3537,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     // scan of every global, so the hit is remembered.
                     v = globalBySuffix(n.name());
                     if (v != null) {
-                        suffixMatches.put(n.name(), v);
+                        shared.suffixMatches.put(n.name(), v);
                     }
                 }
                 if (v == null) {
@@ -3617,13 +3592,13 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         if (cached != null && !cached.isNull()) {
             final LLVMModuleRef module = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
             final String className = ConstantResolver.classNameFromDescriptor(c.type());
-            LLVMValueRef slot = classLiteralSlots.get(className);
+            LLVMValueRef slot = shared.classLiteralSlots.get(className);
             if (slot == null) {
                 final LLVMTypeRef ptr = LLVMPointerTypeInContext(ctx, 0);
-                slot = LLVMAddGlobal(module, ptr, new BytePointer(".class.slot." + classLiteralSlots.size()));
+                slot = LLVMAddGlobal(module, ptr, new BytePointer(".class.slot." + shared.classLiteralSlots.size()));
                 LLVMSetLinkage(slot, LLVMInternalLinkage);
                 LLVMSetInitializer(slot, LLVMConstNull(ptr));
-                classLiteralSlots.put(className, slot);
+                shared.classLiteralSlots.put(className, slot);
             }
             final PointerPointer<Pointer> cachedArgs = new PointerPointer<>(2);
             cachedArgs.put(0, slot);
@@ -3641,8 +3616,6 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         return cls;
     }
 
-    /** The global that keeps the Class object of a class literal, by class name (see emitClassLiteral). */
-    private final Map<String, LLVMValueRef> classLiteralSlots = new java.util.HashMap<>();
 
     /**
      * Een statisch veld en een methode van dezelfde klasse kunnen dezelfde
@@ -3701,9 +3674,6 @@ private void emitThrow(IRInstruction.Throw throwInst) {
     private static final java.util.Set<String> BOOTSTRAP_FIELDS = java.util.Set.of(
             "java.lang.System_out", "java.lang.System_err", "java.lang.System_in");
 
-    /** The globals by every suffix that follows a '$', '.' or '_' of their key; built when a scan is first needed. */
-    private Map<String, LLVMValueRef> suffixIndex;
-    private int suffixIndexSize;
 
     /**
      * A global whose key ends with {@code $name}, {@code .name} or {@code _name}. An index instead of a scan of
@@ -3711,7 +3681,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
      * scan, which only a name that is not in the index pays for.
      */
     private LLVMValueRef globalBySuffix(final String name) {
-        if (suffixIndex == null) {
+        if (shared.suffixIndex == null) {
             final Map<String, LLVMValueRef> index = new HashMap<>();
             for (var entry : globalValueMap.entrySet()) {
                 final String key = entry.getKey();
@@ -3722,11 +3692,11 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     }
                 }
             }
-            suffixIndex = index;
-            suffixIndexSize = globalValueMap.size();
+            shared.suffixIndex = index;
+            shared.suffixIndexSize = globalValueMap.size();
         }
-        final LLVMValueRef found = suffixIndex.get(name);
-        if (found != null || globalValueMap.size() == suffixIndexSize) {
+        final LLVMValueRef found = shared.suffixIndex.get(name);
+        if (found != null || globalValueMap.size() == shared.suffixIndexSize) {
             return found;
         }
         // The same scan without a string per key (three concatenations per key took 7 s of a build of the petstore).
@@ -3819,8 +3789,6 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         return false;
     }
 
-    /** Interne klassenaam -> de eenmalige initialisatie-functie, of null als er niets te doen is. */
-    private final Map<String, LLVMValueRef> classInitFns = new HashMap<>();
 
     /**
      * Roept (hooguit eenmaal effectief) de statische initializer aan van een
@@ -3838,7 +3806,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         final LLVMValueRef initFn = classInitFn(internalName,
                 LLVMGetGlobalParent(LLVMGetBasicBlockParent(bb)));
         if (initFn == null) return;
-        final LLVMValueRef flag = classInitFlags.get(internalName);
+        final LLVMValueRef flag = shared.classInitFlags.get(internalName);
         if (flag == null) {
             LLVMBuildCall2(builder, LLVMGlobalGetValueType(initFn), initFn,
                     new PointerPointer<>(0), 0, "");
@@ -3867,8 +3835,6 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         LLVMPositionBuilderAtEnd(builder, contBlock);
     }
 
-    /** Internal class name → the state flag of its once function (2 when the class is initialized). */
-    private final Map<String, LLVMValueRef> classInitFlags = new HashMap<>();
 
     /**
      * De (zo nodig nu aangemaakte) {@code <klasse>.clinit.once}-functie, of
@@ -3880,10 +3846,10 @@ private void emitThrow(IRInstruction.Throw throwInst) {
     }
 
     private LLVMValueRef classInitFn(final String internalName, final LLVMModuleRef mod) {
-        if (classInitFns.containsKey(internalName)) {
-            return classInitFns.get(internalName);
+        if (shared.classInitFns.containsKey(internalName)) {
+            return shared.classInitFns.get(internalName);
         }
-        classInitFns.put(internalName, null);   // breekt een cyclische super-keten
+        shared.classInitFns.put(internalName, null);   // breekt een cyclische super-keten
 
         final String dotted = internalName.replace('/', '.');
         LLVMValueRef clinit = globalValueMap.get("@" + dotted + "_clinit");
@@ -3966,8 +3932,8 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         LLVMBuildRetVoid(b);
         LLVMDisposeBuilder(b);
 
-        classInitFns.put(internalName, fn);
-        classInitFlags.put(internalName, flag);
+        shared.classInitFns.put(internalName, fn);
+        shared.classInitFlags.put(internalName, flag);
         return fn;
     }
 
@@ -4154,7 +4120,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
      * immers exact één header groot, dus schrijven zou geheugen beschadigen.
      */
     private void warnUnsupportedField(IRValue.Named named, String reason) {
-        if (!warnedUnsupportedFields.add(named.name() + "@" + named.fieldIndex())) {
+        if (!shared.warnedUnsupportedFields.add(named.name() + "@" + named.fieldIndex())) {
             return;
         }
         BuildDiagnostics.warn(BuildDiagnostics.Category.INACCESSIBLE_FIELD,

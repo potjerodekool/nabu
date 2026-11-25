@@ -58,3 +58,21 @@ Do not start it as an unattended change. If compile time matters more than the m
 first step is item 2 + 5 as a refactoring without threads (one `EmitterShared` for the module state, one
 `WorkerEmitter` per worker, N = 1), which is verifiable by identical output (same `.ll`) before any thread is
 added.
+
+## Status of the refactoring without threads (2026-11-25)
+
+Step 1 is done on `parallel-emit`: the state that the bodies share for the whole module (class-initialiser functions and
+flags, class-literal slots, cast/instanceof cache counters, array type table, polymorphic declarations, suffix index of
+the globals, ad-hoc externals, the clinit list, the IRFunction -> LLVM function map) lives in `ModuleEmitState`;
+`InstructionEmitter` and `FunctionEmitter` get it in their constructor. What stays in the emitters is per function.
+
+How it is checked: an LLVM build of the petstore is **not** deterministic (two builds of the same code differ in 10% of
+the function sizes; the order of the modules and the identity-based state vary), so it cannot prove "same output".
+A small program is: `Hello` (record, TreeMap, lambda, try/catch; 1646 modules, a 60 MB .ll) built with
+`-Dnabu.llvm.chunkThreads=0 -Dnabu.llvm.writeLl=true --keep-work` gives a byte-identical `.ll` and `.o` on every
+build. Before and after step 1 the `.ll` and `.o` are identical (cmp). The recipe is in the memory log.
+
+Left for a next step: the statics of `InstructionEmitter` (null-check counters, devirtualisation counters), the
+read-only configuration of `FunctionEmitter` (compiledNames, entryPolls, runtimeSymbols), `Tbaa` and the debug-info
+builder, which are per module and per context. Then a worker is "an `InstructionEmitter` + `FunctionEmitter` +
+context + prelude", which is where threads would come in.

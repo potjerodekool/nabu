@@ -403,6 +403,10 @@ final class ChunkedCodegen {
                 LLVMDeleteBasicBlock(bb);
             }
             LLVMSetSubprogram(fn, null);
+            // a declaration must not have a personality routine (the verifier refuses the module)
+            if (LLVMHasPersonalityFn(fn) != 0) {
+                LLVMSetPersonalityFn(fn, null);
+            }
         }
     }
 }

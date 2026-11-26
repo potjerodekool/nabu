@@ -470,6 +470,12 @@ public class NativeLLVMBackend implements Backend {
                 emitter.emitAll(toEmit);
             }
             final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
+            if (parallel != null) {
+                final java.util.TreeSet<String> all = new java.util.TreeSet<>(unresolved);
+                all.addAll(parallel.stubUnresolved());
+                unresolved.clear();
+                unresolved.addAll(all);
+            }
             if (!unresolved.isEmpty()) {
                 // Grouped by class: a handful of classes (Unsafe, the file
                 // system, ...) usually account for most of the list.

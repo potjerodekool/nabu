@@ -154,6 +154,22 @@ final class ParallelEmission {
         }
     }
 
+    /**
+     * Stubs for the unresolved functions that only a secondary worker declared (an ad-hoc external of one of its
+     * bodies): the primary worker does not know them. Weak, so the stubs of several workers are one at the link.
+     *
+     * @return their names
+     */
+    List<String> stubUnresolved() {
+        final Set<String> compiled = primary.chunker().compiledFunctions();
+        final java.util.TreeSet<String> names = new java.util.TreeSet<>();
+        for (final Secondary s : secondaries) {
+            s.chunker().compiledFunctions().addAll(compiled);
+            names.addAll(s.emitter().stubUnresolvedSymbols());
+        }
+        return new ArrayList<>(names);
+    }
+
     /** Compiles what is left of the secondary workers and returns their object files. */
     List<Path> finish() throws CompileException {
         final ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, secondaries.size()));

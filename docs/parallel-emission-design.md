@@ -76,3 +76,24 @@ Left for a next step: the statics of `InstructionEmitter` (null-check counters, 
 read-only configuration of `FunctionEmitter` (compiledNames, entryPolls, runtimeSymbols), `Tbaa` and the debug-info
 builder, which are per module and per context. Then a worker is "an `InstructionEmitter` + `FunctionEmitter` +
 context + prelude", which is where threads would come in.
+
+## Status of the threads (2026-11-26, branch `parallel-ctx`, opt-in `-Dnabu.llvm.emitWorkers=n`, default 1)
+
+Built: `ParallelEmission` (a context, module, builder, emitters and chunker per secondary worker; the preludes run in
+parallel and all finish before any body is emitted; the modules are shared out in contiguous ranges of about equal
+instruction counts). A secondary worker drops what its prelude defined (`ChunkedCodegen.dropDefinitions`: bodies
+removed, initializers dropped, `llvm.*` globals deleted) and names what its bodies create with a prefix (`w1.`).
+Exceptions that must be one thing in the program: the class initializer wrapper `X.clinit.once` and its flag
+`X.clinit.done` (weak, same name in every worker), String literals (named after the SHA-256 of their text, weak_odr:
+`==` on literals needs one object; found by `ResourcesE2eIT`), globals that a body makes up (weak), the array type ids
+(one table, synchronized), symbols that two IR functions share (`claimedSymbols`). Unresolved functions that only a
+secondary worker declared are stubbed by that worker.
+
+Bugs that this found in the single-threaded emitter: `LLVMAppendBasicBlock` (without InContext) uses the global
+context: four places (thunks, ctor driver, reflection info); a function whose body is dropped kept its personality
+routine (the verifier refuses it).
+
+Checked: Hello (2 and 3 workers, same output), the native ITs on Linux with `-Dnabu.llvm.chunkInstructions=20000
+-Dnabu.llvm.emitWorkers=3`: 155 of 158 pass, the 3 that fail (`VarargsProbeIT`, needs a .ll) fail without workers too.
+Not checked yet: the petstore (time, memory per worker, endpoints), macOS, arm64, debug info (workers are not used with
+it), and that the result does not depend on the thread timing beyond the numbering of the array types.

@@ -66,6 +66,7 @@ final class ParallelEmission {
                 final String mainClass) throws CompileException {
         final Set<String> claimed = ConcurrentHashMap.newKeySet();
         primary.setClaimedSymbols(claimed);
+        primary.useContentNames();
         for (int w = 1; w < workers; w++) {
             final LLVMContextRef ctx = LLVMContextCreate();
             if (discardNames) {
@@ -79,6 +80,7 @@ final class ParallelEmission {
                 emitter.setMainClassName(mainClass);
             }
             emitter.setClaimedSymbols(claimed);
+            emitter.useContentNames();
             final BytePointer err = new BytePointer();
             final LLVMTargetRef target = new LLVMTargetRef();
             if (LLVMGetTargetFromTriple(new BytePointer(triple), target, err) != 0) {

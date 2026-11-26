@@ -284,8 +284,10 @@ final class ChunkedCodegen {
             final int linkage = LLVMGetLinkage(g);
             stripped.add(new Object[]{g, init, linkage});
             LLVMSetInitializer(g, null);
-            if (linkage == LLVMAppendingLinkage) {
-                // llvm.global_ctors and the like: written once, with the last object file
+            if (linkage == LLVMAppendingLinkage || linkage == LLVMWeakAnyLinkage || linkage == LLVMWeakODRLinkage
+                    || linkage == LLVMLinkOnceAnyLinkage || linkage == LLVMLinkOnceODRLinkage) {
+                // llvm.global_ctors and the like: written once, with the last object file; a weak global is
+                // only a declaration (external) while its initializer is away
                 LLVMSetLinkage(g, LLVMExternalLinkage);
             }
         }

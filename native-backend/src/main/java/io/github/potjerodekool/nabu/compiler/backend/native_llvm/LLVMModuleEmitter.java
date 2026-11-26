@@ -113,6 +113,11 @@ public void setReflectionRegistry(
         return chunker;
     }
 
+    /** Names the String literals after their text (parallel emission), see ConstantResolver.setContentNames. */
+    void useContentNames() {
+        constants.setContentNames(true);
+    }
+
     /** The symbols that the bodies of all workers have claimed (null with one worker), see ModuleEmitState. */
     void setClaimedSymbols(final java.util.Set<String> claimed) {
         shared.claimedSymbols = claimed;

@@ -3754,6 +3754,14 @@ BIND(void *, jcl_java_lang_ClassLoader_loadClass_resolve, "java.lang.ClassLoader
 /* Weak default definition (a weak undefined reference does not link on PE/COFF: the REL32 is truncated). */
 __attribute__((weak)) void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays" "_asList"));
 __attribute__((weak)) void *jcl_java_util_Arrays_asList(void *array) { (void)array; return NULL; }
+/* SharedSecrets.getJavaUtilCollectionAccess does Class.forName("java.util.ImmutableCollections$Access") and catches the
+ * ClassNotFoundException: here that class is never found, so it threw (and captured a stack trace of 40 frames) at every
+ * Stream.toList, 1.4% of the running time of a petstore findByStatus, and answered null. The binds below ignore the
+ * receiver, so null is the answer without the exception. */
+BIND(void *, jcl_SharedSecrets_getJavaUtilCollectionAccess,
+     "jdk.internal.access.SharedSecrets_getJavaUtilCollectionAccess", (void)) {
+    return NULL;
+}
 BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed,
      "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed", (void *self, void *array)) {
     (void)self;

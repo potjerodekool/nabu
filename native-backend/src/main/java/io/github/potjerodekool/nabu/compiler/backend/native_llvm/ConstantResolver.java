@@ -191,6 +191,37 @@ public class ConstantResolver {
      * Een Java-string-literal: een statisch java.lang.String-object als de
      * klasse is meegecompileerd, anders de C-string van {@link #resolveString}.
      */
+    /**
+     * With several emitting workers the String object of a literal is named after its text and has weak linkage: every
+     * worker that uses the literal defines it, the linker keeps one, so that two literals with the same text are the
+     * same object in the whole program (JLS 3.10.5), as they are when one module holds them all.
+     */
+    private boolean contentNames;
+
+    public void setContentNames(final boolean contentNames) {
+        this.contentNames = contentNames;
+    }
+
+    /** A name that depends on the text alone: 128 bits of its SHA-256. */
+    private static String contentKey(final String text) {
+        try {
+            final java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            final byte[] chars = new byte[text.length() * 2];
+            for (int i = 0; i < text.length(); i++) {
+                chars[2 * i] = (byte) text.charAt(i);
+                chars[2 * i + 1] = (byte) (text.charAt(i) >> 8);
+            }
+            final byte[] hash = digest.digest(chars);
+            final StringBuilder sb = new StringBuilder(32);
+            for (int i = 0; i < 16; i++) {
+                sb.append(Character.forDigit((hash[i] >> 4) & 0xF, 16)).append(Character.forDigit(hash[i] & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (final java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     public LLVMValueRef resolveJavaString(final String text) {
         if (stringStruct == null || rawStrings) {
             return resolveString(text, IRGlobal.Linkage.PRIVATE);
@@ -218,7 +249,8 @@ public class ConstantResolver {
                 bytes[2 * i + 1] = (byte) (c >> 8);
             }
         }
-        final String suffix = Integer.toHexString(text.hashCode()) + "." + javaStringCache.size();
+        final String suffix = contentNames ? contentKey(text)
+                : Integer.toHexString(text.hashCode()) + "." + javaStringCache.size();
 
         // byte[]: i32 lengte op offset 0, i32 elementgrootte (1) op offset 4,
         // de data op offset 8 (zie storeArrayElemSize in InstructionEmitter).
@@ -238,7 +270,10 @@ public class ConstantResolver {
                 3, 0);
         final LLVMValueRef arrayGlobal = LLVMAddGlobal(mod, LLVMTypeOf(arrayConst),
                 new BytePointer(".jstr.bytes." + suffix));
-        LLVMSetLinkage(arrayGlobal, LLVMPrivateLinkage);
+        LLVMSetLinkage(arrayGlobal, contentNames ? LLVMWeakODRLinkage : LLVMPrivateLinkage);
+        if (contentNames) {
+            LLVMSetVisibility(arrayGlobal, LLVMHiddenVisibility);
+        }
         LLVMSetInitializer(arrayGlobal, arrayConst);
 
         // Header: type-info; vtable/itable zitten in type_info (Lever 1 fase 2).
@@ -261,7 +296,10 @@ public class ConstantResolver {
         // Niet constant: String.hashCode() bewaart de hash in het object.
         final LLVMValueRef global = LLVMAddGlobal(mod, stringStruct,
                 new BytePointer(".jstr." + suffix));
-        LLVMSetLinkage(global, LLVMPrivateLinkage);
+        LLVMSetLinkage(global, contentNames ? LLVMWeakODRLinkage : LLVMPrivateLinkage);
+        if (contentNames) {
+            LLVMSetVisibility(global, LLVMHiddenVisibility);
+        }
         LLVMSetInitializer(global, constStruct(stringStruct, values));
         return global;
     }

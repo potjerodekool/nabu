@@ -32,7 +32,31 @@ final class ModuleEmitState {
      * element-size word, so the runtime knows the class of an array
      * ({@code nabu_array_class}); LLVMModuleEmitter emits the table.
      */
-    Map<String, Integer> arrayTypeIds = new java.util.LinkedHashMap<>();
+    private Map<String, Integer> arrayTypeIds = new java.util.LinkedHashMap<>();
+
+    /** The id of an array type, new ones numbered in order. Synchronized: parallel workers share one table. */
+    int arrayTypeId(final String arrayClass) {
+        synchronized (arrayTypeIds) {
+            return arrayTypeIds.computeIfAbsent(arrayClass, k -> arrayTypeIds.size() + 1);
+        }
+    }
+
+    List<String> arrayTypeNames() {
+        synchronized (arrayTypeIds) {
+            return new ArrayList<>(arrayTypeIds.keySet());
+        }
+    }
+
+    /**
+     * A secondary worker numbers the array types in the table of the primary one after the prelude (which gave both
+     * the same table, checked here), so that an id means the same in every object file.
+     */
+    void shareArrayTypesWith(final ModuleEmitState primary) {
+        if (!primary.arrayTypeNames().equals(arrayTypeNames())) {
+            throw new IllegalStateException("The preludes of two workers numbered the array types differently");
+        }
+        this.arrayTypeIds = primary.arrayTypeIds;
+    }
 
     /** Array types the C runtime allocates itself; always in the table so it can tag them. */
     private static final List<String> RUNTIME_ARRAY_TYPES = List.of(
@@ -43,8 +67,14 @@ final class ModuleEmitState {
             "[[Ljava/lang/annotation/Annotation;");
 
     ModuleEmitState() {
-        RUNTIME_ARRAY_TYPES.forEach(c -> arrayTypeIds.computeIfAbsent(c, k -> arrayTypeIds.size() + 1));
+        RUNTIME_ARRAY_TYPES.forEach(this::arrayTypeId);
     }
+
+    /**
+     * Symbols whose body some worker has taken, when several workers emit at once: a second IR function with the symbol
+     * of one that was emitted must not get a body in another object file (duplicate definition). Null with one worker.
+     */
+    Set<String> claimedSymbols;
 
     int castCaches = 0;
 

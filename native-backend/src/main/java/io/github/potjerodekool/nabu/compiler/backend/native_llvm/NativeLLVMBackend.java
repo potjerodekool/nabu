@@ -434,6 +434,7 @@ public class NativeLLVMBackend implements Backend {
             final long chunkSize = Long.getLong("nabu.llvm.chunkInstructions",
                     partitioned && singleModule && modules.size() > 2000 ? 600_000L : 0L);
             ChunkedCodegen chunker = null;
+            ParallelEmission parallel = null;
             LLVMTargetMachineRef chunkMachine = null;
             if (chunkSize > 0) {
                 final BytePointer targetErr = new BytePointer();
@@ -447,14 +448,34 @@ public class NativeLLVMBackend implements Backend {
                 chunker = new ChunkedCodegen(llvmMod, chunkMachine, triple, outputObj);
                 emitter.setChunker(chunker, chunkSize);
             }
+            String mainClass = null;
             for (final IRModule m : modules) {
                 if (m.functions().stream().anyMatch(f -> f.name.equals("main") && !f.isExternal())) {
+                    mainClass = m.name;
                     emitter.setMainClassName(m.name);
                     break;
                 }
             }
-            emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
+            final List<IRModule> toEmit = modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList();
+            // -Dnabu.llvm.emitWorkers=n: the bodies are emitted by n threads, each in a context of its own (only with
+            // chunks, and not with debug information, which is per module).
+            final int emitWorkers = chunker != null && !opts.debugInfo() ? ParallelEmission.workers() : 1;
+            if (emitWorkers > 1) {
+                parallel = new ParallelEmission(emitter, emitWorkers);
+                parallel.create(modules.getFirst().name, opts, discard != null ? Boolean.parseBoolean(discard)
+                        : partitioned && modules.size() > 2000, triple, outputObj, chunkSize, reflectionRegistry,
+                        mainClass);
+                parallel.emit(toEmit);
+            } else {
+                emitter.emitAll(toEmit);
+            }
             final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
+            if (parallel != null) {
+                final java.util.TreeSet<String> all = new java.util.TreeSet<>(unresolved);
+                all.addAll(parallel.stubUnresolved());
+                unresolved.clear();
+                unresolved.addAll(all);
+            }
             if (!unresolved.isEmpty()) {
                 // Grouped by class: a handful of classes (Unsafe, the file
                 // system, ...) usually account for most of the list.
@@ -509,6 +530,11 @@ public class NativeLLVMBackend implements Backend {
                 System.err.println("[NativeLLVMBackend] last object file of " + chunker.objects().size() + ": "
                         + (System.nanoTime() - tc) / 1_000_000L + " ms");
                 LLVMDisposeTargetMachine(chunkMachine);
+                if (parallel != null) {
+                    final List<Path> all = new java.util.ArrayList<>(chunker.objects());
+                    all.addAll(parallel.finish());
+                    return all;
+                }
                 return chunker.objects();
             }
             LLVMSetTarget(llvmMod, new BytePointer(triple));

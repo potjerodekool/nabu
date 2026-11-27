@@ -74,6 +74,93 @@ final class ChunkedCodegen {
         this.firstObject = firstObject;
     }
 
+    /** Set for a secondary worker of a parallel emission: what its bodies create gets this prefix, see {@link #uniquify}. */
+    private String prefix;
+    /** Names of the functions and globals with local linkage that the prelude made (other workers use them by name). */
+    private Set<String> preludeLocals = Set.of();
+
+    /**
+     * For a secondary worker, after its prelude: everything the prelude defined is defined by the primary worker, so
+     * here it becomes a declaration for good (the bodies of the functions are removed, the initializers of the globals
+     * are dropped and do not come back in {@link #finish}). The names of what the bodies create from now on get
+     * {@code prefix}: every worker numbers its string literals, caches and slots on its own, and the object files
+     * are linked into one program.
+     */
+    void dropDefinitions(final String prefix) {
+        this.prefix = prefix;
+        final Set<String> locals = new HashSet<>();
+        for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull(); fn = LLVMGetNextFunction(fn)) {
+            if (isLocal(LLVMGetLinkage(fn))) {
+                locals.add(LLVMGetValueName(fn).getString());
+            }
+        }
+        final List<LLVMValueRef> toDelete = new ArrayList<>();
+        for (LLVMValueRef g = LLVMGetFirstGlobal(mod); g != null && !g.isNull(); g = LLVMGetNextGlobal(g)) {
+            final String name = LLVMGetValueName(g).getString();
+            if (name.startsWith("llvm.")) {
+                toDelete.add(g);
+                continue;
+            }
+            if (isLocal(LLVMGetLinkage(g))) {
+                locals.add(name);
+            }
+            final LLVMValueRef init = LLVMGetInitializer(g);
+            if (init != null && !init.isNull()) {
+                LLVMSetInitializer(g, null);
+            }
+        }
+        // llvm.global_ctors, llvm.used: written once, by the primary worker
+        for (final LLVMValueRef g : toDelete) {
+            LLVMDeleteGlobal(g);
+        }
+        clearBodies();
+        this.preludeLocals = locals;
+    }
+
+    /**
+     * Gives what a secondary worker created after its prelude a name that cannot clash with the other workers' objects.
+     * The once-wrapper of a class initializer and its flag are the same thing in every worker (the class is initialized
+     * once): weak, so the linker keeps one. Other definitions with local linkage are the worker's own: prefixed.
+     * Definitions with external linkage that a body made up (a static field outside the closure) are weak.
+     */
+    private void uniquify() {
+        if (prefix == null) {
+            return;
+        }
+        for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull(); fn = LLVMGetNextFunction(fn)) {
+            if (LLVMIsDeclaration(fn) != 0) {
+                continue;
+            }
+            final int linkage = LLVMGetLinkage(fn);
+            if (!isLocal(linkage)) {
+                continue;
+            }
+            final String name = LLVMGetValueName(fn).getString();
+            if (name.endsWith(".clinit.once")) {
+                LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
+                LLVMSetVisibility(fn, LLVMHiddenVisibility);
+            } else if (!preludeLocals.contains(name) && !name.startsWith(prefix)) {
+                LLVMSetValueName2(fn, prefix + name, (prefix + name).length());
+            }
+        }
+        for (LLVMValueRef g = LLVMGetFirstGlobal(mod); g != null && !g.isNull(); g = LLVMGetNextGlobal(g)) {
+            final LLVMValueRef init = LLVMGetInitializer(g);
+            final boolean defined = init != null && !init.isNull();
+            final int linkage = LLVMGetLinkage(g);
+            final String name = LLVMGetValueName(g).getString();
+            if (defined) {
+                if (name.endsWith(".clinit.done")) {
+                    LLVMSetLinkage(g, LLVMWeakAnyLinkage);
+                    LLVMSetVisibility(g, LLVMHiddenVisibility);
+                } else if (isLocal(linkage) && !preludeLocals.contains(name) && !name.startsWith(prefix)) {
+                    LLVMSetValueName2(g, prefix + name, (prefix + name).length());
+                } else if (linkage == LLVMExternalLinkage) {
+                    LLVMSetLinkage(g, LLVMWeakAnyLinkage);
+                }
+            }
+        }
+    }
+
     Set<String> compiledFunctions() {
         return compiled;
     }
@@ -98,6 +185,7 @@ final class ChunkedCodegen {
     void flush() throws CompileException {
         final long t0 = System.nanoTime();
         note();
+        uniquify();
         internalize();
         strip();
         final long t1 = System.nanoTime();
@@ -138,6 +226,7 @@ final class ChunkedCodegen {
 
     /** Compiles the rest: the globals (with their initializers) and the functions that are still defined. */
     void finish() throws CompileException {
+        uniquify();
         internalize();
         for (final Object[] each : stripped) {
             final LLVMValueRef global = (LLVMValueRef) each[0];
@@ -149,7 +238,8 @@ final class ChunkedCodegen {
         await();
     }
 
-    private void note() {
+    /** Notes the defined functions and the used declarations of the module as it is now. */
+    void note() {
         for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull(); fn = LLVMGetNextFunction(fn)) {
             if (LLVMGetIntrinsicID(fn) != 0) {
                 continue;
@@ -194,8 +284,10 @@ final class ChunkedCodegen {
             final int linkage = LLVMGetLinkage(g);
             stripped.add(new Object[]{g, init, linkage});
             LLVMSetInitializer(g, null);
-            if (linkage == LLVMAppendingLinkage) {
-                // llvm.global_ctors and the like: written once, with the last object file
+            if (linkage == LLVMAppendingLinkage || linkage == LLVMWeakAnyLinkage || linkage == LLVMWeakODRLinkage
+                    || linkage == LLVMLinkOnceAnyLinkage || linkage == LLVMLinkOnceODRLinkage) {
+                // llvm.global_ctors and the like: written once, with the last object file; a weak global is
+                // only a declaration (external) while its initializer is away
                 LLVMSetLinkage(g, LLVMExternalLinkage);
             }
         }
@@ -313,6 +405,10 @@ final class ChunkedCodegen {
                 LLVMDeleteBasicBlock(bb);
             }
             LLVMSetSubprogram(fn, null);
+            // a declaration must not have a personality routine (the verifier refuses the module)
+            if (LLVMHasPersonalityFn(fn) != 0) {
+                LLVMSetPersonalityFn(fn, null);
+            }
         }
     }
 }

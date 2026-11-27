@@ -108,7 +108,43 @@ public void setReflectionRegistry(
         functions.setCompiledNames(chunker != null ? chunker.compiledFunctions() : null);
     }
 
+    /** The chunker of this worker (see {@link #setChunker}); the primary worker reads the others' to join them. */
+    ChunkedCodegen chunker() {
+        return chunker;
+    }
+
+    /** Names the String literals after their text (parallel emission), see ConstantResolver.setContentNames. */
+    void useContentNames() {
+        constants.setContentNames(true);
+    }
+
+    /** The symbols that the bodies of all workers have claimed (null with one worker), see ModuleEmitState. */
+    void setClaimedSymbols(final java.util.Set<String> claimed) {
+        shared.claimedSymbols = claimed;
+    }
+
+    /**
+     * Makes this a secondary worker after its prelude: it only emits bodies. What the prelude defined belongs to the
+     * primary worker, the array types are numbered in its table and what the bodies create is named with
+     * {@code prefix}.
+     */
+    void becomeSecondary(final LLVMModuleEmitter primary, final String prefix) {
+        shared.shareArrayTypesWith(primary.shared);
+        chunker.dropDefinitions(prefix);
+    }
+
     public void emitAll(List<IRModule> modules) {
+        emitPrelude(modules);
+        emitBodies(modules, 0, modules.size());
+        emitTail();
+    }
+
+    /**
+     * Everything before the bodies: runtime helpers, globals, signatures, the object model, the tables and
+     * constructors. A secondary worker of a parallel emission runs it too (it needs the same types, values and
+     * state) and then drops what it defined, see {@link ChunkedCodegen#dropDefinitions}.
+     */
+    public void emitPrelude(List<IRModule> modules) {
         final boolean timing = Boolean.getBoolean("nabu.llvm.phaseTiming");
         long tp = System.nanoTime();
         // 0. Runtime helpers declareren
@@ -233,9 +269,16 @@ public void setReflectionRegistry(
         ctors.emit();
 
         tp = lap(timing, "reflection/ctors", tp);
+    }
+
+    /** The bodies of {@code modules[first, last)}, in chunks when there is a chunker. */
+    public void emitBodies(List<IRModule> modules, int first, int last) {
+        final boolean timing = Boolean.getBoolean("nabu.llvm.phaseTiming");
+        long tp = System.nanoTime();
         // 4. Bodies
         long sinceChunk = 0;
-        for (var module : modules) {
+        for (int index = first; index < last; index++) {
+            final IRModule module = modules.get(index);
             for (IRFunction fn : module.functions()) {
                 final long size = worker.emitBody(fn);
                 if (chunker != null) {
@@ -249,13 +292,16 @@ public void setReflectionRegistry(
         }
 
         tp = lap(timing, "bodies", tp);
+        worker.finishDebugInfo();
+    }
+
+    /** What comes after the bodies: the array class table. Only the primary worker emits it. */
+    public void emitTail() {
         if (Boolean.getBoolean("nabu.closureStats")) {
             System.err.println("[closureStats] devirtualized calls: virtual " + InstructionEmitter.DEVIRTUALIZED[0]
                     + " (indirect " + InstructionEmitter.VIRTUAL_CALLS[0] + "), interface "
                     + InstructionEmitter.DEVIRTUALIZED[1] + " (indirect " + InstructionEmitter.INTERFACE_CALLS[0] + ")");
         }
-        worker.finishDebugInfo();
-
         // 5. Array classes, after the bodies that allocate the arrays.
         emitArrayTypeTable(instructions.arrayTypeNames());
     }
@@ -1363,7 +1409,7 @@ public void setReflectionRegistry(
         final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0);
         final LLVMValueRef thunk = LLVMAddFunction(mod, new BytePointer("nabu_gc_init_thunk"), fnType);
         LLVMSetLinkage(thunk, LLVMExternalLinkage);
-        final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
+        final LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx, thunk, new BytePointer("entry"));
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
         LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit, new PointerPointer<>(0), 0, "");
@@ -1409,7 +1455,7 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_object_vtable_init"), fnType);
         LLVMSetLinkage(thunk, LLVMInternalLinkage);
 
-        final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
+        final LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx, thunk, new BytePointer("entry"));
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
         if (vtable != null) {

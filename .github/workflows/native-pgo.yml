@@ -5,8 +5,6 @@ name: Native PGO (Linux)
 # backend (22), build again with the .profdata, check that the output is the same and compare the run times with a
 # build without a profile. By hand (Actions, Run workflow); about 30 minutes.
 on:
-  push:
-    branches: [pgo-linux]
   workflow_dispatch:
     inputs:
       java:

@@ -506,6 +506,55 @@ Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat
 - `perf stat -p PID` shows `<not counted>` when the server is idle between requests; the process must be under
   continuous load for the hardware counters to accumulate.
 
+## Petstore against GraalVM, PGO cycle and profile (2026-11-27, Windows x86-64)
+
+One keep-alive client, 5000 requests per endpoint after a warm-up of 500 (`bench.py`), two runs each (runs agree within
+5%). Nabu built from `main` with the dist of 2026-11-24, `--opt DEFAULT`, 2 partitions.
+
+| | GraalVM | Nabu O2 + PGO | Nabu O2 | Nabu `--opt NONE` |
+|---|---|---|---|---|
+| `/pet/2` req/s | 2200-2295 | 1771-1834 | 1454-1547 | 981 |
+| `/pet/findByStatus` req/s | 1839-1911 | 1356-1440 | 1173-1184 | 751-757 |
+| `/store/inventory` req/s | 1707-1860 | 1369-1424 | 1084-1102 | 645-654 |
+| RSS after the run | 130 MB | 287 MB | 302 MB | 320 MB |
+| start to first 200 | 0.5 s | 1.0-1.1 s | 1.1-2.1 s | 1.6-2.3 s |
+| exe | 142 MB | 148 MB | 152 MB | 221 MB |
+| build | 165 s | 13.4 min (+16 min instrumented + training) | 13 min | |
+
+Below the 2060/1515/1475 of 2026-11-18 (cause not found: not the cold-code section of the profile, `-Dnabu.pgo.cold=false`
+gives the same speed; not LLVM 22; the collector is ~5% of the wall time and a 512 MB initial heap gives only +5%).
+
+**PGO recipe** (all builds with the same dist, the profile belongs to the IR of that compiler):
+
+1. `nabu-native.ps1 -Opt DEFAULT -JvmArgs ... -Dnabu.pgo=instrument` (16 min; the exe is 259 MB).
+2. `python pgotrain.py <instrumented exe> <cwd> out.profraw 40` (this directory): starts the exe with
+   `LLVM_PROFILE_FILE` and `NABU_PROFILE_WRITE_EVERY=5` (the server is killed, so there is no `atexit`), sends 40 rounds
+   of the benchmark endpoints and a few others (POST/PUT/DELETE of a pet, `/v3/api-docs`, swagger-ui), waits for one more
+   periodic write.
+3. `llvm-profdata merge out.profraw -o out.profdata` (the installed 22.1.x reads it).
+4. Build again with `-Dnabu.pgo=<abs path>/out.profdata` (13.4 min).
+
+Pitfalls: the exe looks for `lib	zdb.dat` next to itself (copy `target/nabu-native/lib`); a profile of a run in which the
+server died at start-up is almost empty (maximum function count 4114 instead of 60 million: check `llvm-profdata show`).
+On Linux there is no `llvm-profdata` in the WSL image: the `native-pgo.yml` workflow does the cycle (llvm.apt.org) on a
+small program.
+
+**Where the time goes** (`stackprof.py run`, `/pet/findByStatus`, 40 s): 15% `ZwDeviceIoControlFile` (the socket I/O,
+through the antivirus hook `bdhkm64.dll`), 14% collector, 32% application and framework code, 13% JDK code, 7.5% C runtime.
+Found and fixed: `ProxySupport.newProxyInstance` redid its search of the configured proxy key at every `createQuery`
+(7.8% of the running samples), `Stream.toList` threw and caught a `ClassNotFoundException` in
+`SharedSecrets.getJavaUtilCollectionAccess` every time (3019 -> 151 ns). Stack traces: a throw costs ~2.2 us on Windows
+whatever the depth in a small program (the cost is `RaiseException`), but in the petstore the capture was 4.8% of the
+samples (the unwind data of a 150 MB executable is not in the CPU cache): the frames are now walked directly and a table
+keeps the frame size per return address (`NABU_VERIFY_FRAMES=1` compares with the full walk).
+Hibernate itself throws one exception per `setParameter` of a collection (`StringJavaType.coerce` as a check), as on the JVM.
+
+**Allocation** (`allocwin.py`, a build with `-Dnabu.allocProfile=true`): 114 KB and 2352 objects per request, 1.6 KB of
+that from the C runtime. The sites are all ordinary library code: `ArrayList.iterator` 5.6% (164 iterators of 40 bytes per
+request), `HashMap.resize` 5.5%, H2 `TransactionMap.init` 4.4%, `HashMap.newNode` 4.0%, `ResolvableType.forType` 2.6%,
+`ArrayList.grow` 2.4%. No site above 6%, so there is no small fix: the lever is inlining plus escape analysis of the
+iterators and short-lived maps (GraalVM does that), which is the "own middle-end" of lever 4.
+
 ## Where the code is
 
 - Object model, layouts, vtables/itables, devirtualization: `native-backend/.../ClassLayouts.java`

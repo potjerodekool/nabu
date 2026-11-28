@@ -48,6 +48,7 @@ public class EscapeAnalysis {
 
         final Set<String> allocTemps = new HashSet<>();
         final Map<String, String> blockOf = new HashMap<>();
+        final Map<String, String> exactOf = new HashMap<>();
         for (final IRBasicBlock b : function.blocks()) {
             for (final IRInstruction in : b.instructions()) {
                 if (in instanceof IRInstruction.HeapAlloc ha) {
@@ -56,6 +57,7 @@ public class EscapeAnalysis {
                         allocTemps.add(n);
                         result.totalAllocs++;
                         blockOf.put(n, b.label());
+                        exactOf.put(n, exactClass(ha.allocType()));
                     }
                 }
             }
@@ -68,6 +70,7 @@ public class EscapeAnalysis {
             if (!loopBlocks.contains(blockOf.get(a))) inEntry.add(a);
         }
 
+        TOP.set(function.name);
         final boolean stats = Boolean.getBoolean("nabu.escapeStats");
         for (final String a : allocTemps) {
             if (!inEntry.contains(a)) {
@@ -75,7 +78,7 @@ public class EscapeAnalysis {
                 continue;
             }
             LAST.remove();
-            if (!valueEscapes(function, a, callees, 0, new HashSet<>())) {
+            if (!valueEscapes(function, a, callees, 0, new HashSet<>(), exactOf.get(a))) {
                 result.nonEscaping.add(a);
             } else if (stats) {
                 REASONS.merge(String.valueOf(LAST.get()), 1, Integer::sum);
@@ -90,7 +93,7 @@ public class EscapeAnalysis {
      */
     private static boolean valueEscapes(final IRFunction f, final String root,
                                         final Map<String, IRFunction> callees, final int depth,
-                                        final Set<String> visiting) {
+                                        final Set<String> visiting, final String exact) {
         final java.util.function.Function<String, Boolean> e = r -> esc(depth > 0 ? r + " in " + f.name : r);
         final Set<String> alias = new HashSet<>();
         alias.add(root);
@@ -98,6 +101,20 @@ public class EscapeAnalysis {
         // a store into such a slot does not make the value escape, the loads from the slot are aliases of it.
         final Set<String> slots = plainSlots(f);
         final Set<String> holding = new HashSet<>();
+        // The values that are certainly this very object (copies and casts of it, and loads from a slot that has
+        // exactly this value as its only store): only for those is the exact class known. A slot that holds
+        // several values (javac reuses local slots) makes a loaded value an alias, but of unknown class.
+        final Set<String> precise = new HashSet<>();
+        precise.add(root);
+        final Map<String, Integer> storesInSlot = new HashMap<>();
+        for (final IRBasicBlock b : f.blocks()) {
+            for (final IRInstruction in : b.instructions()) {
+                if (in instanceof IRInstruction.Store st && slots.contains(nameOf(st.ptr()))) {
+                    storesInSlot.merge(nameOf(st.ptr()), 1, Integer::sum);
+                }
+            }
+        }
+        final Set<String> preciseSlots = new HashSet<>();
         boolean grew = true;
         while (grew) {
             grew = false;
@@ -107,11 +124,14 @@ public class EscapeAnalysis {
                     final boolean derives;
                     if (in instanceof IRInstruction.Store st && slots.contains(nameOf(st.ptr()))) {
                         if (namesAny(st.value(), alias) && holding.add(nameOf(st.ptr()))) grew = true;
+                        if (namesAny(st.value(), precise) && storesInSlot.get(nameOf(st.ptr())) == 1
+                                && preciseSlots.add(nameOf(st.ptr()))) grew = true;
                         continue;
                     }
                     if (in instanceof IRInstruction.Load ld && holding.contains(nameOf(ld.ptr()))) {
                         res = ld.result();
                         derives = true;
+                        if (preciseSlots.contains(nameOf(ld.ptr())) && nameOf(res) != null && precise.add(nameOf(res))) grew = true;
                     } else if (in instanceof IRInstruction.Cast c) {
                         res = c.result();
                         derives = namesAny(c.source(), alias);
@@ -126,6 +146,9 @@ public class EscapeAnalysis {
                     }
                     final String rn = nameOf(res);
                     if (derives && rn != null && alias.add(rn)) grew = true;
+                    if (derives && rn != null && (in instanceof IRInstruction.Cast c2 && namesAny(c2.source(), precise)
+                            || in instanceof IRInstruction.Move m2 && namesAny(m2.value(), precise))
+                            && precise.add(rn)) grew = true;
                 }
             }
         }
@@ -168,11 +191,27 @@ public class EscapeAnalysis {
                     continue;
                 }
                 if (in instanceof IRInstruction.Call c) {
-                    final IRFunction callee = callees.get(c.function());
+                    IRFunction callee = callees.get(c.function());
+                    // The receiver is the object that was allocated here, so its class is known exactly: a virtual or
+                    // interface call on it goes to the method of that class, which is not overridden by anything.
+                    boolean devirtualized = false;
+                    if (exact != null && !c.args().isEmpty() && namesAny(c.args().get(0), precise)
+                            && (c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.VIRTUAL
+                            || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.INTERFACE)) {
+                        final IRFunction exactTarget = resolveExact(exact, c, callees);
+                        if (exactTarget != null) {
+                            callee = exactTarget;
+                            devirtualized = true;
+                        }
+                    }
                     final boolean ctor = c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.SPECIAL
                             && isInit(c.function());
-                    final boolean explicitReceiver = c.paramTypes() != null
-                            && c.args().size() == c.paramTypes().size() + 1;
+                    // The callee says what it takes: when the call passes as many arguments as the constructor has
+                    // parameters, the receiver is among them (bytecode lowering writes paramTypes with and without the
+                    // receiver); one argument less means that the receiver is implicit (source front end).
+                    final boolean explicitReceiver = callee != null
+                            ? c.args().size() == callee.params.size()
+                            : c.paramTypes() != null && c.args().size() == c.paramTypes().size() + 1;
                     final boolean implicit = ctor && !explicitReceiver;
                     String receiver = null;
                     if (ctor) {
@@ -188,16 +227,17 @@ public class EscapeAnalysis {
                         }
                     }
                     final boolean unknownTarget = callee == null || depth >= MAX_DEPTH
-                            || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.VIRTUAL
-                            || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.INTERFACE;
+                            || (!devirtualized
+                            && (c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.VIRTUAL
+                            || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.INTERFACE));
                     if (implicit && receiver != null && alias.contains(receiver)) {
-                        if (unknownTarget || paramEscapes(callee, 0, callees, depth, visiting)) return unknownTarget ? esc("ctor: unknown target") : true;
+                        if (unknownTarget || paramEscapes(callee, 0, callees, depth, visiting, precise.contains(receiver) ? exact : null)) return unknownTarget ? esc("ctor: unknown target") : true;
                     }
                     final int shift = implicit ? 1 : 0;
                     for (int ai = 0; ai < c.args().size(); ai++) {
                         if (!namesAny(c.args().get(ai), alias)) continue;
                         if (unknownTarget) return e.apply(callee == null ? "call: callee unknown" : depth >= MAX_DEPTH ? "call: too deep" : "call: virtual/interface");
-                        if (paramEscapes(callee, ai + shift, callees, depth, visiting)) return true;
+                        if (paramEscapes(callee, ai + shift, callees, depth, visiting, namesAny(c.args().get(ai), precise) ? exact : null)) return true;
                     }
                     continue;
                 }
@@ -274,18 +314,67 @@ public class EscapeAnalysis {
         return ACCESSORS.get(type);
     }
 
+    private static final String TRACE_FN = System.getProperty("nabu.escapeTraceFn");
+    private static final ThreadLocal<String> TOP = new ThreadLocal<>();
+
     private static boolean paramEscapes(final IRFunction callee, final int index,
                                          final Map<String, IRFunction> callees, final int depth,
-                                         final Set<String> visiting) {
+                                         final Set<String> visiting, final String exact) {
+        final boolean r = paramEscapes0(callee, index, callees, depth, visiting, exact);
+        if (TRACE_FN != null && TRACE_FN.equals(TOP.get())) {
+            System.err.println("[nabu/IR] TRACE " + "  ".repeat(depth) + callee.name + "#" + index + " exact=" + exact
+                    + " blocks=" + callee.blocks().size() + " -> " + (r ? "ESCAPES" : "ok") + " (" + LAST.get() + ")");
+        }
+        return r;
+    }
+
+    private static boolean paramEscapes0(final IRFunction callee, final int index,
+                                         final Map<String, IRFunction> callees, final int depth,
+                                         final Set<String> visiting, final String exact) {
         if (index >= callee.params.size()) return true;
         final String key = callee.name + "#" + index;
         if (!visiting.add(key)) return true;
         try {
             final String pn = nameOf(callee.params.get(index));
-            return pn == null || valueEscapes(callee, pn, callees, depth + 1, visiting);
+            return pn == null || valueEscapes(callee, pn, callees, depth + 1, visiting, exact);
         } finally {
             visiting.remove(key);
         }
+    }
+
+    /** The dotted class name of an allocation ({@code java.util.ArrayList$Itr}), or null when the IR does not say. */
+    private static String exactClass(final io.github.potjerodekool.nabu.backend.ir.types.IRType type) {
+        if (type instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr p && p.jvmDescriptor() != null) {
+            final String d = p.jvmDescriptor();
+            if (d.length() > 2 && d.charAt(0) == 'L' && d.endsWith(";")) {
+                return d.substring(1, d.length() - 1).replace('/', '.');
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The function of the exact class {@code exact} that a virtual or interface call on an object of that class
+     * reaches: the function itself when it names the class, else the function with the same member name in the class
+     * (the call names the static type: {@code Iterator_hasNext} for an {@code ArrayList$Itr}). Null when there is not
+     * exactly one such function that takes the same number of arguments (the method is inherited, or unknown).
+     */
+    private static IRFunction resolveExact(final String exact, final IRInstruction.Call c,
+                                           final Map<String, IRFunction> callees) {
+        final String fn = c.function();
+        if (fn.startsWith(exact + "_")) {
+            final IRFunction own = callees.get(fn);
+            return own != null && own.params.size() == c.args().size() ? own : null;
+        }
+        IRFunction found = null;
+        for (int i = fn.indexOf('_'); i >= 0; i = fn.indexOf('_', i + 1)) {
+            final IRFunction cand = callees.get(exact + fn.substring(i));
+            if (cand != null && cand.params.size() == c.args().size()) {
+                if (found != null) return null;
+                found = cand;
+            }
+        }
+        return found;
     }
 
     /** Same test as the native backend's CallTargets.isInit. */

@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.backend.ir.optimize;
 import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 
 import java.util.*;
@@ -14,7 +15,7 @@ import java.util.*;
  * <p>Sound by construction: a value escapes unless every use (also through aliases made by Cast, Move and
  * pointer arithmetic) is a plain memory access through it, a pointer comparison, or a call to a known callee
  * whose parameter is itself used only like that (up to a small depth). Anything unknown counts as escaping.
- * Allocations outside the entry block never qualify: they may sit in a loop, where an alloca grows the stack.
+ * Allocations in a loop never qualify: one stack slot would serve every iteration.
  */
 public class EscapeAnalysis {
 
@@ -25,6 +26,19 @@ public class EscapeAnalysis {
         public int totalAllocs;
     }
 
+    /** Why allocations escape (first reason found), counted when -Dnabu.escapeStats is set. */
+    public static final java.util.Map<String, Integer> REASONS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final ThreadLocal<String> LAST = new ThreadLocal<>();
+    /** Allocations of other blocks than the entry block, which never qualify. */
+    public static int notInEntry;
+
+    private static boolean esc(final String reason) {
+        LAST.set(reason);
+        return true;
+    }
+
+    private static final int MAX_DEPTH = 8;
+
     public static Result analyze(final IRFunction function) {
         return analyze(function, Map.of());
     }
@@ -33,8 +47,7 @@ public class EscapeAnalysis {
         final Result result = new Result();
 
         final Set<String> allocTemps = new HashSet<>();
-        final Set<String> inEntry = new HashSet<>();
-        boolean first = true;
+        final Map<String, String> blockOf = new HashMap<>();
         for (final IRBasicBlock b : function.blocks()) {
             for (final IRInstruction in : b.instructions()) {
                 if (in instanceof IRInstruction.HeapAlloc ha) {
@@ -42,16 +55,30 @@ public class EscapeAnalysis {
                     if (n != null) {
                         allocTemps.add(n);
                         result.totalAllocs++;
-                        if (first) inEntry.add(n);
+                        blockOf.put(n, b.label());
                     }
                 }
             }
-            first = false;
+        }
+        // An allocation in a loop may not qualify: the one slot (the backend puts the alloca in the entry block) would
+        // be reused by every iteration, while a value of an earlier iteration can still be in use (kept in a local slot).
+        final Set<String> loopBlocks = allocTemps.isEmpty() ? Set.of() : Inliner.computeLoopBlocks(function);
+        final Set<String> inEntry = new HashSet<>();
+        for (final String a : allocTemps) {
+            if (!loopBlocks.contains(blockOf.get(a))) inEntry.add(a);
         }
 
+        final boolean stats = Boolean.getBoolean("nabu.escapeStats");
         for (final String a : allocTemps) {
-            if (inEntry.contains(a) && !valueEscapes(function, a, callees, 0, new HashSet<>())) {
+            if (!inEntry.contains(a)) {
+                if (stats) REASONS.merge("(in a loop)", 1, Integer::sum);
+                continue;
+            }
+            LAST.remove();
+            if (!valueEscapes(function, a, callees, 0, new HashSet<>())) {
                 result.nonEscaping.add(a);
+            } else if (stats) {
+                REASONS.merge(String.valueOf(LAST.get()), 1, Integer::sum);
             }
         }
         return result;
@@ -64,8 +91,13 @@ public class EscapeAnalysis {
     private static boolean valueEscapes(final IRFunction f, final String root,
                                         final Map<String, IRFunction> callees, final int depth,
                                         final Set<String> visiting) {
+        final java.util.function.Function<String, Boolean> e = r -> esc(depth > 0 ? r + " in " + f.name : r);
         final Set<String> alias = new HashSet<>();
         alias.add(root);
+        // The bytecode lowering spills a parameter into a local slot (an Alloca that is only loaded and stored):
+        // a store into such a slot does not make the value escape, the loads from the slot are aliases of it.
+        final Set<String> slots = plainSlots(f);
+        final Set<String> holding = new HashSet<>();
         boolean grew = true;
         while (grew) {
             grew = false;
@@ -73,7 +105,14 @@ public class EscapeAnalysis {
                 for (final IRInstruction in : b.instructions()) {
                     final IRValue res;
                     final boolean derives;
-                    if (in instanceof IRInstruction.Cast c) {
+                    if (in instanceof IRInstruction.Store st && slots.contains(nameOf(st.ptr()))) {
+                        if (namesAny(st.value(), alias) && holding.add(nameOf(st.ptr()))) grew = true;
+                        continue;
+                    }
+                    if (in instanceof IRInstruction.Load ld && holding.contains(nameOf(ld.ptr()))) {
+                        res = ld.result();
+                        derives = true;
+                    } else if (in instanceof IRInstruction.Cast c) {
                         res = c.result();
                         derives = namesAny(c.source(), alias);
                     } else if (in instanceof IRInstruction.Move m) {
@@ -115,16 +154,17 @@ public class EscapeAnalysis {
                     if (isPointerArithmetic(bo)) continue;
                     if (namesAny(bo.left(), alias) || namesAny(bo.right(), alias)) {
                         final var op = bo.op();
-                        if (op != IRInstruction.BinaryOp.Op.EQ && op != IRInstruction.BinaryOp.Op.NEQ) return true;
+                        if (op != IRInstruction.BinaryOp.Op.EQ && op != IRInstruction.BinaryOp.Op.NEQ) return e.apply("arithmetic");
                     }
                     continue;
                 }
                 if (in instanceof IRInstruction.Store st) {
-                    if (namesAny(st.value(), alias)) return true;
+                    if (slots.contains(nameOf(st.ptr()))) continue;
+                    if (namesAny(st.value(), alias)) return e.apply("stored in memory");
                     continue;
                 }
                 if (in instanceof IRInstruction.ArrayStore as) {
-                    if (namesAny(as.value(), alias)) return true;
+                    if (namesAny(as.value(), alias)) return e.apply("stored in array");
                     continue;
                 }
                 if (in instanceof IRInstruction.Call c) {
@@ -147,23 +187,91 @@ public class EscapeAnalysis {
                             }
                         }
                     }
-                    final boolean unknownTarget = callee == null || depth >= 3
+                    final boolean unknownTarget = callee == null || depth >= MAX_DEPTH
                             || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.VIRTUAL
                             || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.INTERFACE;
                     if (implicit && receiver != null && alias.contains(receiver)) {
-                        if (unknownTarget || paramEscapes(callee, 0, callees, depth, visiting)) return true;
+                        if (unknownTarget || paramEscapes(callee, 0, callees, depth, visiting)) return unknownTarget ? esc("ctor: unknown target") : true;
                     }
                     final int shift = implicit ? 1 : 0;
                     for (int ai = 0; ai < c.args().size(); ai++) {
                         if (!namesAny(c.args().get(ai), alias)) continue;
-                        if (unknownTarget || paramEscapes(callee, ai + shift, callees, depth, visiting)) return true;
+                        if (unknownTarget) return e.apply(callee == null ? "call: callee unknown" : depth >= MAX_DEPTH ? "call: too deep" : "call: virtual/interface");
+                        if (paramEscapes(callee, ai + shift, callees, depth, visiting)) return true;
                     }
                     continue;
                 }
-                if (mentionsAlias(in, alias)) return true;
+                if (mentionsAlias(in, alias)) return e.apply(in.getClass().getSimpleName());
             }
         }
         return false;
+    }
+
+    /** Alloca slots of {@code f} that are used only as the pointer of a Load or Store (their address is never taken). */
+    private static Set<String> plainSlots(final IRFunction f) {
+        final Set<String> slots = new HashSet<>();
+        for (final IRBasicBlock b : f.blocks()) {
+            for (final IRInstruction in : b.instructions()) {
+                if (in instanceof IRInstruction.Alloca a && nameOf(a.result()) != null) slots.add(nameOf(a.result()));
+            }
+        }
+        if (slots.isEmpty()) return slots;
+        final Set<String> bad = new HashSet<>();
+        for (final IRBasicBlock b : f.blocks()) {
+            for (final IRInstruction in : b.instructions()) {
+                if (in instanceof IRInstruction.Load) continue;
+                if (in instanceof IRInstruction.Store st) {
+                    markSlots(st.value(), slots, bad);
+                    continue;
+                }
+                for (final java.lang.reflect.Method m : operandAccessors(in.getClass())) {
+                    try {
+                        final Object o = m.invoke(in);
+                        if (o instanceof IRValue v) {
+                            markSlots(v, slots, bad);
+                        } else if (o instanceof java.util.List<?> l) {
+                            for (final Object x : l) {
+                                if (x instanceof IRValue v) markSlots(v, slots, bad);
+                                else if (x != null && !(x instanceof IRType) && !(x instanceof String)) return Set.of();
+                            }
+                        }
+                    } catch (final ReflectiveOperationException ex) {
+                        return Set.of(); // unknown shape: no slots are plain
+                    }
+                }
+            }
+        }
+        slots.removeAll(bad);
+        return slots;
+    }
+
+    private static void markSlots(final IRValue v, final Set<String> slots, final Set<String> bad) {
+        if (v == null) return;
+        final String n = nameOf(v);
+        if (n != null && slots.contains(n)) bad.add(n);
+        if (v instanceof IRValue.Values vals) for (final IRValue inner : vals.values()) markSlots(inner, slots, bad);
+    }
+
+    private static final ClassValue<java.lang.reflect.Method[]> ACCESSORS = new ClassValue<>() {
+        @Override
+        protected java.lang.reflect.Method[] computeValue(final Class<?> type) {
+            final java.util.List<java.lang.reflect.Method> ms = new ArrayList<>();
+            if (type.isRecord()) {
+                for (final java.lang.reflect.RecordComponent rc : type.getRecordComponents()) {
+                    if (rc.getName().equals("result")) continue; // a definition, not a use
+                    final Class<?> t = rc.getType();
+                    if (IRValue.class.isAssignableFrom(t) || java.util.List.class.isAssignableFrom(t)) {
+                        rc.getAccessor().setAccessible(true);
+                        ms.add(rc.getAccessor());
+                    }
+                }
+            }
+            return ms.toArray(new java.lang.reflect.Method[0]);
+        }
+    };
+
+    private static java.lang.reflect.Method[] operandAccessors(final Class<?> type) {
+        return ACCESSORS.get(type);
     }
 
     private static boolean paramEscapes(final IRFunction callee, final int index,

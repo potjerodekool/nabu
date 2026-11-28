@@ -283,7 +283,7 @@ public class Inliner implements OptimizationPass {
     }
 
     /** Blokken die in een lus liggen (niet-triviale SCC of self-loop). */
-    private Set<String> computeLoopBlocks(final IRFunction f) {
+    static Set<String> computeLoopBlocks(final IRFunction f) {
         final Set<String> result = new HashSet<>();
         final List<IRBasicBlock> blocks = f.blocks();
         if (blocks.isEmpty()) return result;
@@ -350,7 +350,7 @@ public class Inliner implements OptimizationPass {
         return result;
     }
 
-    private void tarjan(final int v, final List<List<Integer>> adj, final int[] indices,
+    private static void tarjan(final int v, final List<List<Integer>> adj, final int[] indices,
                         final int[] low, final boolean[] onStack, final Deque<Integer> stack,
                         final int[] counter, final List<List<Integer>> sccs,
                         final boolean[] visited, final int n) {

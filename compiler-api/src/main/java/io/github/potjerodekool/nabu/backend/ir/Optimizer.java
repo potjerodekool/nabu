@@ -67,6 +67,10 @@ public class Optimizer {
             }
             System.err.println("[nabu/IR] escape analysis: " + nonEsc + " of " + total
                     + " HeapAllocs do not escape their method");
+            EscapeAnalysis.REASONS.entrySet().stream()
+                    .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .limit(40)
+                    .forEach(e -> System.err.println("[nabu/IR]   " + e.getValue() + " x " + e.getKey()));
         }
 
         final Inliner globalInliner = new Inliner(globalCallees, globalCallCounts);

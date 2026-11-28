@@ -33,11 +33,15 @@ public class Optimizer {
         if (timing) { mark = phase("type consistency + phi elimination", mark); }
         // Globale callee-map.
         final Map<String, IRFunction> globalCallees = new HashMap<>();
+        final java.util.Set<String> ambiguous = new java.util.HashSet<>();
         for (final IRModule m : modules) {
             for (final IRFunction f : m.functions()) {
-                if (!f.isExternal()) globalCallees.put(f.name, f);
+                if (!f.isExternal() && globalCallees.put(f.name, f) != null) ambiguous.add(f.name);
             }
         }
+        // Overloads share a function name in the IR (the emitter tells them apart by their parameter types), so a call
+        // cannot be tied to a body by its name alone: such a callee is unknown to the passes that follow.
+        globalCallees.keySet().removeAll(ambiguous);
         // Call-site telling over alle modules.
         final Map<String, Integer> globalCallCounts = new HashMap<>();
         for (final IRModule m : modules) {
@@ -67,6 +71,10 @@ public class Optimizer {
             }
             System.err.println("[nabu/IR] escape analysis: " + nonEsc + " of " + total
                     + " HeapAllocs do not escape their method");
+            EscapeAnalysis.REASONS.entrySet().stream()
+                    .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .limit(40)
+                    .forEach(e -> System.err.println("[nabu/IR]   " + e.getValue() + " x " + e.getKey()));
         }
 
         final Inliner globalInliner = new Inliner(globalCallees, globalCallCounts);
@@ -84,6 +92,22 @@ public class Optimizer {
         final List<IRModule> stackModules = new ArrayList<>();
         for (final IRModule m : modules) {
             stackModules.add(StackAllocation.run(m, globalCallees));
+        }
+
+        if (Boolean.getBoolean("nabu.escapeStats")) {
+            int stack = 0, heap = 0;
+            for (final IRModule m : stackModules) {
+                for (final IRFunction f : m.functions()) {
+                    if (f.isExternal()) continue;
+                    for (final var b : f.blocks()) {
+                        for (final var in : b.instructions()) {
+                            if (in instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.StackAlloc) stack++;
+                            else if (in instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.HeapAlloc) heap++;
+                        }
+                    }
+                }
+            }
+            System.err.println("[nabu/IR] after inlining and stack allocation: " + stack + " StackAllocs, " + heap + " HeapAllocs");
         }
 
         // Scalar replacement van niet-ontsnappende allocs (opt-in, single-block).

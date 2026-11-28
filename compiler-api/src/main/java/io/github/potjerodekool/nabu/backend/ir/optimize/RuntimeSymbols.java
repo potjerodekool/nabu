@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
+package io.github.potjerodekool.nabu.backend.ir.optimize;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
  * dan extern en een ontbrekende definitie komt bij het linken boven water),
  * te krap zou een stub naast de C-definitie zetten.
  */
-final class RuntimeSymbols {
+public final class RuntimeSymbols {
 
     private static final Pattern SYMBOL =
             Pattern.compile("\"([A-Za-z_\\[][\\w.$\\[;]*\\.[\\w.$\\[;]*_[\\w$<>]+)\"");
@@ -37,7 +37,7 @@ final class RuntimeSymbols {
     private RuntimeSymbols() {
     }
 
-    static Set<String> load() {
+    public static Set<String> load() {
         final Set<String> symbols = new HashSet<>();
         final ClassLoader loader = RuntimeSymbols.class.getClassLoader();
         if (loader == null) {

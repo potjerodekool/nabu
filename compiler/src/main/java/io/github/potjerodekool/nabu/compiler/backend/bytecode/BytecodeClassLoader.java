@@ -91,6 +91,9 @@ final class BytecodeClassLoader {
         }
     }
 
+    private final java.util.Map<String, java.util.List<String>> jrtModulesOfPackage =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private byte[] readFromJrt(final String internalName) throws IOException {
         final FileSystem jrtfs = resolveJrtFileSystem();
         if (jrtfs == null) {
@@ -107,13 +110,25 @@ final class BytecodeClassLoader {
         if (Files.exists(javaBaseCandidate)) {
             return Files.readAllBytes(javaBaseCandidate);
         }
-        final Path modulesRoot = jrtfs.getPath("/modules");
-        try (var stream = Files.newDirectoryStream(modulesRoot, Files::isDirectory)) {
-            for (final Path module : stream) {
-                final Path candidate = module.resolve(internalName + ".class");
-                if (Files.exists(candidate)) {
-                    return Files.readAllBytes(candidate);
+        // The modules of a package are in /packages/<dotted name>: one lookup per package (cached) instead of a
+        // directory scan over all modules, with a NoSuchFileException each, for every class that is not from the JDK.
+        final int slash = internalName.lastIndexOf('/');
+        final String packageName = slash < 0 ? "" : internalName.substring(0, slash).replace('/', '.');
+        final java.util.List<String> modules = jrtModulesOfPackage.computeIfAbsent(packageName, pkg -> {
+            final java.util.List<String> found = new java.util.ArrayList<>(1);
+            try (var stream = Files.newDirectoryStream(jrtfs.getPath("/packages/" + pkg))) {
+                for (final Path link : stream) {
+                    found.add(link.getFileName().toString());
                 }
+            } catch (final IOException | java.nio.file.DirectoryIteratorException e) {
+                // not a package of the JDK
+            }
+            return found;
+        });
+        for (final String module : modules) {
+            final Path candidate = jrtfs.getPath("/modules/" + module + "/" + internalName + ".class");
+            if (Files.exists(candidate)) {
+                return Files.readAllBytes(candidate);
             }
         }
         return null;

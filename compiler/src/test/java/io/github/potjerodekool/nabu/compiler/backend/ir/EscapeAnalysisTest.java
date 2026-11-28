@@ -85,15 +85,68 @@ class EscapeAnalysisTest {
     }
 
     @Test
-    void allocationOutsideTheEntryBlockNeverQualifies() {
+    void allocationOutsideTheEntryBlockQualifiesWhenNotInALoop() {
+        final var f = new IRFunction("f", IRType.VOID, List.of(), LOC, 0);
+        final var entry = new IRBasicBlock("entry");
+        entry.add(new IRInstruction.Branch("next", LOC));
+        f.addBlock(entry);
+        final var next = new IRBasicBlock("next");
+        next.add(alloc("o"));
+        next.add(new IRInstruction.Return(null, LOC));
+        f.addBlock(next);
+        assertTrue(analyze(f).nonEscaping.contains("o"));
+    }
+
+    @Test
+    void allocationInALoopNeverQualifies() {
         final var f = new IRFunction("f", IRType.VOID, List.of(), LOC, 0);
         final var entry = new IRBasicBlock("entry");
         entry.add(new IRInstruction.Branch("loop", LOC));
         f.addBlock(entry);
         final var loop = new IRBasicBlock("loop");
         loop.add(alloc("o"));
-        loop.add(new IRInstruction.Return(null, LOC));
+        loop.add(new IRInstruction.Branch("loop", LOC));
         f.addBlock(loop);
+        assertFalse(analyze(f).nonEscaping.contains("o"));
+    }
+
+    /** The bytecode lowering spills a parameter into a slot (an Alloca) and loads it from there. */
+    private static IRFunction spillingCallee(final String name, final boolean storesItInAField) {
+        final var instrs = new java.util.ArrayList<IRInstruction>();
+        instrs.add(new IRInstruction.Alloca(temp("p.ptr"), PTR, LOC));
+        instrs.add(new IRInstruction.Store(temp("p.ptr"), temp("p"), LOC));
+        instrs.add(new IRInstruction.Load(temp("l"), PTR, temp("p.ptr"), LOC));
+        if (storesItInAField) {
+            instrs.add(new IRInstruction.Store(temp("holder"), temp("l"), LOC));
+        }
+        instrs.add(new IRInstruction.Return(null, LOC));
+        return function(name, List.of(temp("p"), temp("holder")), instrs.toArray(new IRInstruction[0]));
+    }
+
+    @Test
+    void parameterSpilledIntoASlotAndOnlyReadIsNoEscape() {
+        final var callee = spillingCallee("reader", false);
+        final var f = function("f", List.of(temp("h")), alloc("o"),
+                call(CallKind.STATIC, "reader", temp("o"), temp("h")), new IRInstruction.Return(null, LOC));
+        assertTrue(analyze(f, callee).nonEscaping.contains("o"));
+    }
+
+    @Test
+    void parameterSpilledIntoASlotAndLoadedBackIntoAFieldEscapes() {
+        final var callee = spillingCallee("keeper", true);
+        final var f = function("f", List.of(temp("h")), alloc("o"),
+                call(CallKind.STATIC, "keeper", temp("o"), temp("h")), new IRInstruction.Return(null, LOC));
+        assertFalse(analyze(f, callee).nonEscaping.contains("o"));
+    }
+
+    @Test
+    void slotWhoseAddressIsPassedOnIsNotPlain() {
+        // the slot itself leaves the function: what is stored in it can be reached from elsewhere
+        final var f = function("f", List.of(temp("h")),
+                new IRInstruction.Alloca(temp("s"), PTR, LOC), alloc("o"),
+                new IRInstruction.Store(temp("s"), temp("o"), LOC),
+                new IRInstruction.Store(temp("h"), temp("s"), LOC),
+                new IRInstruction.Return(null, LOC));
         assertFalse(analyze(f).nonEscaping.contains("o"));
     }
 

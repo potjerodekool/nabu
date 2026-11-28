@@ -902,6 +902,7 @@ void nabu_remember_range(void *start, size_t bytes) {
 /* NABU_NURSERY_VERIFY=1: at every mark end of the collector, every word of a reachable object of the old generation that
  * points into the used part of the nursery has to be in the remembered set. A word that is not is a store the barrier did
  * not see (a store from C, or a store with no barrier), or a number that looks like an address. Reported per holder. */
+static void nabu_nursery_dryrun(unsigned long gc_no);
 static uintptr_t *nabu_rs_sorted = NULL;
 static size_t nabu_rs_count = 0;
 static unsigned long nabu_rs_misses, nabu_rs_words, nabu_rs_objects, nabu_rs_untyped, nabu_rs_bytes_all, nabu_rs_bytes_untyped;
@@ -996,6 +997,126 @@ static void nabu_remset_verify(unsigned long gc_no) {
     }
     free(nabu_rs_sorted);
     nabu_rs_sorted = NULL;
+    nabu_nursery_dryrun(gc_no);
+}
+
+/* Dry run of a nursery collection (NABU_NURSERY_VERIFY=1, nothing is moved or freed): walk the used nursery object by object
+ * (type info or array header give the extent), mark what the remembered set, the stack of this thread and the writable image
+ * sections reach, trace through the nursery, and report live bytes against used bytes. It answers: does the layout allow
+ * walking, and how much of the nursery would a collection reclaim. Other threads' stacks are not scanned, so "live" is a
+ * lower bound; remembered slots of dead old holders count as roots, which makes it an upper bound: the two bracket it. */
+static uint64_t *nabu_dr_start = NULL, *nabu_dr_mark = NULL;
+static uintptr_t *nabu_dr_stack = NULL;
+static size_t nabu_dr_sp = 0, nabu_dr_cap = 0;
+static unsigned long nabu_dr_live_objs, nabu_dr_live_bytes;
+
+static size_t nabu_dr_extent(const uintptr_t *w, size_t room, const nabu_gc_type_info **tip) {
+    *tip = NULL;
+    const uintptr_t first = w[0];
+    if (nabu_image_size != 0 && first - nabu_image_lo < nabu_image_size && (first & 7) == 0) {
+        const nabu_gc_type_info *ti = (const nabu_gc_type_info *) first;
+        if ((uintptr_t) ti->name - nabu_image_lo < nabu_image_size && ti->size >= 16 && ti->size <= room) {
+            *tip = ti;
+            return (ti->size + 15) & ~(size_t) 15;
+        }
+        return 0;
+    }
+    const uint32_t length = (uint32_t) first, esize = (uint32_t) (first >> 32) & 0xff;
+    if (esize == 1 || esize == 2 || esize == 4 || esize == 8) {
+        const size_t bytes = ((size_t) length * esize + 8 + 15) & ~(size_t) 15;
+        if (bytes <= room) return bytes;
+    }
+    return 0;
+}
+
+/* the start of the object that holds w (interior pointers count), or 0 */
+static uintptr_t nabu_dr_find(uintptr_t w) {
+    if (w - nabu_nursery_lo >= nabu_nursery_span) return 0;
+    size_t g = (w - nabu_nursery_lo) >> 4;
+    for (size_t steps = 0; steps < 1000000; steps++) {   /* back to the nearest start */
+        if ((nabu_dr_start[g >> 6] >> (g & 63)) & 1) return nabu_nursery_lo + (g << 4);
+        if (g == 0) return 0;
+        g--;
+    }
+    return 0;
+}
+
+static void nabu_dr_push(uintptr_t w) {
+    const uintptr_t o = nabu_dr_find(w);
+    if (o == 0) return;
+    const size_t g = (o - nabu_nursery_lo) >> 4;
+    if ((nabu_dr_mark[g >> 6] >> (g & 63)) & 1) return;
+    nabu_dr_mark[g >> 6] |= (uint64_t) 1 << (g & 63);
+    if (nabu_dr_sp == nabu_dr_cap) {
+        nabu_dr_cap = nabu_dr_cap ? nabu_dr_cap * 2 : 65536;
+        nabu_dr_stack = (uintptr_t *) realloc(nabu_dr_stack, nabu_dr_cap * sizeof *nabu_dr_stack);
+    }
+    nabu_dr_stack[nabu_dr_sp++] = o;
+}
+
+static void nabu_nursery_dryrun(unsigned long gc_no) {
+    if (nabu_nursery_span == 0 || nabu_nursery_cur <= nabu_nursery_base) return;
+    const char *top = nabu_nursery_cur < nabu_nursery_limit ? nabu_nursery_cur : nabu_nursery_limit;   /* a full region keeps counting up */
+    const size_t used = (size_t) (top - nabu_nursery_base);
+    const size_t granules = (used >> 4) + 1, words64 = (granules >> 6) + 1;
+    nabu_dr_start = (uint64_t *) calloc(words64, 8);
+    nabu_dr_mark = (uint64_t *) calloc(words64, 8);
+    nabu_dr_sp = 0;
+    unsigned long objects = 0, bad = 0, bad_at = 0, zero_gaps = 0;
+    size_t off = 0;
+    while (off < used) {
+        const uintptr_t *w = (const uintptr_t *) (nabu_nursery_base + off);
+        if (w[0] == 0 && w[1] == 0) { off += 16; zero_gaps++; continue; }   /* a hole: an allocation in flight or padding */
+        const nabu_gc_type_info *ti;
+        const size_t ext = nabu_dr_extent(w, used - off, &ti);
+        if (ext == 0) {
+            if (bad++ == 0) bad_at = off;
+            off += 16;   /* resynchronize */
+            continue;
+        }
+        const size_t g = off >> 4;
+        nabu_dr_start[g >> 6] |= (uint64_t) 1 << (g & 63);
+        objects++;
+        off += ext;
+    }
+    nabu_dr_live_objs = nabu_dr_live_bytes = 0;
+    for (size_t i = 0; i < nabu_remset_count && i < NABU_REMSET_MAX; i++) nabu_dr_push(*(const uintptr_t *) nabu_remset[i]);
+    const unsigned long from_remset = 0;
+    (void) from_remset;
+#ifdef _WIN32
+    {
+        volatile char here;
+        for (const uintptr_t *p = (const uintptr_t *) (((uintptr_t) &here + 7) & ~(uintptr_t) 7); (const void *) (p + 1) <= (const void *) __readgsqword(0x08); p++) nabu_dr_push(*p);
+        const char *base = (const char *) GetModuleHandle(NULL);
+        const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *) (base + ((const IMAGE_DOS_HEADER *) base)->e_lfanew);
+        const IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+        for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+            if (!(sec[i].Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+            const uintptr_t *lo = (const uintptr_t *) (base + sec[i].VirtualAddress);
+            for (const uintptr_t *p = lo; (const void *) (p + 1) <= (const void *) (base + sec[i].VirtualAddress + sec[i].Misc.VirtualSize); p++) nabu_dr_push(*p);
+        }
+    }
+#endif
+    while (nabu_dr_sp > 0) {
+        const uintptr_t o = nabu_dr_stack[--nabu_dr_sp];
+        const uintptr_t *w = (const uintptr_t *) o;
+        const nabu_gc_type_info *ti;
+        const size_t ext = nabu_dr_extent(w, (size_t) (nabu_nursery_limit - (char *) o), &ti);
+        nabu_dr_live_objs++;
+        nabu_dr_live_bytes += ext;
+        if (ti != NULL) {
+            for (int k = 0; k < ti->ref_count; k++) nabu_dr_push(*(const uintptr_t *) (o + (size_t) ti->ref_offsets[k]));
+        } else if (((w[0] >> 32) & 0xff) == 8) {
+            const uint32_t length = (uint32_t) w[0];
+            for (uint32_t k = 0; k < length; k++) nabu_dr_push(w[1 + k]);
+        }
+    }
+    char line[300];
+    const int n = snprintf(line, sizeof line, "[nursery] collection %lu dry run: used %zu KB, %lu objects walked (%lu bad headers, first at +%lu, %lu zero gaps), live %lu objects %lu KB (%.1f%% of used)\n",
+            gc_no, used / 1024, objects, bad, bad_at, zero_gaps, nabu_dr_live_objs, nabu_dr_live_bytes / 1024, 100.0 * (double) nabu_dr_live_bytes / (double) used);
+    nabu_census_write(line, n);
+    free(nabu_dr_start); free(nabu_dr_mark);
+    nabu_dr_start = nabu_dr_mark = NULL;
 }
 
 static void nabu_nursery_init(void) {

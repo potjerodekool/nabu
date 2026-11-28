@@ -599,3 +599,19 @@ Bugs that the first attempts hit (segfaults, a `NullBean` read as a `String`), a
 3. **A loaded alias is not necessarily the class that was stored**: javac reuses local slots. The "exact class" of a value is only used when every store into its slot is from that one allocation (`precise`).
 
 `-Dnabu.inline.alloc=true` (inliner that copies allocations, off): 664 stack allocations, but the inliner is 5x slower and adds heap allocations. Stays off. What would move the number: type-flow for monomorphic interface receivers and inlining of allocating factories (`iterator()`).
+
+### Overloads, the closure phase and what is left (2026-11-28, later)
+
+**Overloads resolved by parameter types.** Names that several IR functions share (every constructor with more than one overload) were unknown callees, which was the largest reason in the stats (48664 x "callee unknown"). `CalleeMap` now picks the overload whose parameter types match the call's (pointers: JVM descriptors on both sides; no match or more than one match stays unknown). Petstore -O2: StackAllocs 400 -> 1095 of 84568, 15/15 requests ok, `findByStatus` 1217 -> 1261 req/s, `/pet/2` 1537 -> 1505, `/store/inventory` 1047 -> 1088 (the last two within noise). Remaining reasons: stored in memory 17145, virtual/interface call 15595, returned 8090, callee unknown 3125.
+
+**`-Dnabu.inline.alloc` again** (inliner that copies allocations), now that overloads resolve: 1198 StackAllocs instead of 1095 (+103 of 84568), inliner 5.7 s, and the probe run of that build did not answer. Stays off; the extra is not worth a flag that is not safe.
+
+**Why parallel closure lowering was not built.** A JFR run of the first 45 s of a petstore build showed the closure phase (32.0 s) was not lowering: lowering is 3.3 s of it. The time was file system calls:
+
+| change | closure phase |
+| --- | --- |
+| before | 32.0 s |
+| `BytecodeClassLoader`: the modules of a package from `/packages/<pkg>` (cached) instead of a scan over all ~70 modules with a `NoSuchFileException` each for every class that is not from the JDK (10250 exceptions in 45 s) | 24.8 s |
+| `NabuCFileManager.list`: a class path entry is classified (directory/jar) once instead of `Files.isDirectory`/`isRegularFile` (GetFileAttributesEx) at every package lookup of every entry (1256 of 1444 native samples) | 10.9 s |
+
+Same 28064 classes and 195824 methods. A `-Opt NONE` petstore build takes 2:29 instead of about 3 min. With lowering at 3.3 s of 10.9 s, parallel lowering could win 2 s of a 6.5 min -O2 build and would need the lowering state (`shapeBuilders`, worklists) to be thread safe: not worth the risk.

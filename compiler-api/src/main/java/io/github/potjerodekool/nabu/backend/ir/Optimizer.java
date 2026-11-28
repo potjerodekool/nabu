@@ -32,22 +32,20 @@ public class Optimizer {
 
         if (timing) { mark = phase("type consistency + phi elimination", mark); }
         // Globale callee-map.
-        final Map<String, IRFunction> globalCallees = new HashMap<>();
-        final java.util.Set<String> ambiguous = new java.util.HashSet<>();
+        final io.github.potjerodekool.nabu.backend.ir.optimize.CalleeMap globalCallees = new io.github.potjerodekool.nabu.backend.ir.optimize.CalleeMap();
         for (final IRModule m : modules) {
             for (final IRFunction f : m.functions()) {
-                if (!f.isExternal() && globalCallees.put(f.name, f) != null) ambiguous.add(f.name);
+                if (!f.isExternal()) globalCallees.add(f);
             }
         }
         // Overloads share a function name in the IR (the emitter tells them apart by their parameter types), so a call
         // cannot be tied to a body by its name alone: such a callee is unknown to the passes that follow.
-        globalCallees.keySet().removeAll(ambiguous);
         // A function that the C runtime defines (a BIND of jcl_lite.c / nabu_runtime.c) is run from C, not from its IR
         // body: the body says nothing about what the real function does with its arguments (it may keep them), so
         // such a callee is unknown too. -Dnabu.opt.bindAware=false switches this off.
         if (!"false".equals(System.getProperty("nabu.opt.bindAware"))) {
             final int before = globalCallees.size();
-            globalCallees.keySet().removeAll(io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load());
+            for (final String bound : io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load()) globalCallees.forget(bound);
             if (timing) { System.err.println("[nabu/IR] bound to the C runtime, unknown to the passes: " + (before - globalCallees.size())); }
         }
         // Call-site telling over alle modules.

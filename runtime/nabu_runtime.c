@@ -969,6 +969,84 @@ static _Unwind_Reason_Code nabu_frame_cb(struct _Unwind_Context *context, void *
     return _URC_NO_REASON;
 }
 
+#ifdef _WIN32
+/* The addresses of the calling frames, innermost first (this function's own frame excluded). On Windows x64 the frames
+ * are walked with the unwind data of the executable (RtlLookupFunctionEntry + RtlVirtualUnwind) directly: the walk of
+ * _Unwind_Backtrace also looks up the exception handler and language data of every frame, which a stack trace does not
+ * need. The frames and their order are the same.
+ *
+ * Even so a frame costs ~55 ns, and a throw at a depth of 40 frames 2.5 us (Hibernate throws a handful per request:
+ * 4.8% of the running time of a petstore findByStatus). For a function without a frame register the unwinding of one
+ * return address is a constant: the stack pointer moves by the same number of bytes every time, and the return address
+ * is the word below it. That number is kept per return address (a table of 64K words, each ip (48 bits) and the number
+ * of bytes (16 bits) in one word, so that a reader sees both or none). The fast walk is only used when every frame of
+ * the walk is in the table; the slow walk (which fills the table) handles the rest, and takes over from the start.
+ * NABU_VERIFY_FRAMES=1 compares the two on every capture. */
+#define NABU_FRAME_CACHE_BITS 16
+#define NABU_FRAME_NOCACHE 0xFFFFu
+static volatile uint64_t nabu_frame_cache[1u << NABU_FRAME_CACHE_BITS];
+static int nabu_verify_frames = 0;
+
+__attribute__((constructor)) static void nabu_frames_init(void) {
+    nabu_verify_frames = getenv("NABU_VERIFY_FRAMES") != NULL;
+}
+
+static inline uint32_t nabu_frame_slot(uint64_t ip) {
+    return (uint32_t) ((ip * 0x9E3779B97F4A7C15ull) >> (64 - NABU_FRAME_CACHE_BITS));
+}
+
+/* The walk with the unwind data of the system; keeps what it learns about the frames in the table. */
+static int nabu_capture_frames_slow(CONTEXT ctx, uintptr_t *out, int max) {
+    int n = 0;
+    while (n < max) {
+        DWORD64 ip = ctx.Rip;
+        if (ip == 0) break;
+        DWORD64 base = 0;
+        PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ip, &base, NULL);
+        if (fn == NULL) break; /* no unwind data: not code of this program (nor of a DLL with unwind data) */
+        DWORD64 before = ctx.Rsp;
+        PVOID handler_data = NULL;
+        DWORD64 frame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ip, fn, &ctx, &handler_data, &frame, NULL);
+        /* UNWIND_INFO: byte 0 = version (3 bits) and flags (5 bits; 4 = chained), byte 3 = frame register (low 4 bits). */
+        const unsigned char *info = (const unsigned char *) (base + fn->UnwindData);
+        uint64_t delta = ctx.Rsp - before;
+        int constant = (info[0] & 0x04) == 0 && (info[3] & 0x0F) == 0 && delta > 0 && delta < NABU_FRAME_NOCACHE;
+        nabu_frame_cache[nabu_frame_slot(ip)] = ((uint64_t) ip << 16) | (constant ? delta : NABU_FRAME_NOCACHE);
+        if (ctx.Rip == 0) break;
+        /* ctx.Rip is the return address into the caller: the call itself is one byte back. */
+        out[n++] = (uintptr_t) (ctx.Rip - 1);
+    }
+    return n;
+}
+
+int nabu_capture_frames(uintptr_t *out, int max) {
+    if (max > 256) max = 256;
+    CONTEXT start;
+    RtlCaptureContext(&start);
+    uint64_t rsp = start.Rsp, rip = start.Rip;
+    int n = 0;
+    while (n < max) {
+        if (rip == 0) break;
+        uint64_t e = nabu_frame_cache[nabu_frame_slot(rip)];
+        if ((e >> 16) != rip || (e & 0xFFFFu) == NABU_FRAME_NOCACHE) {
+            return nabu_capture_frames_slow(start, out, max);
+        }
+        rsp += e & 0xFFFFu;
+        rip = *(const uint64_t *) (rsp - 8);
+        if (rip == 0) break;
+        out[n++] = (uintptr_t) (rip - 1);
+    }
+    if (nabu_verify_frames) {
+        uintptr_t check[256];
+        int m = nabu_capture_frames_slow(start, check, max);
+        int same = m == n;
+        for (int i = 0; same && i < n; i++) same = check[i] == out[i];
+        if (!same) fprintf(stderr, "[nabu_capture_frames] fast walk differs from the slow walk: %d against %d frames\n", n, m);
+    }
+    return n;
+}
+#else
 /* The addresses of the calling frames, innermost first (this function's own frame excluded). */
 int nabu_capture_frames(uintptr_t *out, int max) {
     nabu_frame_walk w;
@@ -979,6 +1057,7 @@ int nabu_capture_frames(uintptr_t *out, int max) {
     for (int i = 0; i < w.count; i++) out[i] = w.ip[i];
     return w.count;
 }
+#endif
 
 #ifdef _WIN32
 typedef struct { uintptr_t addr; char *name; } nabu_sym;

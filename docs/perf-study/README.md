@@ -587,3 +587,15 @@ Findings:
 With all three the result is still **34 of 84568**. What is left, by count: `Throwable.<init>` stores `this` into its `cause` (18288: exceptions, which are thrown anyway), plain stores into fields or collections (15325), virtual/interface calls on the new object (11407: the exact class is known at the allocation, a call on it could be resolved), factory methods that return the object (7318: `ArrayList.iterator()` and the like, which only an inliner that can copy allocations and calls removes), `StringBuilder` internals (5642), calls to unknown callees (2604), loops (2630).
 
 So the allocation work is not one change: it needs (a) an inliner that may copy allocations, constructor calls and stores (today it only copies single-block leaf bodies of loads and arithmetic), (b) calls on a receiver of known exact class resolved to the implementation, then (c) the analysis above. Each step is only measurable together with the others; the first two are large (the inliner changes stack traces of inlined JDK frames, class-initialization guards and exception semantics). Not started beyond the analysis.
+
+### Result of the escape-analysis work (merged 2026-11-28)
+
+With exact-class devirtualization for the analysis, plain local slots, loops instead of the entry block only, and three soundness fixes, **400 of 84568** petstore allocations (-O2) are on the stack (was 0). 15 of 15 probe requests work. `findByStatus` 1128-1160 -> 1202-1221 req/s (p50 0.76 -> 0.71 ms); `/pet/2` and `/store/inventory` unchanged (within the ~5% noise of the bench).
+
+Bugs that the first attempts hit (segfaults, a `NullBean` read as a `String`), all found by cdb + IR dump + an automatic bisect on the allocation index (`-Dnabu.stackAlloc.range=lo-hi`, `-Dnabu.stackAllocList=true`):
+
+1. **Constructor receiver arity.** Bytecode-lowered constructor calls pass the receiver as an argument and in `paramTypes`; source-lowered calls do not. The shape is now taken from the callee's parameter count.
+2. **Overloads share one IR function name** (the emitter tells them apart by parameter types), so a name is not a key for a body. Ambiguous names are now unknown to the Inliner, EscapeAnalysis and ScalarReplacement.
+3. **A loaded alias is not necessarily the class that was stored**: javac reuses local slots. The "exact class" of a value is only used when every store into its slot is from that one allocation (`precise`).
+
+`-Dnabu.inline.alloc=true` (inliner that copies allocations, off): 664 stack allocations, but the inliner is 5x slower and adds heap allocations. Stays off. What would move the number: type-flow for monomorphic interface receivers and inlining of allocating factories (`iterator()`).

@@ -97,3 +97,7 @@ Checked: Hello (2 and 3 workers, same output), the native ITs on Linux with `-Dn
 -Dnabu.llvm.emitWorkers=3`: 155 of 158 pass, the 3 that fail (`VarargsProbeIT`, needs a .ll) fail without workers too.
 Not checked yet: the petstore (time, memory per worker, endpoints), macOS, arm64, debug info (workers are not used with
 it), and that the result does not depend on the thread timing beyond the numbering of the array types.
+
+## Petstore with two workers (2026-11-28, Windows x64, `-Opt NONE`)
+
+First attempt failed at the link: `AnnotationValue$RenderingDispatcher_toSourceString$I16_2` was defined in `petstore.o` and in `petstore.w1.1.o` (a function that the prelude defines and that a body of another worker defined again). Fixed by claiming the names of the functions that the prelude defines (`ChunkedCodegen.dropDefinitions` returns them). After the fix: `-Dnabu.llvm.emitWorkers=2`: preludes 17.0 s, bodies 39.1 s, emitAll 58.6 s (one worker: about 85 s), peak 11.9 GB (java 11.4 GB), backend 78.7 s, the exe runs (15 requests of the probe ok) and is as fast as the one-worker build (978-1059 / 784-797 / 628-637 req/s against 981 / 751-757 / 645-654). CI with `-Dnabu.llvm.chunkInstructions=20000 -Dnabu.llvm.emitWorkers=2` (x64 with 2 and 4 workers, arm64 and macOS with 2): all ITs pass except `VarargsProbeIT` (needs a .ll) and the known flaky macOS `ThreadsE2eIT.abandonedParkedVirtualThreads`. The -O2 petstore with workers was not built (memory).

@@ -32,11 +32,21 @@ public class Optimizer {
 
         if (timing) { mark = phase("type consistency + phi elimination", mark); }
         // Globale callee-map.
-        final Map<String, IRFunction> globalCallees = new HashMap<>();
+        final io.github.potjerodekool.nabu.backend.ir.optimize.CalleeMap globalCallees = new io.github.potjerodekool.nabu.backend.ir.optimize.CalleeMap();
         for (final IRModule m : modules) {
             for (final IRFunction f : m.functions()) {
-                if (!f.isExternal()) globalCallees.put(f.name, f);
+                if (!f.isExternal()) globalCallees.add(f);
             }
+        }
+        // Overloads share a function name in the IR (the emitter tells them apart by their parameter types), so a call
+        // cannot be tied to a body by its name alone: such a callee is unknown to the passes that follow.
+        // A function that the C runtime defines (a BIND of jcl_lite.c / nabu_runtime.c) is run from C, not from its IR
+        // body: the body says nothing about what the real function does with its arguments (it may keep them), so
+        // such a callee is unknown too. -Dnabu.opt.bindAware=false switches this off.
+        if (!"false".equals(System.getProperty("nabu.opt.bindAware"))) {
+            final int before = globalCallees.size();
+            for (final String bound : io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load()) globalCallees.forget(bound);
+            if (timing) { System.err.println("[nabu/IR] bound to the C runtime, unknown to the passes: " + (before - globalCallees.size())); }
         }
         // Call-site telling over alle modules.
         final Map<String, Integer> globalCallCounts = new HashMap<>();
@@ -67,6 +77,10 @@ public class Optimizer {
             }
             System.err.println("[nabu/IR] escape analysis: " + nonEsc + " of " + total
                     + " HeapAllocs do not escape their method");
+            EscapeAnalysis.REASONS.entrySet().stream()
+                    .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .limit(40)
+                    .forEach(e -> System.err.println("[nabu/IR]   " + e.getValue() + " x " + e.getKey()));
         }
 
         final Inliner globalInliner = new Inliner(globalCallees, globalCallCounts);
@@ -86,6 +100,22 @@ public class Optimizer {
             stackModules.add(StackAllocation.run(m, globalCallees));
         }
 
+        if (Boolean.getBoolean("nabu.escapeStats")) {
+            int stack = 0, heap = 0;
+            for (final IRModule m : stackModules) {
+                for (final IRFunction f : m.functions()) {
+                    if (f.isExternal()) continue;
+                    for (final var b : f.blocks()) {
+                        for (final var in : b.instructions()) {
+                            if (in instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.StackAlloc) stack++;
+                            else if (in instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.HeapAlloc) heap++;
+                        }
+                    }
+                }
+            }
+            System.err.println("[nabu/IR] after inlining and stack allocation: " + stack + " StackAllocs, " + heap + " HeapAllocs");
+        }
+
         // Scalar replacement van niet-ontsnappende allocs (opt-in, single-block).
         final List<IRModule> scalarModules = new ArrayList<>();
         for (final IRModule m : stackModules) {
@@ -101,8 +131,7 @@ public class Optimizer {
             for (final IRFunction f : m.functions()) {
                 if (f.isExternal()) continue;
                 try {
-                    final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
-                            f, new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis());
+                    final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.analyzeChecked(f);
                     // Vind return-instructies
                     io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness rn =
                         io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
@@ -115,9 +144,8 @@ public class Optimizer {
                                         ? t.name()
                                         : (r.value() instanceof io.github.potjerodekool.nabu.backend.ir.values.IRValue.Named n) ? n.name() : null;
                                 if (vname != null) {
-                                    final var m2 = res.in(b.label());
-                                    if (m2 != null) {
-                                        final var nv = m2.get(vname);
+                                    {
+                                    final var nv = res.inAt(b.label(), vname);
                                         if (nv != null) {
                                             if (!any) { rn = nv; any = true; }
                                             else if (rn != nv) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
@@ -197,8 +225,7 @@ public class Optimizer {
         for (final IRFunction f : optimizedFunctions) {
             if (f.isExternal()) continue;
             try {
-                final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
-                        f, new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis());
+                final var res = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessFlow.analyzeChecked(f);
                 io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness rn =
                         io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;
                 boolean any = false;
@@ -210,9 +237,8 @@ public class Optimizer {
                                     ? t.name()
                                     : (r.value() instanceof io.github.potjerodekool.nabu.backend.ir.values.IRValue.Named n) ? n.name() : null;
                             if (vname != null) {
-                                final var m2 = res.in(b.label());
-                                if (m2 != null) {
-                                    final var nv = m2.get(vname);
+                                {
+                                final var nv = res.inAt(b.label(), vname);
                                     if (nv != null) {
                                         if (!any) { rn = nv; any = true; }
                                         else if (rn != nv) rn = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.UNKNOWN;

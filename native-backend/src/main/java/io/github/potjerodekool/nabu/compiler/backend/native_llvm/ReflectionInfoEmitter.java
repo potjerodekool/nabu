@@ -712,7 +712,7 @@ public class ReflectionInfoEmitter {
         LLVMValueRef fn = LLVMAddFunction(mod, new BytePointer(fnName), fnType);
         LLVMSetLinkage(fn, LLVMExternalLinkage);
 
-        LLVMBasicBlockRef block = LLVMAppendBasicBlock(fn, "entry");
+        LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("entry"));
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
 

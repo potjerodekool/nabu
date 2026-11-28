@@ -386,3 +386,71 @@ The owner chose option 4: the nursery stays a flagged experiment (allocation fro
 Reading: incremental mode costs 5-10% of the speed and saves 15-27% of the resident memory (the more often it runs a full collection, the smaller the RSS). That is not a free win, so the default stays as it is; the mode is available to anyone who prefers memory over speed, by environment variable alone. Pause times were not measured: `NABU_GC_STATS` prints nothing in incremental mode (the collection event it hooks is not raised for the partial collections), so a comparison of pauses needs `GC_PRINT_STATS`. Not measured on Linux (dirty bits there come from `mprotect`, which behaves very differently and which the GIL-less runtime may not tolerate: untested) and not with an -O2/PGO build.
 
 For comparison the nursery would have to beat 15-27% of RSS at no speed loss; its first dry-run number (about 8 MB live of a 64 MB nursery) says nothing about that yet, and its price is the new root machinery above. Parked.
+
+Note: the dry-run collection described under "Step 2b, first part" (`nabu_nursery_dryrun`, `NABU_NURSERY_VERIFY=1`) lives on branch `gc-nursery` only; main has the nursery up to step 2a.
+
+### Incremental mode: pause times and Linux (2026-11-23)
+
+Pauses (Windows, petstore, `GC_PRINT_STATS=1 GC_LOG_FILE=...`, 8000 requests after warm-up; pause = "World-stopped marking took"):
+
+| mode | collections | average pause | longest | total pause |
+|---|---|---|---|---|
+| default | 16 | 36 ms | 78 ms | 577 ms |
+| incremental | 38 | 31 ms | 47 ms | 1161 ms |
+| incremental, `GC_FULL_FREQUENCY=3` | 42 | 31 ms | 47 ms | 1311 ms |
+
+The longest pause drops from 78 to 47 ms, the average hardly moves, and there are 2.4 times as many collections, so the total pause time doubles: consistent with the 5-10% lower throughput. (`NABU_GC_STATS` is silent in this mode; use `GC_PRINT_STATS` with `GC_LOG_FILE`.)
+
+Linux (WSL2, Ubuntu, gcc 15, system libgc, the native ITs run with `GC_ENABLE_INCREMENTAL=1` in the environment): ThreadsE2eIT (74 tests), WeakReferenceE2eIT, StackTraceE2eIT, ThreadSubclassE2eIT all pass. The collector log of the run shows `Using soft-dirty bit feature`: on this kernel libgc takes its dirty bits from the kernel's soft-dirty page flag, not from `mprotect`, so it installs no SIGSEGV handler and does not meet `nabu_sigsegv_handler` (which replaces any earlier handler without chaining). **Not covered:** a kernel or container without soft-dirty support (libgc then falls back to `mprotect` and its own SIGSEGV handler, which the runtime's crash handler would override: untested), macOS, arm64, and throughput/RSS on Linux (no petstore build there; the 11 collections of the small ITs say nothing about it).
+
+### Incremental mode on Linux: throughput, memory and the no-soft-dirty case (2026-11-23)
+
+Petstore built natively in WSL2 (Ubuntu, gcc 15, system libgc; `-Opt NONE`; same Nabu-compiled classes as the Windows build), 1000 warm-up + 8000 requests of `/pet/2`, three runs per mode, `GC_PRINT_STATS=1 GC_LOG_FILE`:
+
+| mode | req/s | RSS | collections | avg / max / total pause |
+|---|---|---|---|---|
+| default | 1059, 1197, 1195 | 452-454 MB | 9 | 22 / 32-44 / ~200 ms |
+| `GC_ENABLE_INCREMENTAL=1` (soft-dirty) | 875, 906, 906 | 242-244 MB | 179-181 | 9 / 25-27 / ~1600 ms |
+| `GC_ENABLE_INCREMENTAL=1`, `/proc` read-only (no soft-dirty) | 1171, 1162, 1146 | 454 MB | 9 | like default |
+
+- On Linux the incremental mode saves **47% RSS (453 -> 243 MB) for 24% throughput** (about 1150 -> 900 req/s). Pauses are much shorter (max 26 ms against 32-44) but there are 20 times as many collections and the total pause time is 8 times larger. A bigger price per saved megabyte than on Windows (-15..-27% RSS for -5..-10%).
+- **Without soft-dirty** (simulated: a user namespace with `/proc` remounted read-only, so that writing `/proc/self/clear_refs` fails): libgc does not fall back to `mprotect` in this build; it keeps running non-incrementally (RSS, speed, collection count identical to the default). No crash, no clash with `nabu_sigsegv_handler`; the variable is simply a no-op on such kernels. (Not tested: a libgc built with `MPROTECT_VDB`, e.g. macOS or other distributions.)
+- The default build uses **453 MB RSS on Linux against about 310 MB on Windows** for the same program and the same 128 MB initial heap. A lead for the memory work, not looked into yet (glibc arenas of 30 threads, the 128 MB initial heap touched by the collector, stacks).
+- Still not covered: macOS and arm64, an -O2/PGO build.
+
+### Linux RSS gap found: the initial heap was 256 MB, not 128 MB
+
+Linux used 453 MB resident for the petstore against about 310 MB on Windows. smaps showed 316 MB anonymous memory (a 260 MB
+heap mapping) and 135 MB of clean file pages of the executable. The collector's own statistics said the heap was 256 MB from
+the first collection on, where Windows stays at 128 MB. The system libgc on Linux already has about 128 MB after `GC_init`,
+and `GC_expand_hp(128 MB)` came on top of that. The runtime now expands only by the difference. Paired runs, 8000 requests
+after 1000 warm-up, three each (256 MB heap forced with `GC_INITIAL_HEAP_SIZE` against the new default): 1104/1120/1137 req/s
+at 463 MB against 1124/1138/1148 req/s at 324 MB. Same speed, 30% less resident, 17 -> 25 collections of the same length.
+
+
+### Incremental mode on Linux, measured again after the heap fix (2026-11-24)
+
+The Linux numbers above were taken when the default heap was 256 MB (453 MB RSS). After the initial-heap fix and the no-PIE link
+the default is 303 MB, so the saving of the incremental mode is smaller. Petstore built in WSL2 from main (-Opt NONE, gcc 15,
+system libgc, soft-dirty available), 1000 warm-up + 8000 requests of `/pet/2`, `GC_PRINT_STATS=1`:
+
+| mode | req/s | RSS | collections | avg / max / total pause |
+|---|---|---|---|---|
+| default (3 runs) | 1130, 1118, 1129 | 302-303 MB | 23-24 | 22 / 49-51 / ~515 ms |
+| `GC_ENABLE_INCREMENTAL=1` (3 runs) | 937, 924, 939 | 245-246 MB | 93 | 13 / 31-33 / ~1240 ms |
+| incremental, `GC_FULL_FREQUENCY=3` | 924 | 230 MB | 101 | 14 / 30 / 1411 ms |
+| incremental, `GC_FULL_FREQUENCY=20` | 939 | 248 MB | 94 | 13 / 30 / 1178 ms |
+| incremental, `GC_FREE_SPACE_DIVISOR=2` | 942 | 269 MB | 63 | 16 / 33 / 997 ms |
+| incremental, `GC_FREE_SPACE_DIVISOR=1` | 989 | 307 MB | 32 | 19 / 31 / 597 ms |
+| incremental, `GC_INITIAL_HEAP_SIZE=64M` | 912 | 245 MB | 94 | 14 / 32 / 1297 ms |
+
+- Incremental mode now saves **19% RSS (303 -> 246 MB) for 17% throughput**. Before the heap fix it was 47% for 24%: most of what it
+  saved was the extra 128 MB that the default no longer has.
+- The throughput does not come back by collecting less often: with `GC_FREE_SPACE_DIVISOR=1` there are 32 collections (default: 24)
+  and it is still 12% slower, at the RSS of the default. The price is not the collections but the mutator: after every
+  `clear_refs` the first write to each page takes a soft-dirty fault.
+- No tuning knob gives a better trade than the plain switch. Pauses are shorter (max 31 against 50 ms) but the total is 2.4 times larger.
+
+Decision: the default stays. `GC_ENABLE_INCREMENTAL=1` is the opt-in for a process that must stay small and can pay 17% of its
+throughput for it (and for shorter single pauses); it is a no-op on a kernel without soft-dirty. No separate Nabu switch: the
+environment variable of libgc is the whole interface, and it needs no code.

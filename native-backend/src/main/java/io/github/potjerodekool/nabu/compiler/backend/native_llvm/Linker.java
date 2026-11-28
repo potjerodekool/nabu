@@ -149,6 +149,12 @@ public class Linker {
             cmd.add("gcc");
             if (debugInfo) { cmd.add("-g"); }
             cmd.add("-rdynamic");
+            // Not position independent: a PIE of this size carries 28 MB of relative relocations that are all processed
+            // at start and make 23 MB of read-only data private (petstore: 19 MB less resident, same speed).
+            // -Dnabu.link.pie=true links a PIE again.
+            if (!"true".equalsIgnoreCase(System.getProperty("nabu.link.pie"))) {
+                cmd.add("-no-pie");
+            }
             // libgcc (the unwinder) inside the executable: a slim container then needs no libgcc_s.so.1
             if (!"false".equalsIgnoreCase(System.getProperty("nabu.link.staticLibgcc", "true"))) {
                 cmd.add("-static-libgcc");

@@ -3,6 +3,8 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 import io.github.potjerodekool.nabu.compiler.NabuCompiler;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,6 +39,27 @@ class VarargsProbeIT {
 
     @TempDir
     Path tempDir;
+
+    private String chunkInstructions;
+
+    /**
+     * The test reads the .ll of the whole program. With -Dnabu.llvm.chunkInstructions=n (a run of the ITs in chunk
+     * mode, see the workflows) the object code is made in chunks and no .ll is written: switch chunking off here.
+     */
+    @BeforeEach
+    void noChunks() {
+        chunkInstructions = System.getProperty("nabu.llvm.chunkInstructions");
+        System.setProperty("nabu.llvm.chunkInstructions", "0");
+    }
+
+    @AfterEach
+    void restoreChunks() {
+        if (chunkInstructions == null) {
+            System.clearProperty("nabu.llvm.chunkInstructions");
+        } else {
+            System.setProperty("nabu.llvm.chunkInstructions", chunkInstructions);
+        }
+    }
 
     private record Case(String callee, String call, String fn, int expectedArgs) {}
 

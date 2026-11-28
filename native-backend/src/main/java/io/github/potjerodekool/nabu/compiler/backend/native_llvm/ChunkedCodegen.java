@@ -85,11 +85,17 @@ final class ChunkedCodegen {
      * are dropped and do not come back in {@link #finish}). The names of what the bodies create from now on get
      * {@code prefix}: every worker numbers its string literals, caches and slots on its own, and the object files
      * are linked into one program.
+     *
+     * @return the names of the functions that the prelude defined: no body may define them again
      */
-    void dropDefinitions(final String prefix) {
+    Set<String> dropDefinitions(final String prefix) {
         this.prefix = prefix;
         final Set<String> locals = new HashSet<>();
+        final Set<String> defined = new HashSet<>();
         for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull(); fn = LLVMGetNextFunction(fn)) {
+            if (LLVMIsDeclaration(fn) == 0) {
+                defined.add(LLVMGetValueName(fn).getString());
+            }
             if (isLocal(LLVMGetLinkage(fn))) {
                 locals.add(LLVMGetValueName(fn).getString());
             }
@@ -115,6 +121,7 @@ final class ChunkedCodegen {
         }
         clearBodies();
         this.preludeLocals = locals;
+        return defined;
     }
 
     /**

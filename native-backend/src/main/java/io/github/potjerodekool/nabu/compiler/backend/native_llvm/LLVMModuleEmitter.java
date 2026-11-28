@@ -375,7 +375,7 @@ public void setReflectionRegistry(
      * @return de namen die een stub kregen, gesorteerd.
      */
     public List<String> stubUnresolvedSymbols() {
-        final java.util.Set<String> runtime = RuntimeSymbols.load();
+        final java.util.Set<String> runtime = io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load();
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         final PointerPointer<Pointer> trapParams = new PointerPointer<>(1);
         trapParams.put(0, ptrType);

@@ -2427,7 +2427,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         Reference.reachabilityFence(newInit);
     }
 
-    private final Set<String> runtimeSymbols = RuntimeSymbols.load();
+    private final Set<String> runtimeSymbols = io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load();
 
     private Map<String, List<Map.Entry<String, Integer>>> slotsByOwner;
     private List<Map.Entry<String, Integer>> slotsOfUnknownOwner;

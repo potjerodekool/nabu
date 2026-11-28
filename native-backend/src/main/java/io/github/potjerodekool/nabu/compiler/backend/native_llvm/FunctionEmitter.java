@@ -51,7 +51,7 @@ public class FunctionEmitter {
      */
     private final Map<String, LLVMBasicBlockRef> handlerBodyBlocks = new HashMap<>();
     /** De JDK-symbolen die de C-runtime zelf definieert (zie {@link RuntimeSymbols}). */
-    private final java.util.Set<String> runtimeSymbols = RuntimeSymbols.load();
+    private final java.util.Set<String> runtimeSymbols = io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load();
     private static final boolean TRACE_OVERRIDES = System.getenv("NABU_TRACE_OVERRIDES") != null
             || Boolean.getBoolean("nabu.traceOverrides");
     /** Handler-label -> stackslot waarin het landingspad de gevangen exception zet. */

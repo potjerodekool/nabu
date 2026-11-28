@@ -42,6 +42,14 @@ public class Optimizer {
         // Overloads share a function name in the IR (the emitter tells them apart by their parameter types), so a call
         // cannot be tied to a body by its name alone: such a callee is unknown to the passes that follow.
         globalCallees.keySet().removeAll(ambiguous);
+        // A function that the C runtime defines (a BIND of jcl_lite.c / nabu_runtime.c) is run from C, not from its IR
+        // body: the body says nothing about what the real function does with its arguments (it may keep them), so
+        // such a callee is unknown too. -Dnabu.opt.bindAware=false switches this off.
+        if (!"false".equals(System.getProperty("nabu.opt.bindAware"))) {
+            final int before = globalCallees.size();
+            globalCallees.keySet().removeAll(io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load());
+            if (timing) { System.err.println("[nabu/IR] bound to the C runtime, unknown to the passes: " + (before - globalCallees.size())); }
+        }
         // Call-site telling over alle modules.
         final Map<String, Integer> globalCallCounts = new HashMap<>();
         for (final IRModule m : modules) {

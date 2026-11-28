@@ -191,7 +191,7 @@ public class EscapeAnalysis {
                     continue;
                 }
                 if (in instanceof IRInstruction.Call c) {
-                    IRFunction callee = callees.get(c.function());
+                    IRFunction callee = CalleeMap.resolve(callees, c);
                     // The receiver is the object that was allocated here, so its class is known exactly: a virtual or
                     // interface call on it goes to the method of that class, which is not overridden by anything.
                     boolean devirtualized = false;
@@ -332,7 +332,7 @@ public class EscapeAnalysis {
                                          final Map<String, IRFunction> callees, final int depth,
                                          final Set<String> visiting, final String exact) {
         if (index >= callee.params.size()) return true;
-        final String key = callee.name + "#" + index;
+        final String key = System.identityHashCode(callee) + "#" + index;
         if (!visiting.add(key)) return true;
         try {
             final String pn = nameOf(callee.params.get(index));

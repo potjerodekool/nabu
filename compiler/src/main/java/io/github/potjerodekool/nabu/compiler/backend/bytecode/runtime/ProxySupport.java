@@ -21,6 +21,9 @@ public final class ProxySupport {
 
     private static final Map<String, Object> METHODS = new HashMap<>();
 
+    /** Requested interface list -> the configured key whose proxy class covers it (see newProxyInstance). */
+    private static final Map<String, String> COVERING = new java.util.concurrent.ConcurrentHashMap<>();
+
     private ProxySupport() {
     }
 
@@ -76,21 +79,33 @@ public final class ProxySupport {
             }
             key.append(interfaces[i].getName());
         }
-        Object proxy = ProxyClasses.create(key.toString(), h);
+        final String requested = key.toString();
+        Object proxy = ProxyClasses.create(requested, h);
         if (proxy == null) {
             // The request names interfaces the configuration leaves out because a configured one extends them
             // (Spring asks for all the interfaces of Hibernate's query class): a proxy that implements the requested
-            // interfaces through the configured ones does.
-            final String[] configured = ProxyClasses.keys();
-            for (int c = 0; proxy == null && c < configured.length; c++) {
-                if (covers(configured[c], interfaces)) {
-                    proxy = ProxyClasses.create(configured[c], h);
+            // interfaces through the configured ones does. The answer is the same every time for the same request, and
+            // working it out costs a split, a Class.forName (that can throw) and an isAssignableFrom per configured
+            // key: Hibernate asks at every createQuery (7.8% of the running time of a findByStatus), so it is kept.
+            String covering = COVERING.get(requested);
+            if (covering == null) {
+                final String[] configured = ProxyClasses.keys();
+                for (int c = 0; covering == null && c < configured.length; c++) {
+                    if (covers(configured[c], interfaces)) {
+                        covering = configured[c];
+                    }
                 }
+                if (covering != null) {
+                    COVERING.put(requested, covering);
+                }
+            }
+            if (covering != null) {
+                proxy = ProxyClasses.create(covering, h);
             }
         }
         if (proxy == null) {
             throw new IllegalArgumentException(new StringBuilder("No proxy class for the interfaces [")
-                    .append(key).append("]: add them to a proxy-config.json under META-INF/native-image")
+                    .append(requested).append("]: add them to a proxy-config.json under META-INF/native-image")
                     .toString());
         }
         return proxy;

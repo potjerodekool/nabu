@@ -23,6 +23,14 @@ public class Inliner implements OptimizationPass {
     /** Owners (as in the function names) that have a static initializer. */
     private final Set<String> ownersWithClassInit = new HashSet<>();
 
+    /**
+     * -Dnabu.inline.alloc=true: callees may also allocate (HeapAlloc, with the constructor call), keep locals in slots
+     * (Alloca, hoisted into the entry block of the caller), store, and call. This is what lets the escape analysis
+     * see the allocation of a factory such as ArrayList.iterator() in its caller.
+     */
+    private static final boolean ALLOC = Boolean.getBoolean("nabu.inline.alloc");
+    private static final int MAX_CALLS_IN_CALLEE = 3;
+
     // Drempels (instructies per callee-blok).
     private static final int THRESHOLD_SINGLE_USE = 80;
     private static final int THRESHOLD_MULTI_USE  = 15;
@@ -121,6 +129,7 @@ public class Inliner implements OptimizationPass {
         }
         // Tel Returns: precies één.
         int returns = 0;
+        int calls = 0;
         for (final IRBasicBlock b : blocks) {
             if (b.instructions().isEmpty()) return false;
             final IRInstruction term = b.getTerminator();
@@ -133,9 +142,11 @@ public class Inliner implements OptimizationPass {
             for (final IRInstruction in : b.instructions()) {
                 if (in == term) continue;
                 if (!isSafe(in)) return false;
+                if (in instanceof IRInstruction.Call) calls++;
             }
         }
         if (returns != 1) return false;
+        if (calls > MAX_CALLS_IN_CALLEE) return false;
 
         // Grootte-drempel over alle blokken. In een loop inlinen we agressiever.
         int totalSize = 0;
@@ -148,12 +159,34 @@ public class Inliner implements OptimizationPass {
     }
 
     private boolean isSafe(final IRInstruction in) {
+        if (ALLOC) {
+            // The slots of the phi elimination are made by the emitter by their name: not to be renamed.
+            if (in instanceof IRInstruction.Store st0 && namesPhi(st0.ptr())) return false;
+            if (in instanceof IRInstruction.Load ld0 && namesPhi(ld0.ptr())) return false;
+            if (in instanceof IRInstruction.Alloca || in instanceof IRInstruction.Store
+                    || in instanceof IRInstruction.HeapAlloc) {
+                return true;
+            }
+            if (in instanceof IRInstruction.Call c) {
+                // A constructor call whose receiver is implicit is paired with the HeapAlloc before it by the backend
+                // (see inlineOnce): no pairing is possible once the instructions are moved.
+                final boolean ctor = c.function().endsWith("_init") || c.function().contains("_init$");
+                if (c.paramTypes() == null) return false;
+                if (ctor && c.args().size() != c.paramTypes().size() + 1) return false;
+                return c.callKind() != null;
+            }
+        }
         return in instanceof IRInstruction.BinaryOp
                 || in instanceof IRInstruction.Move
                 || in instanceof IRInstruction.Cast
                 || in instanceof IRInstruction.InstanceOf
                 || in instanceof IRInstruction.Load
                 || in instanceof IRInstruction.ArrayLength;
+    }
+
+    private static boolean namesPhi(final IRValue v) {
+        final String n = v instanceof IRValue.Temp t ? t.name() : v instanceof IRValue.Named nm ? nm.name() : null;
+        return n == null || n.contains("phi.");
     }
 
     private boolean argsSimple(final List<IRValue> args) {
@@ -209,6 +242,7 @@ public class Inliner implements OptimizationPass {
 
         // Clone callee blocks (instructies) met rename.
         final List<IRBasicBlock> clonedBlocks = new ArrayList<>();
+        final List<IRInstruction> hoisted = new ArrayList<>();
         for (final IRBasicBlock cb : callee.blocks()) {
             final String newLabel = labelRename.get(cb.label());
             final List<IRInstruction> newInstrs = new ArrayList<>();
@@ -217,7 +251,11 @@ public class Inliner implements OptimizationPass {
                 if (in == term) continue;
                 final IRInstruction cl = cloneInstr(in, finalRename, paramSubst);
                 if (cl == null) return false;
-                newInstrs.add(cl);
+                if (cl instanceof IRInstruction.Alloca) {
+                    hoisted.add(cl); // into the entry block of the caller: an alloca in a loop grows the stack
+                } else {
+                    newInstrs.add(cl);
+                }
             }
             // terminator
             if (term instanceof IRInstruction.Return ret) {
@@ -252,6 +290,12 @@ public class Inliner implements OptimizationPass {
         for (IRInstruction x : new ArrayList<>(block.instructions())) block.removeInstruction(x);
         for (IRInstruction x : prefixInstrs) block.add(x);
 
+        // The slots of the callee: first in the entry block (which may be the block that was just cut).
+        final IRBasicBlock entryBlock = caller.blocks().get(0);
+        for (int h = 0; h < hoisted.size(); h++) {
+            entryBlock.add(h, hoisted.get(h));
+        }
+
         // Append cloned callee blocks.
         for (IRBasicBlock cb : clonedBlocks) {
             caller.addBlock(cb);
@@ -283,7 +327,7 @@ public class Inliner implements OptimizationPass {
     }
 
     /** Blokken die in een lus liggen (niet-triviale SCC of self-loop). */
-    private Set<String> computeLoopBlocks(final IRFunction f) {
+    static Set<String> computeLoopBlocks(final IRFunction f) {
         final Set<String> result = new HashSet<>();
         final List<IRBasicBlock> blocks = f.blocks();
         if (blocks.isEmpty()) return result;
@@ -350,7 +394,7 @@ public class Inliner implements OptimizationPass {
         return result;
     }
 
-    private void tarjan(final int v, final List<List<Integer>> adj, final int[] indices,
+    private static void tarjan(final int v, final List<List<Integer>> adj, final int[] indices,
                         final int[] low, final boolean[] onStack, final Deque<Integer> stack,
                         final int[] counter, final List<List<Integer>> sccs,
                         final boolean[] visited, final int n) {
@@ -475,6 +519,26 @@ public class Inliner implements OptimizationPass {
                     substitute(al.index(), tempRename, paramSubst),
                     al.elemType(),
                     al.location());
+        }
+        if (ALLOC) {
+            if (in instanceof IRInstruction.Alloca al) {
+                return new IRInstruction.Alloca(substitute(al.result(), tempRename, paramSubst), al.allocType(),
+                        al.location());
+            }
+            if (in instanceof IRInstruction.HeapAlloc ha) {
+                return new IRInstruction.HeapAlloc(substitute(ha.result(), tempRename, paramSubst), ha.allocType(),
+                        ha.location());
+            }
+            if (in instanceof IRInstruction.Store st) {
+                return new IRInstruction.Store(substitute(st.ptr(), tempRename, paramSubst),
+                        substitute(st.value(), tempRename, paramSubst), st.location());
+            }
+            if (in instanceof IRInstruction.Call c) {
+                final List<IRValue> args = new ArrayList<>();
+                for (final IRValue a : c.args()) args.add(substitute(a, tempRename, paramSubst));
+                return new IRInstruction.Call(c.callKind(), c.returnType(), c.paramTypes(),
+                        substitute(c.result(), tempRename, paramSubst), c.function(), args, c.location());
+            }
         }
         return null;
     }

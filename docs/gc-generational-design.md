@@ -427,3 +427,30 @@ and `GC_expand_hp(128 MB)` came on top of that. The runtime now expands only by 
 after 1000 warm-up, three each (256 MB heap forced with `GC_INITIAL_HEAP_SIZE` against the new default): 1104/1120/1137 req/s
 at 463 MB against 1124/1138/1148 req/s at 324 MB. Same speed, 30% less resident, 17 -> 25 collections of the same length.
 
+
+### Incremental mode on Linux, measured again after the heap fix (2026-11-24)
+
+The Linux numbers above were taken when the default heap was 256 MB (453 MB RSS). After the initial-heap fix and the no-PIE link
+the default is 303 MB, so the saving of the incremental mode is smaller. Petstore built in WSL2 from main (-Opt NONE, gcc 15,
+system libgc, soft-dirty available), 1000 warm-up + 8000 requests of `/pet/2`, `GC_PRINT_STATS=1`:
+
+| mode | req/s | RSS | collections | avg / max / total pause |
+|---|---|---|---|---|
+| default (3 runs) | 1130, 1118, 1129 | 302-303 MB | 23-24 | 22 / 49-51 / ~515 ms |
+| `GC_ENABLE_INCREMENTAL=1` (3 runs) | 937, 924, 939 | 245-246 MB | 93 | 13 / 31-33 / ~1240 ms |
+| incremental, `GC_FULL_FREQUENCY=3` | 924 | 230 MB | 101 | 14 / 30 / 1411 ms |
+| incremental, `GC_FULL_FREQUENCY=20` | 939 | 248 MB | 94 | 13 / 30 / 1178 ms |
+| incremental, `GC_FREE_SPACE_DIVISOR=2` | 942 | 269 MB | 63 | 16 / 33 / 997 ms |
+| incremental, `GC_FREE_SPACE_DIVISOR=1` | 989 | 307 MB | 32 | 19 / 31 / 597 ms |
+| incremental, `GC_INITIAL_HEAP_SIZE=64M` | 912 | 245 MB | 94 | 14 / 32 / 1297 ms |
+
+- Incremental mode now saves **19% RSS (303 -> 246 MB) for 17% throughput**. Before the heap fix it was 47% for 24%: most of what it
+  saved was the extra 128 MB that the default no longer has.
+- The throughput does not come back by collecting less often: with `GC_FREE_SPACE_DIVISOR=1` there are 32 collections (default: 24)
+  and it is still 12% slower, at the RSS of the default. The price is not the collections but the mutator: after every
+  `clear_refs` the first write to each page takes a soft-dirty fault.
+- No tuning knob gives a better trade than the plain switch. Pauses are shorter (max 31 against 50 ms) but the total is 2.4 times larger.
+
+Decision: the default stays. `GC_ENABLE_INCREMENTAL=1` is the opt-in for a process that must stay small and can pay 17% of its
+throughput for it (and for shorter single pauses); it is a no-op on a kernel without soft-dirty. No separate Nabu switch: the
+environment variable of libgc is the whole interface, and it needs no code.

@@ -15,6 +15,9 @@ on:
       java:
         description: 'JDK to build and run with (setup-java java-version)'
         default: '25'
+      jvmargs:
+        description: 'Extra JVM arguments of the test processes (-DargLine), e.g. -Dnabu.llvm.chunkInstructions=20000 -Dnabu.llvm.emitWorkers=2'
+        default: ''
 
 permissions:
   contents: read
@@ -41,11 +44,14 @@ jobs:
 
     - name: Run the native tests
       timeout-minutes: 180
+      env:
+        JVMARGS: ${{ inputs.jvmargs }}
       run: >
         mvn -B verify -pl native-backend -am
         -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
         -Dfailsafe.failIfNoSpecifiedTests=false -Dmaven.javadoc.skip=true
         -Dit.forks=${{ inputs.forks || '2' }}
+        "-DargLine=$JVMARGS"
         ${{ inputs.tests != '' && format('-Dit.test={0}', inputs.tests) || '' }}
 
     - name: Keep the reports

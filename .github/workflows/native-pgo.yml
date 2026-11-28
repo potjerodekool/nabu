@@ -1,0 +1,127 @@
+name: Native PGO (Linux)
+
+# Checks the profile-guided optimization cycle of the native backend on Linux x64: build a program instrumented
+# (-Dnabu.pgo=instrument), run it to get a .profraw, merge that with llvm-profdata of the same LLVM major version as the
+# backend (22), build again with the .profdata, check that the output is the same and compare the run times with a
+# build without a profile. By hand (Actions, Run workflow); about 30 minutes.
+on:
+  workflow_dispatch:
+    inputs:
+      java:
+        description: 'JDK to build and run with (setup-java java-version)'
+        default: '25'
+      runs:
+        description: 'Timed runs per variant'
+        default: '7'
+
+permissions:
+  contents: read
+
+jobs:
+  pgo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Java
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: "${{ inputs.java || '25' }}"
+        cache: 'maven'
+
+    - name: Install native toolchain and llvm-profdata 22
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc libgc-dev unzip lsb-release wget gnupg
+        wget -q https://apt.llvm.org/llvm.sh
+        sudo bash llvm.sh 22
+        sudo apt-get install -y llvm-22
+        llvm-profdata-22 --version
+
+    - name: Build nabu-native-image
+      run: mvn -B -q -DskipTests -Dmaven.javadoc.skip=true -pl native-image -am package
+
+    - name: Write the benchmark program
+      run: |
+        mkdir -p pgo/src pgo/cls
+        cat > pgo/src/Bench.java <<'J'
+        import java.util.*;
+        public class Bench {
+          interface Shape { double area(); }
+          record Circle(double r) implements Shape { public double area() { return 3.14159 * r * r; } }
+          record Rect(double w, double h) implements Shape { public double area() { return w * h; } }
+          record Tri(double b, double h) implements Shape { public double area() { return 0.5 * b * h; } }
+          static long mix(long x) { x ^= x << 13; x ^= x >>> 7; x ^= x << 17; return x; }
+          public static void main(String[] args) {
+            Shape[] shapes = new Shape[1000];
+            long seed = 42;
+            for (int i = 0; i < shapes.length; i++) {
+              seed = mix(seed);
+              int k = (int) (Math.abs(seed) % 10);
+              shapes[i] = k < 7 ? new Circle(i % 17 + 1) : k < 9 ? new Rect(i % 13 + 1, i % 7 + 1) : new Tri(i % 5 + 1, i % 3 + 1);
+            }
+            double total = 0;
+            for (int round = 0; round < 60000; round++) {
+              for (Shape s : shapes) total += s.area();
+            }
+            Map<Integer, Integer> counts = new HashMap<>();
+            for (int i = 0; i < 3_000_000; i++) {
+              seed = mix(seed);
+              counts.merge((int) (Math.abs(seed) % 5000), 1, Integer::sum);
+            }
+            List<Integer> sorted = new ArrayList<>(counts.values());
+            Collections.sort(sorted);
+            System.out.println("total=" + (long) total + " keys=" + counts.size() + " max=" + sorted.get(sorted.size() - 1));
+          }
+        }
+        J
+        javac -d pgo/cls pgo/src/Bench.java
+
+    - name: PGO cycle
+      run: |
+        NI() { # variant extra-jvm-args...
+          v=$1; shift
+          mkdir -p pgo/out_$v
+          java -Xmx6g "$@" -Dnabu.link.pie=false --enable-native-access=ALL-UNNAMED \
+            -cp "native-image/target/dist/lib/*" io.github.potjerodekool.nabu.nativeimage.NativeImage \
+            -cp pgo/cls -o bench -d pgo/out_$v --gc BOEHM --opt DEFAULT Bench > pgo/out_$v.log 2>&1 \
+            || { tail -30 pgo/out_$v.log; exit 1; }
+        }
+        NI plain
+        NI instr -Dnabu.pgo=instrument
+        (cd pgo/out_instr && NABU_PROFILE_VERBOSE=1 LLVM_PROFILE_FILE=$PWD/bench.profraw ./bench)
+        ls -l pgo/out_instr/bench.profraw
+        llvm-profdata-22 merge pgo/out_instr/bench.profraw -o pgo/bench.profdata
+        llvm-profdata-22 show pgo/bench.profdata | head -20
+        NI use -Dnabu.pgo=$PWD/pgo/bench.profdata
+        grep -i -E "warn|mismatch|profile" pgo/out_use.log | head -20 || true
+
+    - name: Compare
+      run: |
+        N=${{ inputs.runs || '7' }}
+        want=$(cd pgo/out_plain && ./bench)
+        echo "output: $want"
+        for v in plain use; do
+          [ "$(cd pgo/out_$v && ./bench)" = "$want" ] || { echo "OUTPUT DIFFERS for $v"; exit 1; }
+        done
+        for v in plain use; do
+          times=""
+          for i in $(seq $N); do
+            s=$(date +%s%N); (cd pgo/out_$v && ./bench >/dev/null); e=$(date +%s%N)
+            times="$times $(( (e - s) / 1000000 ))"
+          done
+          echo "$v ms:$times" | tee -a "$GITHUB_STEP_SUMMARY"
+        done
+        ls -l pgo/out_plain/bench pgo/out_use/bench | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Keep the logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pgo-logs
+        path: pgo/*.log
+        if-no-files-found: ignore

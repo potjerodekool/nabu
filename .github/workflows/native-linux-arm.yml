@@ -13,6 +13,9 @@ on:
       unit:
         description: 'Surefire test selection (-Dtest); NoSuch runs none'
         default: 'NoSuch'
+      jvmargs:
+        description: 'Extra JVM arguments for the test processes (-DargLine), e.g. -Dnabu.llvm.chunkInstructions=20000 -Dnabu.llvm.emitWorkers=2'
+        default: ''
       envvars:
         description: 'Environment variables for the tests, separated by spaces (for example NABU_TRACE_EPOLL=1)'
         default: ''
@@ -41,10 +44,12 @@ jobs:
         timeout-minutes: 120
         env:
           ENVVARS: ${{ inputs.envvars }}
+          JVMARGS: ${{ inputs.jvmargs }}
         run: >
           if [ -n "$ENVVARS" ]; then export $ENVVARS; fi &&
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
           -Dfailsafe.failIfNoSpecifiedTests=false -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=linux-arm64 -Dit.forks=${{ inputs.forks }}
+          "-DargLine=$JVMARGS"
 
       - name: Keep the reports
         if: always()

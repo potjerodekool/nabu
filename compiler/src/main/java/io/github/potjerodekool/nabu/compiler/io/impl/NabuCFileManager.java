@@ -388,13 +388,24 @@ public class NabuCFileManager implements FileManager {
             final var paths = handler.getPaths();
 
             paths.forEach(path -> {
-                if (Files.isDirectory(path)) {
+                // A class path entry stays what it was: asking the file system for it at every package of every jar
+                // (GetFileAttributesEx on Windows) took most of the time of the closure.
+                Byte known = pathKinds.get(path);
+                if (known == null) {
+                    final byte found = (byte) (Files.isDirectory(path) ? 1 : Files.isRegularFile(path) ? 2 : 0);
+                    if (found != 0) { // an entry that is not there yet (an output directory) may appear
+                        pathKinds.put(path, found);
+                    }
+                    known = found;
+                }
+                final byte kind = known;
+                if (kind == 1) {
                     final var subPath = path.resolve(innerPackageName);
 
                     if (Files.exists(subPath)) {
                         result.addAll(listFilesOf(subPath, kinds));
                     }
-                } else if (Files.isRegularFile(path)) {
+                } else if (kind == 2) {
                     final var zipFileSystem = findOrCreateFileSystem(path);
                     final var subPath = zipFileSystem.getPath(innerPackageName);
                     if (Files.exists(subPath)) {
@@ -406,6 +417,8 @@ public class NabuCFileManager implements FileManager {
             return result;
         }
     }
+
+    private final java.util.Map<Path, Byte> pathKinds = new java.util.concurrent.ConcurrentHashMap<>();
 
     private FileSystem findOrCreateFileSystem(final Path path) {
         return openFileSystems.computeIfAbsent(path, k -> {

@@ -51,28 +51,13 @@ public class FunctionEmitter {
      */
     private final Map<String, LLVMBasicBlockRef> handlerBodyBlocks = new HashMap<>();
     /** De JDK-symbolen die de C-runtime zelf definieert (zie {@link RuntimeSymbols}). */
-    private final java.util.Set<String> runtimeSymbols = RuntimeSymbols.load();
+    private final java.util.Set<String> runtimeSymbols = io.github.potjerodekool.nabu.backend.ir.optimize.RuntimeSymbols.load();
     private static final boolean TRACE_OVERRIDES = System.getenv("NABU_TRACE_OVERRIDES") != null
             || Boolean.getBoolean("nabu.traceOverrides");
     /** Handler-label -> stackslot waarin het landingspad de gevangen exception zet. */
     private final Map<String, LLVMValueRef> handlerExceptionSlots = new HashMap<>();
 
-    /**
-     * Namen die uitsluitend als ad-hoc extern zijn gedeclareerd (call zonder
-     * eigen IRFunction-declaratie). Voor deze namen mag stap 2.5 in
-     * {@link LLVMModuleEmitter} later een tweede, correctere paramlijst
-     * toevoegen; voor echte IRFunction-namen mag dat niet, omdat dat de
-     * werkelijk geëmitteerde functie zou vervangen door een lege stub.
-     */
-    private final Set<String> adHocExternalNames = new HashSet<>();
 
-    /**
-     * LLVM-functies van {@code <clinit>}-functies (statische
-     * initializers). Deze worden nooit door de JVM-semantiek expliciet
-     * aangeroepen; de native backend registreert ze als constructors in
-     * {@code @llvm.global_ctors} zodat ze vóór {@code main} draaien.
-     */
-    private final List<LLVMValueRef> clinitFunctions = new ArrayList<>();
 
     /**
      * Layouts van de klassen in de gecompileerde modules. Nodig om bij het
@@ -81,16 +66,19 @@ public class FunctionEmitter {
      * vtable-call.
      */
     private final ClassLayouts classLayouts;
+    /** The module state that the bodies share. */
+    private final ModuleEmitState shared;
 
     /**
      * {@code true} als {@code fnName} alleen via
      * {@link #declareSignature(IRInstruction.Call)} is gedeclareerd.
      */
     public boolean isAdHocExternal(final String fnName) {
-        return fnName != null && adHocExternalNames.contains(fnName);
+        return fnName != null && shared.adHocExternalNames.contains(fnName);
     }
 
-    public FunctionEmitter(LLVMContextRef ctx,
+    public FunctionEmitter(ModuleEmitState shared,
+                           LLVMContextRef ctx,
                            LLVMModuleRef mod,
                            LLVMBuilderRef builder,
                            TypeMapper types,
@@ -100,6 +88,7 @@ public class FunctionEmitter {
                            Map<String, LLVMBasicBlockRef> blockMap,
                            ClassLayouts classLayouts,
                            boolean debugInfo) {
+        this.shared = shared;
         this.ctx            = ctx;
         this.mod            = mod;
         this.builder        = builder;
@@ -126,6 +115,26 @@ public class FunctionEmitter {
      * initialization. Not an instance method: an object can exist before its class is initialized (the String
      * constants of the image are there before String's initializer has set COMPACT_STRINGS).
      */
+    /** -Dnabu.ctorFence=0 none, 1 (default) constructors of a class with a final field, 2 every constructor. */
+    private final int ctorFence = Integer.getInteger("nabu.ctorFence", 1);
+
+    /** Counts the constructors that end in a fence (-Dnabu.llvm.phaseTiming shows it). */
+    static final java.util.concurrent.atomic.AtomicLong CTORS = new java.util.concurrent.atomic.AtomicLong(),
+            CTORS_FENCED = new java.util.concurrent.atomic.AtomicLong();
+
+    private boolean constructorNeedsFence(final IRFunction fn) {
+        CTORS.incrementAndGet();
+        boolean fence = ctorFence >= 2;
+        if (!fence && fn.name != null) {
+            final var layout = classLayouts.get(classLayouts.ownerInternalName(fn.name));
+            fence = layout != null && layout.hasFinalFields;
+        }
+        if (fence) {
+            CTORS_FENCED.incrementAndGet();
+        }
+        return fence;
+    }
+
     boolean currentFunctionImpliesClassInit() {
         final IRFunction fn = currentFn;
         if (fn == null || fn.name == null || classLayouts == null) {
@@ -218,7 +227,7 @@ public class FunctionEmitter {
         // horen bij de methode, anders wijst het vtable-slot naar de
         // constructor in plaats van naar de methode.
         globalValueMap.put("@" + symbol, llvmFn);
-        declared.put(fn, llvmFn);
+        shared.declared.put(fn, llvmFn);
         // Overload-sleutel: dezelfde fn onder `<naam>#<params>` registreren
         // (Range.min()/Range.min(int) deelden voorheen één LLVM-signature,
         // waardoor GetParam(i) van de latere overload garbage opleverde).
@@ -246,7 +255,7 @@ public class FunctionEmitter {
         }
 
         if (!fn.isExternal() && baseSymbol.contains("<clinit>")) {
-            clinitFunctions.add(llvmFn);
+            shared.clinitFunctions.add(llvmFn);
         }
     }
 
@@ -258,7 +267,7 @@ public class FunctionEmitter {
      * en GC-init).
      */
     public void registerClinitCtors(final ModuleCtors ctors) {
-        for (LLVMValueRef clinit : clinitFunctions) {
+        for (LLVMValueRef clinit : shared.clinitFunctions) {
             ctors.add(clinit);
         }
     }
@@ -271,8 +280,6 @@ public class FunctionEmitter {
      * blijft. Overloads van methoden hebben elk hun eigen overload-sleutel en
      * raken elkaar niet.
      */
-    /** The function declared for each IRFunction instance, whatever its name is shared with. */
-    private final Map<IRFunction, LLVMValueRef> declared = new java.util.IdentityHashMap<>();
 
     private String symbolOf(final IRFunction fn) {
         final String ctorSymbol = classLayouts == null
@@ -334,7 +341,7 @@ public class FunctionEmitter {
                     "LLVMAddFunction failed for: " + symbol);
 
         LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
-        adHocExternalNames.add(fnName);
+        shared.adHocExternalNames.add(fnName);
         globalValueMap.put("@" + symbol, llvmFn);
         // De gewone naam blijft bij de eerste (kaal-genaamde) overload
         // horen: een latere overload overschrijft hem niet, anders zou een
@@ -485,7 +492,7 @@ public class FunctionEmitter {
         // Eerst de functie die voor precies deze IRFunction is gedeclareerd: de sleutels hieronder kunnen botsen
         // wanneer twee klassen dezelfde simple naam hebben (`Main` in de default package en `t0.Main`: beide
         // `Main_init#`), en dan kreeg de ene klasse de body van de andere.
-        LLVMValueRef llvmFn = declared.get(fn);
+        LLVMValueRef llvmFn = shared.declared.get(fn);
         if ((llvmFn == null || llvmFn.isNull()) && qualified != null) {
             llvmFn = globalValueMap.get("@" + qualifiedKey(fn, qualified, paramKey));
         }
@@ -522,6 +529,9 @@ public class FunctionEmitter {
         if (compiledNames != null && compiledNames.contains(LLVMGetValueName(llvmFn).getString())) {
             return;
         }
+        if (shared.claimedSymbols != null && !shared.claimedSymbols.add(LLVMGetValueName(llvmFn).getString())) {
+            return;
+        }
 
         debugLines.begin(fn, llvmFn, LLVMGetValueName(llvmFn).getString());
 
@@ -540,6 +550,9 @@ public class FunctionEmitter {
         instructions.setFunctionEmitter(this);
         currentFnNameForDiagnostics = fn.name;
         currentFn = fn;
+        instructions.beginFunction(fn);
+        instructions.setConstructorFence(ctorFence != 0 && fn.isConstructor() && classLayouts != null
+                && constructorNeedsFence(fn));
 
         // Parameters koppelen
         final int declaredParams = LLVMCountParams(llvmFn);

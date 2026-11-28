@@ -130,7 +130,12 @@ public void setReflectionRegistry(
      */
     void becomeSecondary(final LLVMModuleEmitter primary, final String prefix) {
         shared.shareArrayTypesWith(primary.shared);
-        chunker.dropDefinitions(prefix);
+        // A function that the prelude defines (a stub, a bridge) must not get a second definition from the body of an
+        // IR function with the same symbol in another worker: the symbol is taken.
+        final java.util.Set<String> definedByPrelude = chunker.dropDefinitions(prefix);
+        if (shared.claimedSymbols != null) {
+            shared.claimedSymbols.addAll(definedByPrelude);
+        }
     }
 
     public void emitAll(List<IRModule> modules) {

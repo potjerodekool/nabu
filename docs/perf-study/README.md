@@ -565,3 +565,25 @@ iterators and short-lived maps (GraalVM does that), which is the "own middle-end
 - Reflection data, parameter names: `ReflectionDataGenerator.java`, `ReflectionMethods.java`, `ParameterSupportGenerator.java`
 - C runtime: `runtime/nabu_runtime.c`, `jcl_lite.c` (VM-bound JDK methods), `gc_boehm.c`, `gc_none.c`, `nabu_gc.h`
 - Tbaa: `Tbaa.java`; pluggable collectors: `native-backend/.../gc/`
+
+## Escape analysis on the petstore: why 0 of 84568 allocations are on the stack (2026-11-28)
+
+`-Dnabu.escapeStats=true` (branch `escape-reasons`, not merged) counts the first reason for each `HeapAlloc` of the petstore (-O2) that keeps it on the heap. Measured on the IR before the inliner:
+
+| first reason | allocations (original analysis) |
+|---|---|
+| not in the entry block | 48294 (57%) |
+| a call whose parameter escapes (nearly all: a constructor) | 32909 (39%) |
+| virtual/interface call on the object | 2293 |
+| callee unknown | 421 |
+| stored in memory / returned / stored in an array | 381 / 203 / 67 |
+
+Findings:
+
+1. **The constructor receiver is spilled.** The bytecode lowering copies `this` into an `Alloca` slot (`%this.ptr`) and the analysis counted that `Store` as the object escaping, so every constructor (even `Object.<init>`) leaked its receiver. Treating a store into a slot that is only loaded and stored as an alias (and the loads from it as aliases) fixes it.
+2. **"Entry block only" was far too strict.** Only 2630 allocations lie in a loop; the backend already puts the alloca of a `StackAlloc` in the entry block. Allocations outside loops can qualify.
+3. **Constructor chains are deeper than 3** (ArrayList -> AbstractList -> AbstractCollection -> Object): depth 8.
+
+With all three the result is still **34 of 84568**. What is left, by count: `Throwable.<init>` stores `this` into its `cause` (18288: exceptions, which are thrown anyway), plain stores into fields or collections (15325), virtual/interface calls on the new object (11407: the exact class is known at the allocation, a call on it could be resolved), factory methods that return the object (7318: `ArrayList.iterator()` and the like, which only an inliner that can copy allocations and calls removes), `StringBuilder` internals (5642), calls to unknown callees (2604), loops (2630).
+
+So the allocation work is not one change: it needs (a) an inliner that may copy allocations, constructor calls and stores (today it only copies single-block leaf bodies of loads and arithmetic), (b) calls on a receiver of known exact class resolved to the implementation, then (c) the analysis above. Each step is only measurable together with the others; the first two are large (the inliner changes stack traces of inlined JDK frames, class-initialization guards and exception semantics). Not started beyond the analysis.
